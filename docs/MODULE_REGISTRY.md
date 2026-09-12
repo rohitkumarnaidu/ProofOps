@@ -1,7 +1,7 @@
 # ProofOps — Complete Module Registry (183 controlled units)
 
 > Authoritative spec: `docs/PS03_FINAL_SPEC_V2.md`. One module at a time. No auto-continue.
-> Progress: **1/183 implemented** (M00.1, APPROVED 84/100, locked) · **1/183 approved** · Overall project score: NOT COMPUTED.
+> Progress: **3/183 implemented** (M00.1 APPROVED 84, M00.2 awaiting verdict, M00.3 APPROVED 90/100, locked) · **2/183 approved** · Overall project score: NOT COMPUTED.
 
 ## Global Verification Gate (applies to every unit)
 
@@ -32,7 +32,7 @@ registry tracks unit-level status only.
 |---|---|---|---|---|---|---|---|
 | M00.1 | repository structure | APPROVED (84/100, human verdict, locked) | S | N | N | N | hardened structure tests (22) + clean --no-cache build + 3x healthy + secret scan + scorecard |
 | M00.2 | environment/configuration | IMPLEMENTED, awaiting verdict | S | N | N | N | env-load + missing-key + secret-scan tests |
-| M00.3 | Docker Compose | NOT STARTED | S | N | N | N | compose config + build + healthz smoke |
+| M00.3 | Docker Compose | APPROVED (90/100, human verdict, locked) | S | N | N | N | runtime matrix + failure injection + persistence + COMPOSE.md |
 | M00.4 | health checks | NOT STARTED | S | N | N | N | endpoint + dependency-down tests |
 | M00.5 | logging foundation | NOT STARTED | S | N | N | N | format/redaction + no-secret-in-log tests |
 | M00.6 | documentation foundation | NOT STARTED | N | N | N | N | 8-docs presence + spec-link tests |

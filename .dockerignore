@@ -1,0 +1,23 @@
+# M00.3: keep secrets and junk out of the api build context (repo-root
+# context). The api image never COPYs these, but without this file they are
+# still SENT to the daemon — including .env (live secrets). Mirrors .gitignore.
+.env
+.git
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+node_modules/
+dist/
+build/
+frontend/dist/
+runs/
+*.jsonl
+!**/suites/*.jsonl
+.DS_Store
+# NOTE: frontend/ builds from ./frontend (static stub, no secrets in context);
+# it needs no ignore file. Revisit if the M19 scaffold adds one.
