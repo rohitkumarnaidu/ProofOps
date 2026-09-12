@@ -32,15 +32,28 @@ docker compose up --build
 # api http://localhost:8000/healthz · ui http://localhost:5173
 ```
 
+Supported runtime: Docker (`python:3.12-slim`, the container is the source of
+truth). Host Python 3.13/3.14 is NOT supported for running the API (Starlette
+v1 ABI drift — see `backend/requirements.txt` header); host may run the
+offline structure tests only (`pytest tests/test_repo_structure.py`).
+
+Status: M00.1 is foundation only (layout, Docker baseline, env hygiene). Lyzr
+agents, FSM, eval, and demo hardening land in their own modules — see
+`docs/MODULE_REGISTRY.md`. The table above describes the target architecture,
+not claimed-today implementation.
+
 ## Demo (5:00)
 Seed `bad-deploy/NORMAL` → 1 P1 → evidence → diagnosis → RED block of
 `delete_namespace/prod` (zero diff) → approve YELLOW rollback → state diff
-(err 18%→0.8%, v23→v22) → VERIFIED → RCA → scorecard. Full script: `docs/DEMO.md`.
+(err 18%→0.8%, v23→v22) → VERIFIED → RCA → scorecard. Full script: PLANNED in
+M22 (demo harden) — no demo script claimed yet.
 
 ## Tests / Benchmarks / Safety
-`pytest` (policy/sandbox/verifier/audit 100%), `python scripts/verify_lyzr.py`,
-`./scripts/eval.sh`, `./scripts/demo.sh --check`. Benchmarks + adversarial suite:
-`docs/EVALUATION.md`. Threat model: `docs/SECURITY.md`. Decisions: `docs/DECISIONS.md`.
+`pytest` (policy/sandbox/verifier/audit 100%), `python scripts/verify_lyzr.py`.
+PLANNED (not yet present, owned by future modules): eval runner + demo checker
+(`scripts/eval.sh`, `scripts/demo.sh --check` in M16/M22), consolidated
+`docs/EVALUATION.md`, `docs/SECURITY.md`, `docs/DECISIONS.md`, `docs/DEMO.md`
+in M00.6/M22.
 
 ## Limitations
 Simulated telemetry/execution; HMAC demo roles (no SSO); dollar costs via config
