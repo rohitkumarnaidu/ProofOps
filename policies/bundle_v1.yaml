@@ -1,0 +1,32 @@
+# ProofOps policy bundle v1. Evaluation order: DENY rules -> ESCALATE -> ALLOW.
+# Default: DENY. Any engine exception: DENY (fail-closed).
+policy_version: v1
+effective_from: "2026-09-12"
+deny_rules:
+  - id: DENY-shell
+    when: {action_type: shell}
+    message: "Arbitrary shell is never authorized for LLM-proposed actions."
+  - id: DENY-prod-delete-namespace
+    when: {action_type: delete_namespace, environment: prod}
+    message: "Namespace deletion in prod is never autonomous."
+  - id: DENY-delete-deployment
+    when: {action_type: delete_deployment}
+    message: "Deployment deletion is blocked in hackathon scope."
+  - id: DENY-prod-delete-pod
+    when: {action_type: delete_pod, environment: prod}
+    message: "Prod pod deletion is RED in hackathon scope."
+  - id: DENY-rbac
+    when: {action_type: rbac_change}
+    message: "RBAC changes require out-of-band break-glass (disabled)."
+  - id: DENY-secret
+    when: {action_type: secret_access}
+    message: "Secret access is never authorized in hackathon scope."
+  - id: DENY-db-write
+    when: {action_type: db_write}
+    message: "Database writes are RED in hackathon scope."
+  - id: DENY-reboot
+    when: {action_type: reboot_node}
+    message: "Node reboots are RED in hackathon scope."
+escalate_obligations:
+  - hitl-approval
+  - verify-slos

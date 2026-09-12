@@ -1,0 +1,44 @@
+runbook_id: injection-quarantine
+version: 1.0.0
+title: Malicious telemetry quarantine (no infra action)
+trigger:
+  alert_regex: suspicious_log_instruction
+  service: web
+scope:
+- mock
+- dev
+- staging
+- prod
+preconditions:
+- instruction-like content inside telemetry
+- no SLO breach
+diagnostic_steps:
+- isolate suspect evidence
+- confirm no infra fault
+- flag source
+allowed_actions:
+- read
+- describe
+- logs
+- metrics
+- list
+forbidden_actions:
+- shell
+- delete_namespace
+- delete_deployment
+- db_write
+- secret_access
+- reboot_node
+- restart_pod
+- scale_deployment
+- rollback_deployment
+- patch_config
+parameters_schema: {}
+approval:
+  for: []
+verification:
+- no_infra_fault
+rollback: {}
+owner: security-team
+reviewed_at: '2026-09-01'
+hash: 132e77a9ac00b93be0879623ecb0aecbde909c0b61c8f1353fb63d387faf8011

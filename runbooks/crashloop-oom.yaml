@@ -1,0 +1,48 @@
+runbook_id: crashloop-oom
+version: 1.0.0
+title: CrashLoop OOM remediation
+trigger:
+  alert_regex: crashloop_oomkilled
+  service: worker
+scope:
+- mock
+- dev
+- staging
+- prod
+preconditions:
+- OOMKilled events
+- restart count rising
+diagnostic_steps:
+- confirm OOMKilled reason
+- check image change
+- check memory trend
+allowed_actions:
+- rollback_deployment
+- patch_config
+- restart_pod
+- read
+- describe
+- logs
+- metrics
+- list
+forbidden_actions:
+- delete_namespace
+- delete_deployment
+- shell
+- reboot_node
+parameters_schema:
+  memory_limit: string
+approval:
+  for:
+  - rollback_deployment
+  - patch_config
+  - restart_pod
+verification:
+- pod_ready
+- no_crashloop_60s
+rollback:
+  action: rollback_deployment
+  note: revert limit change first
+owner: sre-team
+reviewed_at: '2026-09-01'
+hash: c9aad2df3e62bbd7d638561e097247d934f1a2bf177dfa7abd5053a2a0801c3e
