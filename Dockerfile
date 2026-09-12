@@ -1,4 +1,7 @@
 # ProofOps API image (repo-root context; service Dockerfile mirrored in backend/).
+# python:3.12-slim chosen for max wheel coverage
+# (local dev may be 3.13/3.14; CI builds this image as source of truth).
+# Keep base image + CMD in parity with backend/Dockerfile (M00.1 structure freeze).
 FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 WORKDIR /app
