@@ -11,7 +11,9 @@ Skipped runtime is never counted as passed (no skips in this file by design).
 from __future__ import annotations
 
 import ast
+import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -439,3 +441,47 @@ class TestReproducibility:
             get_settings.cache_clear()
         assert s.EXECUTOR == "mock"  # env beat the file
         assert s.APPROVAL_SECRET == "file-secret-16-chars-ok"  # file beat default
+
+
+# --- startup observability (RUNTIME, host subprocess, no docker needed) ---------
+
+class TestStartupObservability:
+    """Process-level proof: bare `load_settings()` fails closed with an
+    actionable secret-safe message. Imports app.config ONLY (host fastapi is
+    broken by design; config must fail on its own terms)."""
+
+    @staticmethod
+    def _scrubbed_base() -> dict[str, str]:
+        # Minimal process env: enough for Windows Python to locate per-user
+        # site-packages (APPDATA/USERPROFILE), nothing that carries config.
+        keep = ("PATH", "SYSTEMROOT", "PYTHONIOENCODING", "PYTHONUTF8",
+                "TEMP", "TMP", "HOME", "APPDATA", "USERPROFILE",
+                "SYSTEMDRIVE", "WINDIR")
+        return {k: v for k, v in os.environ.items() if k in keep}
+
+    def test_process_fails_closed_actionable(self, tmp_path):  # RUNTIME
+        probe = "from app.config import load_settings; load_settings()"
+        proc = subprocess.run(
+            [sys.executable, "-c", probe], capture_output=True, text=True,
+            cwd=str(ROOT / "backend"), env=self._scrubbed_base(), timeout=60)
+        assert proc.returncode != 0, "missing config must fail the process"
+        assert "ConfigurationError" in proc.stderr, \
+            f"failure must surface as ConfigurationError:\n{proc.stderr[-800:]}"
+        assert "APPROVAL_SECRET" in proc.stderr, \
+            f"error must name the missing key:\n{proc.stderr[-800:]}"
+        assert "sk-" not in proc.stderr  # no secret pattern in failure output
+
+    def test_process_ok_snapshot_redacted(self, tmp_path):  # RUNTIME
+        probe = ("from app.config import load_settings;"
+                 "print(load_settings().snapshot())")
+        env = {**self._scrubbed_base(), **BASE_ENV}
+        proc = subprocess.run(
+            [sys.executable, "-c", probe], capture_output=True, text=True,
+            cwd=str(ROOT / "backend"), env=env, timeout=60)
+        assert proc.returncode == 0, proc.stderr[-800:]
+        assert REDACTED in proc.stdout
+        for secret in (BASE_ENV["APPROVAL_SECRET"],
+                       BASE_ENV["POSTGRES_PASSWORD"],
+                       BASE_ENV["PROOFOPS_API_KEY"]):
+            assert secret not in proc.stdout
+        assert "DATABASE_URL" not in proc.stdout

@@ -50,6 +50,18 @@ FUTURE (reserved, empty). `DATABASE_URL` is never snapshotted (embeds password).
 1. constructor/runtime override 2. environment variable 3. `.env` file
 4. safe default. Unknown vars are ignored (`extra=ignore`, tested, no effect).
 
+### Typo policy (M00.2 closure decision: A. ignore, documented)
+
+Evaluated against pydantic-settings 2.13 (empirically probed, not assumed):
+B. reject-unknown is **not implementable** — `extra='forbid'` provably ignores
+both system env (`PATH`, …) and a planted typo var (`APROVAL_SECRET`), so it
+buys zero typo protection while suggesting it does. C. warn-safely would need
+a custom env source (over-engineering for M00.2). D. per-env strictness inherits
+B's unimplementability. Typo defense therefore rests on: template completeness,
+AST code/template parity tests, fingerprint review, and the machine-readable
+`Settings.inventory()` contract — a misspelled key fails visibly as
+"required key missing", never silently as "wrong value".
+
 ## Validation & startup
 
 `backend/app/main.py` calls `get_settings()` at import: bad config raises

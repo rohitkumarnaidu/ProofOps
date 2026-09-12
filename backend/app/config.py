@@ -209,6 +209,52 @@ class Settings(BaseSettings):
         canonical = "\n".join(f"{k}={snap[k]}" for k in sorted(snap))
         return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
+    @classmethod
+    def inventory(cls) -> list[dict[str, Any]]:
+        """Machine-readable contract: every owned key with type, secrecy,
+        default, requirement, and consumer. Parity tests diff this against
+        code/compose/template/docs — no unexplained mismatch allowed."""
+        # (key, secret-class, required, consumer)
+        meta: dict[str, tuple[str, bool, str]] = {
+            "APP_ENV": ("PUBLIC", False, "M00.2 modes"),
+            "LOG_LEVEL": ("PUBLIC", False, "M00.5 logging"),
+            "DEBUG": ("PUBLIC", False, "M00.2 modes"),
+            "EXECUTOR": ("PUBLIC", False, "M00.2 → executor tiers"),
+            "APPROVAL_SECRET": ("SECRET", True, "M07 HITL"),
+            "APPROVAL_TTL_SECONDS": ("PUBLIC", False, "M07 HITL"),
+            "POLICY_VERSION": ("PUBLIC", False, "M06 policy"),
+            "PROOFOPS_API_KEY": ("SECRET", True, "API auth"),
+            "LYZR_API_KEY": ("SECRET", False, "M13 agents"),
+            "LYZR_AGENT_ID": ("SENSITIVE", False, "scripts/verify_lyzr.py"),
+            "LYZR_AGENT_TRIAGE_ID": ("FUTURE", False, "M13 agents"),
+            "LYZR_AGENT_DIAGNOSTIC_ID": ("FUTURE", False, "M13 agents"),
+            "LYZR_AGENT_PLANNER_ID": ("FUTURE", False, "M13 agents"),
+            "LYZR_AGENT_REPORTER_ID": ("FUTURE", False, "M13 agents"),
+            "LYZR_RAI_POLICY": ("PUBLIC", False, "M13 agents"),
+            "POSTGRES_USER": ("PUBLIC", False, "compose db + M00.2"),
+            "POSTGRES_PASSWORD": ("SECRET", True, "compose db + M00.2"),
+            "POSTGRES_DB": ("PUBLIC", False, "compose db + M00.2"),
+            "DATABASE_URL": ("SECRET-adjacent", False, "M00.2 (derived if unset)"),
+            "SEED_SCENARIO": ("PUBLIC", False, "demo/eval seeding"),
+            "SEED_VARIANT": ("PUBLIC", False, "demo/eval seeding"),
+            "SEED_SEED": ("PUBLIC", False, "demo/eval seeding"),
+        }
+        fields = cls.model_fields
+        assert set(meta) == set(fields), "inventory must cover every field exactly"
+        return [
+            {
+                "key": k,
+                "type": str(fields[k].annotation),
+                "secret": meta[k][0],
+                "default": fields[k].default,
+                "environment": "all (production rules apply when APP_ENV=production)",
+                "required": meta[k][1],
+                "consumer": meta[k][2],
+                "source": "environment > .env > default",
+            }
+            for k in sorted(meta)
+        ]
+
     def __repr__(self) -> str:  # secret-safe by construction
         return f"Settings({self.snapshot()!r})"
 
