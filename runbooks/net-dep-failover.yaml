@@ -1,0 +1,43 @@
+runbook_id: net-dep-failover
+version: 1.0.0
+title: Dependency failure containment
+trigger:
+  alert_regex: dependency_timeout
+  service: checkout
+scope:
+- mock
+- dev
+- staging
+- prod
+preconditions:
+- dependency error budget burning
+- own service healthy
+diagnostic_steps:
+- confirm dependency-side errors
+- check topology
+- confirm no own deploy
+allowed_actions:
+- scale_deployment
+- read
+- describe
+- logs
+- metrics
+- list
+forbidden_actions:
+- rbac_change
+- delete_namespace
+- shell
+- reboot_node
+parameters_schema:
+  replicas: integer-1-10
+approval:
+  for:
+  - scale_deployment
+verification:
+- error_rate_below_1pct
+rollback:
+  action: scale_deployment
+  note: scale back after dependency recovers
+owner: sre-team
+reviewed_at: '2026-09-01'
+hash: b8ec27fed5189352363a3f6b301733840020f36ee7c86eec3269d7b264e5f8d0

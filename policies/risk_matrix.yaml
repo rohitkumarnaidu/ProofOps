@@ -1,0 +1,32 @@
+# ProofOps risk matrix v1 (hackathon fail-closed).
+# LLM-proposed risk is ADVISORY; the policy engine recomputes from this table.
+version: v1
+tiers:
+  read:                {mock: GREEN, dev: GREEN, staging: GREEN, prod: GREEN}
+  describe:            {mock: GREEN, dev: GREEN, staging: GREEN, prod: GREEN}
+  logs:                {mock: GREEN, dev: GREEN, staging: GREEN, prod: GREEN}
+  metrics:             {mock: GREEN, dev: GREEN, staging: GREEN, prod: GREEN}
+  list:                {mock: GREEN, dev: GREEN, staging: GREEN, prod: GREEN}
+  restart_pod:         {mock: GREEN, dev: GREEN, staging: YELLOW, prod: YELLOW}
+  scale_deployment:    {mock: GREEN, dev: GREEN, staging: YELLOW, prod: YELLOW}
+  rolling_restart:     {mock: YELLOW, dev: YELLOW, staging: YELLOW, prod: YELLOW}
+  rollback_deployment: {mock: YELLOW, dev: YELLOW, staging: YELLOW, prod: YELLOW}
+  patch_config:        {mock: YELLOW, dev: YELLOW, staging: YELLOW, prod: YELLOW}
+  delete_pod:          {mock: YELLOW, dev: YELLOW, staging: YELLOW, prod: RED}
+  delete_deployment:   {mock: RED, dev: RED, staging: RED, prod: RED}
+  delete_namespace:    {mock: RED, dev: RED, staging: RED, prod: RED}
+  rbac_change:         {mock: RED, dev: RED, staging: RED, prod: RED}
+  secret_access:       {mock: RED, dev: RED, staging: RED, prod: RED}
+  db_write:            {mock: RED, dev: RED, staging: RED, prod: RED}
+  reboot_node:         {mock: RED, dev: RED, staging: RED, prod: RED}
+  shell:               {mock: RED, dev: RED, staging: RED, prod: RED}
+roles:  # minimum role that may eventually authorize (enforced at HITL)
+  GREEN: viewer
+  YELLOW: approver
+  RED: admin
+reversible:  # YELLOW types that MUST carry rollback_action
+  - restart_pod
+  - scale_deployment
+  - rolling_restart
+  - rollback_deployment
+  - patch_config

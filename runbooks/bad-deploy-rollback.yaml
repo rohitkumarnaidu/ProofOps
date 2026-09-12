@@ -1,0 +1,46 @@
+runbook_id: bad-deploy-rollback
+version: 1.2.0
+title: Bad deployment rollback
+trigger:
+  alert_regex: http_5xx_spike
+  service: web
+scope:
+- mock
+- dev
+- staging
+- prod
+preconditions:
+- deploy event within 15m
+- error_rate above SLO
+diagnostic_steps:
+- confirm deploy diff
+- confirm error spike onset matches deploy ts
+allowed_actions:
+- rollback_deployment
+- rolling_restart
+- read
+- describe
+- logs
+- metrics
+- list
+forbidden_actions:
+- delete_namespace
+- delete_deployment
+- db_write
+- shell
+- reboot_node
+parameters_schema:
+  to_version: string
+approval:
+  for:
+  - rollback_deployment
+  - rolling_restart
+verification:
+- deployment_version_expected
+- error_rate_below_1pct
+rollback:
+  action: rollback_deployment
+  note: forward-fix if rollback fails
+owner: sre-team
+reviewed_at: '2026-09-01'
+hash: 2f375cbecf3b6f997263f7409912ccf9e50f4dc95a65de3c5d29ae34335ba236

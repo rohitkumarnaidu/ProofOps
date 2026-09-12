@@ -1,0 +1,46 @@
+runbook_id: db-pool-saturation
+version: 1.1.0
+title: DB pool saturation relief
+trigger:
+  alert_regex: db_pool_exhausted
+  service: api
+scope:
+- mock
+- dev
+- staging
+- prod
+preconditions:
+- pool wait queue growing
+- no schema change deployed
+diagnostic_steps:
+- confirm pool exhaustion
+- identify leaking service
+- check slow queries
+allowed_actions:
+- scale_deployment
+- restart_pod
+- read
+- describe
+- logs
+- metrics
+- list
+forbidden_actions:
+- db_write
+- secret_access
+- delete_deployment
+- shell
+parameters_schema:
+  replicas: integer-1-10
+approval:
+  for:
+  - scale_deployment
+  - restart_pod
+verification:
+- pool_wait_drained
+- error_rate_below_1pct
+rollback:
+  action: scale_deployment
+  note: scale back to prior replicas
+owner: sre-team
+reviewed_at: '2026-09-01'
+hash: a42ff7b3e5da968cda86efd89bb96f361f4688295d581e657ba55cc86f0b61ae
