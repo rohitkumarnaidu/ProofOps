@@ -41,6 +41,8 @@ Status: M00.1 is foundation only (layout, Docker baseline, env hygiene). Lyzr
 agents, FSM, eval, and demo hardening land in their own modules — see
 `docs/MODULE_REGISTRY.md`. The table above describes the target architecture,
 not claimed-today implementation.
+Configuration trust boundary (typed Settings, fail-closed validation,
+secret-safe snapshot): `docs/CONFIGURATION.md`.
 
 ## Demo (5:00)
 Seed `bad-deploy/NORMAL` → 1 P1 → evidence → diagnosis → RED block of

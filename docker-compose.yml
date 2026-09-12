@@ -3,7 +3,7 @@ services:
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-proofops}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-proofops-dev-only}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env (see .env.example)}
       POSTGRES_DB: ${POSTGRES_DB:-proofops}
     ports:
       - "5433:5432"  # 5433 to avoid clashing with a host-local Postgres on 5432
@@ -21,7 +21,7 @@ services:
       dockerfile: Dockerfile
     env_file: .env
     environment:
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-proofops}:${POSTGRES_PASSWORD:-proofops-dev-only}@db:5432/${POSTGRES_DB:-proofops}
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-proofops}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/${POSTGRES_DB:-proofops}
     ports:
       - "8000:8000"
     depends_on:

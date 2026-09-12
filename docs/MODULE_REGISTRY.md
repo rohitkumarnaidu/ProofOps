@@ -31,7 +31,7 @@ registry tracks unit-level status only.
 | ID | Unit | Status | Safety | Ground | Hall | Retr | Verify method |
 |---|---|---|---|---|---|---|---|
 | M00.1 | repository structure | APPROVED (84/100, human verdict, locked) | S | N | N | N | hardened structure tests (22) + clean --no-cache build + 3x healthy + secret scan + scorecard |
-| M00.2 | environment/configuration | NOT STARTED | S | N | N | N | env-load + missing-key + secret-scan tests |
+| M00.2 | environment/configuration | IMPLEMENTED, awaiting verdict | S | N | N | N | env-load + missing-key + secret-scan tests |
 | M00.3 | Docker Compose | NOT STARTED | S | N | N | N | compose config + build + healthz smoke |
 | M00.4 | health checks | NOT STARTED | S | N | N | N | endpoint + dependency-down tests |
 | M00.5 | logging foundation | NOT STARTED | S | N | N | N | format/redaction + no-secret-in-log tests |
