@@ -1,7 +1,7 @@
 # ProofOps — Complete Module Registry (183 controlled units)
 
 > Authoritative spec: `docs/PS03_FINAL_SPEC_V2.md`. One module at a time. No auto-continue.
-> Progress: **1/183 implemented** (M00.1, awaiting human verdict) · **0/183 approved** · Overall project score: NOT COMPUTED.
+> Progress: **1/183 implemented** (M00.1, remediated b9221e3, rec APPROVE 84) · **0/183 approved** · Overall project score: NOT COMPUTED.
 
 ## Global Verification Gate (applies to every unit)
 
@@ -30,7 +30,7 @@ registry tracks unit-level status only.
 
 | ID | Unit | Status | Safety | Ground | Hall | Retr | Verify method |
 |---|---|---|---|---|---|---|---|
-| M00.1 | repository structure | IMPLEMENTED, awaiting verdict (92, rec APPROVE) | S | N | N | N | structure tests + compose config + secret scan + scorecard |
+| M00.1 | repository structure | REMEDIATED, rec APPROVE (84; see threshold note) | S | N | N | N | hardened structure tests (22) + clean --no-cache build + 3x healthy + secret scan + scorecard |
 | M00.2 | environment/configuration | NOT STARTED | S | N | N | N | env-load + missing-key + secret-scan tests |
 | M00.3 | Docker Compose | NOT STARTED | S | N | N | N | compose config + build + healthz smoke |
 | M00.4 | health checks | NOT STARTED | S | N | N | N | endpoint + dependency-down tests |
