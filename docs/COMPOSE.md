@@ -74,7 +74,7 @@ M00.7 must re-confirm auto-resurrection on Linux dockerd.
 
 - api restart → healthy, config unchanged · ui restart → 200 · db restart →
   healthy, api servable (no DB path in skeleton) · full restart → 3×healthy.
-- db down → api still answers `/healthz` (liveness-only, M00.4 gap recorded).
+- db down → api still answers `/healthz` (liveness-only by design; DB-depth readiness closed by M00.4 via `/readyz` — see `docs/HEALTH.md`).
 - api down → ui still serves static stub (M19 owns real wiring).
 
 ## Development usage
