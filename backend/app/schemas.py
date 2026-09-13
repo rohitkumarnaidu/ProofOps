@@ -1,5 +1,10 @@
 """ProofOps shared contracts (V2 §16, §21, §25, §27, §32).
 
+COMPATIBILITY LAYER (M01.1): this module defines no domain vocabulary of its
+own. Canonical definitions live in ``app.contracts``; everything here is a
+re-export or a model re-typed onto the canonical Enums. M01.2+ must import
+from ``app.contracts`` directly.
+
 Single source of truth for every component (agents, backend, policy,
 executor, frontend, evaluation). No component invents its own shape.
 Runtime authorization (GREEN/YELLOW/RED, HITL, sandbox) lives in services,
@@ -8,71 +13,48 @@ on Action is ADVISORY; the policy engine recomputes it.
 """
 from __future__ import annotations
 
-import hashlib
-import json
-import re
-import uuid
-from datetime import datetime, timezone
-from typing import Any, Literal, Optional
+from datetime import datetime
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
-Severity = Literal["P1", "P2", "P3", "P4"]
-Environment = Literal["dev", "staging", "prod", "mock"]
-RiskLevel = Literal["GREEN", "YELLOW", "RED"]
-Decision = Literal["ALLOW", "ESCALATE", "DENY"]
-Verdict = Literal["RESOLVED", "PARTIAL", "FAILED", "WORSENED", "ROLLBACK_REQUIRED", "ESCALATE"]
-HypothesisStatus = Literal["SUPPORTED", "REJECTED", "UNCERTAIN", "INSUFFICIENT_EVIDENCE"]
-TrustLevel = Literal["high", "med", "low"]
-ClaimClass = Literal["MUST-CITE", "SHOULD-CITE", "OPTIONAL"]
-
-ACTION_TYPES = (
-    "read", "describe", "logs", "metrics", "list",
-    "restart_pod", "scale_deployment", "rolling_restart", "rollback_deployment",
-    "patch_config", "delete_pod", "delete_deployment", "delete_namespace",
-    "rbac_change", "secret_access", "db_write", "reboot_node", "shell",
+from app.contracts import (  # noqa: F401 (re-export surface)
+    ACTION_TYPES,
+    FSM_STATES,
+    NAMESPACE_RE,
+    SEMVER_RE,
+    ActionType,
+    ActorType,
+    ApprovalStatus,
+    ClaimClass,
+    ConfidenceLevel,
+    Decision,
+    Environment,
+    EvidenceType,
+    ExecutionStatus,
+    ExecutorTier,
+    FailureCode,
+    HypothesisStatus,
+    IncidentStatus,
+    RiskLevel,
+    Severity,
+    SourceType,
+    TrustLevel,
+    Verdict,
+    canonical_json,
+    confidence_bucket,
+    new_id,
+    params_hash,
+    sha256_hex,
+    utcnow,
 )
-ActionType = Literal[  # type: ignore[valid-type]
-    "read", "describe", "logs", "metrics", "list",
-    "restart_pod", "scale_deployment", "rolling_restart", "rollback_deployment",
-    "patch_config", "delete_pod", "delete_deployment", "delete_namespace",
-    "rbac_change", "secret_access", "db_write", "reboot_node", "shell",
-]
-
-FSM_STATES = (
-    "NEW", "TRIAGING", "CORRELATED", "INVESTIGATING", "DIAGNOSING", "PLANNED",
-    "POLICY_CHECK", "BLOCKED", "AWAITING_APPROVAL", "APPROVED", "EXECUTING",
-    "VERIFYING", "RESOLVED", "ROLLBACK", "ESCALATED", "RCA_PENDING",
-    "RCA_PUBLISHED", "AUDITED",
-)
-
-NAMESPACE_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
-SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+$")
-
-
-def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
-
-
-def canonical_json(obj: Any) -> str:
-    return json.dumps(obj, sort_keys=True, separators=(",", ":"), default=str)
-
-
-def sha256_hex(text: str) -> str:
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
-
-
-def params_hash(params: dict) -> str:
-    """Scope binding: approval tokens commit to the EXACT parameter set."""
-    return sha256_hex(canonical_json(params))
-
 
 # ---------------------------------------------------------------- telemetry
 class Alert(BaseModel):
-    alert_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    alert_id: str = Field(default_factory=new_id)
     ts: datetime = Field(default_factory=utcnow)
     service: str = Field(min_length=1)
-    environment: Environment = "mock"
+    environment: Environment = Environment.MOCK
     severity_raw: str = Field(min_length=1)
     signature: str = Field(min_length=1)
     labels: dict[str, Any] = {}
@@ -80,49 +62,42 @@ class Alert(BaseModel):
 
 
 class Incident(BaseModel):
-    incident_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    incident_id: str = Field(default_factory=new_id)
     fingerprint: str = Field(min_length=1)
     severity: Severity
-    status: str = "NEW"
-
-    @field_validator("status")
-    @classmethod
-    def _known_state(cls, v: str) -> str:
-        if v not in FSM_STATES:
-            raise ValueError(f"unknown FSM state: {v}")
-        return v
+    status: IncidentStatus = IncidentStatus.NEW
 
 
 # ---------------------------------------------------------------- evidence
 class Evidence(BaseModel):
-    evidence_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    evidence_id: str = Field(default_factory=new_id)
     incident_id: str = Field(min_length=1)
-    source_type: Literal["log", "metric", "trace", "deploy", "topology", "runbook", "history"]
+    source_type: SourceType
     source_id: str = Field(min_length=1)
     ts: datetime = Field(default_factory=utcnow)
     ref: str = Field(min_length=1)  # pointer to full blob (line range, row id, ...)
     hash: str = Field(min_length=1)
     freshness_s: float = Field(ge=0)
     relevance: float = Field(ge=0, le=1)
-    trust: TrustLevel = "med"
+    trust: TrustLevel = TrustLevel.MED
 
 
 class Claim(BaseModel):
-    claim_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    claim_id: str = Field(default_factory=new_id)
     text: str = Field(min_length=1)
     evidence_ids: list[str] = []
-    claim_class: ClaimClass = "MUST-CITE"
+    claim_class: ClaimClass = ClaimClass.MUST_CITE
 
 
 class Hypothesis(BaseModel):
-    hypothesis_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    hypothesis_id: str = Field(default_factory=new_id)
     text: str = Field(min_length=1)
     confidence: float = Field(ge=0, le=1)
     supporting: list[str] = []
     contradicting: list[str] = []
     test_tool: str = ""
     test_result: str = ""
-    status: HypothesisStatus = "UNCERTAIN"
+    status: HypothesisStatus = HypothesisStatus.UNCERTAIN
 
 
 # ---------------------------------------------------------------- runbook
@@ -154,16 +129,16 @@ class Runbook(BaseModel):
 
 # ---------------------------------------------------------------- action
 class Action(BaseModel):
-    action_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    action_id: str = Field(default_factory=new_id)
     incident_id: str = Field(min_length=1)
     agent_id: str = Field(min_length=1)
     action_type: ActionType
     resource_type: str = Field(min_length=1)
     resource_id: str = Field(min_length=1)
-    environment: Environment = "mock"
+    environment: Environment = Environment.MOCK
     namespace: str = "default"
     parameters: dict[str, Any] = {}
-    risk_level: RiskLevel = "GREEN"  # ADVISORY ONLY — policy recomputes
+    risk_level: RiskLevel = RiskLevel.GREEN  # ADVISORY ONLY — policy recomputes
     reason: str = Field(min_length=1)
     evidence_ids: list[str] = []
     runbook_id: str = Field(min_length=1)
@@ -206,11 +181,11 @@ class PolicyDecision(BaseModel):
 
 # ---------------------------------------------------------------- HITL
 class ApprovalRequest(BaseModel):
-    approval_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    approval_id: str = Field(default_factory=new_id)
     incident_id: str = Field(min_length=1)
     action_id: str = Field(min_length=1)
     actor: str = Field(min_length=1)
-    params_hash: str = Field(min_length=1)
+    params_hash: str = Field(min_length=1)  # noqa: F811 (contract field name shadows helper import by necessity)
     scope: str = Field(min_length=1)
     expires_at: datetime
     nonce: str = Field(min_length=8)
@@ -221,7 +196,7 @@ class ApprovalToken(BaseModel):
     approval_id: str = Field(min_length=1)
     action_id: str = Field(min_length=1)
     actor: str = Field(min_length=1)
-    params_hash: str = Field(min_length=1)
+    params_hash: str = Field(min_length=1)  # noqa: F811 (contract field name shadows helper import by necessity)
     expires_at: datetime
 
     def is_expired(self, now: Optional[datetime] = None) -> bool:
@@ -230,10 +205,10 @@ class ApprovalToken(BaseModel):
 
 # ---------------------------------------------------------------- execution
 class Execution(BaseModel):
-    execution_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    execution_id: str = Field(default_factory=new_id)
     action_id: str = Field(min_length=1)
     incident_id: str = Field(min_length=1)
-    tier: Literal["mock", "docker", "kind"] = "mock"
+    tier: ExecutorTier = ExecutorTier.MOCK  # kind reserved until its tier lands
     state_diff: dict[str, Any] = {}
     logs: list[str] = []
     idempotency_key: str = Field(min_length=1)
@@ -269,7 +244,7 @@ class RCA(BaseModel):
 
 
 class AuditEvent(BaseModel):
-    event_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    event_id: str = Field(default_factory=new_id)
     seq: int = Field(ge=0)
     ts: datetime = Field(default_factory=utcnow)
     incident_id: str = Field(min_length=1)
@@ -293,7 +268,7 @@ class AuditEvent(BaseModel):
 
 # ---------------------------------------------------------------- evaluation
 class EvaluationRun(BaseModel):
-    run_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    run_id: str = Field(default_factory=new_id)
     suite: str = Field(min_length=1)
     case_id: str = Field(min_length=1)
     passed: bool = False
