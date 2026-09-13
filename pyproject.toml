@@ -1,0 +1,69 @@
+# ProofOps CI baseline (M00.7 CI foundation).
+# Container python:3.12-slim is the source of truth (see backend/requirements.txt
+# header); CI pins python 3.12 + `pip install -r backend/requirements.txt` so
+# tool versions are the bounded ranges in requirements (ruff 0.5.x, mypy 1.10-1.11),
+# never host-drifted 3.13/3.14 + starlette v1.x.
+#
+# M00.1-M00.5 are FROZEN: frozen files cannot be edited to add noqa/type-ignore,
+# so the 6 ruff + 2 mypy findings below are codified here as acknowledged debt
+# (file+rule granularity only — any NEW violation in any file still fails).
+# Owners: ruff F401/F841 debt -> module that freezes the file (M00.1 structure,
+# M00.2 config trust boundary, M00.3 compose); mypy arg-type debt -> M00.4/M00.5
+# service owners when backend unfreezes. Format (`ruff format`) is NOT gated:
+# 29 frozen files predate formatting; correctness (ruff check) is gated.
+
+[tool.ruff]
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
+
+[tool.ruff.lint.per-file-ignores]
+"backend/app/services/policy.py" = ["F401"]  # FROZEN M00.1: typing.Any unused (L13); owner: backend unfreeze
+"backend/app/services/rollback.py" = ["F401"]  # FROZEN: VerificationResult unused import (L14)
+"backend/app/services/verifier.py" = ["F401"]  # FROZEN: typing.Any unused (L11)
+"tests/test_compose.py" = ["F401"]  # FROZEN M00.3: pytest imported unused (L12)
+"tests/test_safety.py" = ["F401", "F841"]  # FROZEN: content_hash unused (L12), dead `d =` (L149)
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+show_error_codes = true
+
+# FROZEN mypy debt (file+code granularity; any new error anywhere still fails):
+# - policy.py:93 arg-type: actor: dict -> .get("role") is Any|None vs str
+# - correlator.py:75 arg-type: _severity()->str vs Incident.severity Literal[P1-P4]
+# - runbooks.py:11 + policy.py:15 import-untyped: no types-PyYAML in
+#   backend/requirements.txt (container has no stubs either); host mypy 1.19
+#   reports this as import-untyped which ignore_missing_imports no longer
+#   suppresses, while CI mypy 1.10-1.11 suppresses via ignore_missing_imports.
+#   Both knobs are set so old + new mypy agree green; a NEW missing import
+#   in any OTHER file still fails.
+[[tool.mypy.overrides]]
+module = "app.services.policy"
+disable_error_code = ["arg-type", "import-untyped"]
+
+[[tool.mypy.overrides]]
+module = "app.services.correlator"
+disable_error_code = "arg-type"
+
+[[tool.mypy.overrides]]
+module = "app.services.runbooks"
+disable_error_code = "import-untyped"
+
+# Fallback for path-style invocation (`mypy backend/app` names modules
+# backend.app.services.* on some versions): same narrow suppression.
+[[tool.mypy.overrides]]
+module = "backend.app.services.policy"
+disable_error_code = ["arg-type", "import-untyped"]
+
+[[tool.mypy.overrides]]
+module = "backend.app.services.correlator"
+disable_error_code = "arg-type"
+
+[[tool.mypy.overrides]]
+module = "backend.app.services.runbooks"
+disable_error_code = "import-untyped"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
