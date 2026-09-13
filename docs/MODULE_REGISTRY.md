@@ -42,7 +42,7 @@ registry tracks unit-level status only.
 
 | ID | Unit | Status | Safety | Ground | Hall | Retr | Verify method |
 |---|---|---|---|---|---|---|---|
-| M01.1 | shared types | IMPLEMENTED, awaiting verdict | S | N | N | N | schema unit + 20-invalid-fixture tests |
+| M01.1 | shared types | APPROVED (94/100, human verdict, locked) | S | N | N | N | schema unit + 20-invalid-fixture tests |
 | M01.2 | Incident schema | NOT STARTED | S | N | N | N | valid + invalid + 14-state CHECK tests |
 | M01.3 | Alert schema | NOT STARTED | S | N | N | N | valid + invalid tests |
 | M01.4 | Evidence schema | NOT STARTED | S | N | N | N | valid + invalid + hash-field tests |
