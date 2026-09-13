@@ -41,3 +41,32 @@ request + impact analysis + human review + version bump + migration plan.
 All 15 legacy models keep their names, fields, and defaults; string inputs
 coerce to Enums, so pre-M01.1 callers and `tests/test_schemas.py` (28 tests,
 unmodified) keep passing byte-for-byte, except decision 3 above.
+
+## M01.2 Incident hardening (zero-trust pass)
+
+`Incident` (`backend/app/contracts/incident.py`, re-exported via
+`app.schemas`) additionally guarantees:
+
+1. **Bypass containment.** `Incident.model_construct` raises `TypeError`
+   (upstream validation-skipping API is blocked on this class);
+   `model_copy(update=...)` re-validates the merged data (the sibling
+   bypass is closed too). AST scan tests forbid `model_construct` in
+   application code and pin the only `object.__setattr__` sites
+   (`FrozenDict` construction, M00-frozen `Settings` init, legacy Alert
+   normalizer — none touches `Incident`). Anything built outside
+   `Incident(...)` / `model_validate*` must be re-validated before
+   crossing a trust boundary. In-process `object.__setattr__` memory
+   tampering is documented as framework-level / out of scope.
+2. **Deep immutability.** ID lists are stored as `tuple[str, ...]`
+   (list input accepted, dumped as fresh `list`); `impact`/`metadata` are
+   stored as `FrozenDict` (dict input copied + recursively frozen, dumped
+   as fresh plain `dict`). Item mutation raises; dumps are detached by
+   construction. JSON wire output is byte-identical to pre-hardening
+   (golden fixtures in `tests/test_contracts_m01_2_hardening.py`).
+3. **Explicit bounds.** Identifier strings ≤128 chars; ID lists ≤100
+   entries of ≤128 chars; `impact` ≤32 entries / 4 KiB canonical JSON;
+   `metadata` ≤64 entries / 128-char keys / depth 5 / 16 KiB canonical
+   JSON. Rationale per constant in `incident.py` (`MAX_*`).
+4. **Whitespace: reject, never strip.** Padded identifiers (scalars, list
+   items, mapping keys) fail validation; interior whitespace is allowed;
+   free-form `impact`/`metadata` values are preserved as-is.
