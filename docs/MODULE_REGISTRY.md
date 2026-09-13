@@ -33,8 +33,8 @@ registry tracks unit-level status only.
 | M00.1 | repository structure | APPROVED (84/100, human verdict, locked) | S | N | N | N | hardened structure tests (22) + clean --no-cache build + 3x healthy + secret scan + scorecard |
 | M00.2 | environment/configuration | IMPLEMENTED, awaiting verdict | S | N | N | N | env-load + missing-key + secret-scan tests |
 | M00.3 | Docker Compose | APPROVED (90/100, human verdict, locked) | S | N | N | N | runtime matrix + failure injection + persistence + COMPOSE.md |
-| M00.4 | health checks | NOT STARTED | S | N | N | N | endpoint + dependency-down tests |
-| M00.5 | logging foundation | NOT STARTED | S | N | N | N | format/redaction + no-secret-in-log tests |
+| M00.4 | health checks | IMPLEMENTED, awaiting verdict | S | N | N | N | endpoint + dependency-down tests |
+| M00.5 | logging foundation | IMPLEMENTED, awaiting verdict | S | N | N | N | format/redaction + no-secret-in-log tests |
 | M00.6 | documentation foundation | NOT STARTED | N | N | N | N | 8-docs presence + spec-link tests |
 | M00.7 | CI foundation | NOT STARTED | S | N | N | N | ruff→mypy→unit→security pipeline green |
 
