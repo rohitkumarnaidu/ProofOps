@@ -2,9 +2,34 @@
 ## Evidence-Grounded Incident Commander · Agentic Operations Control Plane · AI Quest 2026 PS03
 > **THE AGENT MAY REASON. THE CONTROL PLANE DECIDES. THE SANDBOX CONTAINS. VERIFICATION PROVES. AIMS RECORDS.**
 > **THE LLM IS NOT THE SECURITY BOUNDARY.**
-> Status: FINAL AUTHORITATIVE. Supersedes `PS03_FINAL_SPEC.md` Part B where they conflict. Part A research dossier in V1 remains valid background.
+
+| Field | Value |
+|-------|-------|
+| **Status** | FINAL AUTHORITATIVE — supersedes `archive/PS03_FINAL_SPEC.md` Part B on conflict (Part A research dossier in V1 remains valid) |
+| **Version** | V2 · Sep 2026 |
+| **Registry** | [`MODULE_REGISTRY.md`](MODULE_REGISTRY.md) (183 units) |
+| **Stack** | LYZR-NATIVE + CUSTOM-DETERMINISTIC + SIMULATED |
 
 Legend: `[OFFICIAL]` organizer requirement · `[RESEARCH]` evidence-backed · `[PROPOSED]` our choice · `[OPTIONAL]` stretch · `[FUTURE]` post-hackathon · `[PROVISIONAL]` target to revise after baseline runs · `[UNVERIFIED]` not confirmed in docs.
+
+---
+
+## CONTENTS — How to read this spec
+
+> This spec is the **single source of truth**. All other docs must trace to it directly or via `DECISIONS.md`. Follow the phases in `MODULE_REGISTRY.md`.
+
+| Part | Sections | Focus |
+|------|----------|-------|
+| **I — Product** | §01–§09 | Executive summary, official requirements, classification, personas, journeys, FR/NFR |
+| **II — Lyzr & Architecture** | §10–§13 | Lyzr verification, architecture decision, agent & deterministic services |
+| **III — Core Control Plane** | §14–§22 | Workflow, FSM, action/policy/tools/runbooks, evidence, retrieval |
+| **IV — Execution & Safety** | §23–§30 | Telemetry, correlation, diagnosis, sandbox, HITL, exec, verify, rollback |
+| **V — Release & Proof** | §31–§42 | RCA, audit/AIMS, eval, benchmarks, adversarial, gates, security, invariants |
+| **VI — Build & Delivery** | §43–§64 | Data model, API, frontend, realtime, repo, testing, CI/CD, stack, deployment, cost, latency, demo |
+
+**Quick jumps:** [I.Product §01](#01-executive-summary) · [FSM §15](#15-state-machine-canonical-14) · [Action §16](#16-action-contract) · [Policy §18](#18-policy-engine) · [HITL §27](#27-hitl) · [Audit §32](#32-aimsaudit) · [Eval §33](#33-evaluation-engine) · [Demo §55](#55-demo-500-seed-bad-deploynormal-pre-issued-standby-approval) · [Invariants §38](#38-invariants-enforced-in-code--tests)
+
+---
 
 ---
 
@@ -35,6 +60,10 @@ Build a governed SRE mesh: 4 Lyzr agents propose (Triage, Diagnostic, Remediatio
 | G13 | Agent endpoints | No exact API cited | MED | **Pin `POST /v3/agent/{id}/chat|stream-chat`, stable session_id** (§10, §40). |
 | G14 | Eval overlap | Custom runner vs Lyzr Agent Eval duplicated | LOW | **Split: Lyzr Eval = agent-level (hallucination/faithfulness/tool-arg); custom runner = pipeline-level (policy/adversarial/SLO/regression)** (§33). |
 
+---
+
+## Part I — Product Definition (§01–§09)
+
 ## 05 Product Specification
 Evidence-Grounded Incident Commander: queue → 1 incident from N alerts → evidence-linked hypotheses → scoped approve/deny → sandboxed exec + SLO verify (+ auto-rollback) → gated RCA + audit export + scorecard. Non-goals: real paging, prod credentials, autonomous prod-DB writes, live vendor integrations.
 
@@ -49,6 +78,10 @@ FR1 ingest normalized alerts (REST + `POST /demo/seed`). FR2 deterministic dedup
 
 ## 09 Non-Functional Requirements
 e2e P50 <90s mock / P95 <4min Kind `[PROVISIONAL]`; tool p95 <3s; caps: ≤80k tokens, ≤12 LLM calls, ≤12k ctx/call, 5 tools/agent, 3 hypotheses, 2 re-plans `[PROVISIONAL]`; same-seed replay deterministic; fail-closed safety; no secrets in prompts/logs; policy/sandbox/verifier/audit coverage 100%.
+
+---
+
+## Part II — Lyzr & Architecture (§10–§13)
 
 ## 10 Lyzr Verification (fetched Sep 2026, docs.lyzr.ai/enterprise)
 | # | Capability | Official? | Actual functionality (docs) | Integration decision | Limits/auth |
@@ -85,6 +118,10 @@ UNVERIFIED for our purposes: none blocking; SuperFlow programmatic API shape (us
 
 ## 13 Deterministic Services
 Normalizer, Correlator, Pre-digester/Retriever, Validator, Policy, Approval-HMAC, Sandbox, Verifier, Rollback, Audit-hasher, Eval-runner. Deterministic because: reproducible, versioned, unit-testable to 100%, dependency-free of model randomness; they own every state transition, auth decision, side effect, verdict, and audit link.
+
+---
+
+## Part III — Core Control Plane (§14–§22)
 
 ## 14 End-to-End Workflow
 INGEST(api,→TRIAGING,5s)→CORRELATE(det)→TRIAGE(A1)→EVIDENCE(det parallel)→DIAGNOSIS(A2)→HYP-TEST→RUNBOOK-pin→PLAN(A3)→VALIDATE(det)→POLICY(det)→RAI(agent-bound)→HITL?→EXECUTE(sandbox)→VERIFY(det)→ROLLBACK?/ESCALATE→RCA(A4,gated)→AUDITED→EVAL(async). Each stage: owner, input/output schema, timeout, retry (LLM once / det zero-or-idempotent), failure→BLOCKED/ESCALATED, audit event. Approval human-time excluded from e2e budget, TTL-tracked.
@@ -137,6 +174,10 @@ Evidence{evidence_id, incident_id, source_type, source_id, ts, ref(span/line/row
 ## 22 Retrieval (frozen)
 Lyzr Classic KB (`runbooks-v*`, `history`) with MMR, chunk≈natural section (~500 tokens), overlap 10%, score threshold tuned (start 0.7, revise), top-k=5 + local metadata/temporal filter (service/env/±window, decay) + rerank. Telemetry never bulk-indexed: pre-digester builds Evidence Pack (§23); full blobs in Postgres retrievable by ref. NO pgvector (unjustified duplication). KG/Semantic Model: documented options; Semantic Model (read-only SELECT) may query telemetry tables as `[OPTIONAL]` if time. Metrics: p@5, r@5, MRR, nDCG, irrelevant_ratio, citation precision.
 
+---
+
+## Part IV — Execution & Safety (§23–§30)
+
 ## 23 Telemetry
 Tables: alerts, logs, metrics, traces, k8s_events, deploy_events, services, pods (all ts+service+env+hash indexed). Generator `/telemetry/gen.py` deterministic per (scenario,variant,seed) with sha log. Pre-digest per incident: windowed error signature, top-5 errors+counts, metric deltas (pre/post 15m), deploy diff (from→to+author within ±15m), 3 trace exemplars, topology neighbors. Output Evidence Pack ≤6k tokens `[PROVISIONAL]` to A2.
 
@@ -160,6 +201,10 @@ Checks: pod ready, deploy available, err_rate<thr, p95<SLO, zero new CrashLoop 6
 
 ## 30 Rollback
 Reversible YELLOW must carry rollback_action+conditions+re-verify plan. Auto one attempt on FAILED/WORSENED/ROLLBACK_REQUIRED; success→re-verify→RESOLVED else ESCALATED. Irreversible (RED) has no path by design.
+
+---
+
+## Part V — Release & Proof (§31–§42)
 
 ## 31 RCA
 Sections: summary, timeline(ts+actor+hash per row), root cause (claims+map), impact (MTTR, blast), remediation log, prevention (runbook patch/monitor/test; PR draft `[OPTIONAL]`), audit ref. Blameless lint blocks personal-blame terms. Gate §21 enforced in `publish_rca`.
@@ -196,6 +241,10 @@ Auth: demo `X-API-Key` + `X-Role: viewer|approver|admin`. Mutations require Idem
 
 ## 42 Realtime UX
 Lyzr `stream-chat` SSE for agent tokens; custom `/stream/incidents/{id}` SSE for control-plane (incident/agent/retrieval/policy/approval/execution/verification/audit). Auto-reconnect + 3s polling fallback. Every streamed item carries audit event id. Header badge LIVE/REPLAY/MOCK always visible.
+
+---
+
+## Part VI — Build & Delivery (§43–§64)
 
 ## 43 Repository
 Keep `[OFFICIAL]` `/agents /frontend /backend /Dockerfile /docker-compose.yml /.env.example /README.md` + `/policies /runbooks /telemetry /tools /evaluation /benchmarks /tests /docs /scripts`. Responsibilities per V1 §43. No Lyzr keys committed; `.env.example` documents all vars incl. `LYZR_API_KEY, LYZR_AGENT_*_ID, LYZR_RAI_POLICY=PS03-Governed, EXECUTOR, APPROVAL_SECRET, POLICY_VERSION`.
