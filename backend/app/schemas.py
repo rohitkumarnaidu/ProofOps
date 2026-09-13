@@ -35,6 +35,7 @@ from app.contracts import (  # noqa: F401 (re-export surface)
     ExecutorTier,
     FailureCode,
     HypothesisStatus,
+    Incident,
     IncidentStatus,
     RiskLevel,
     Severity,
@@ -61,11 +62,9 @@ class Alert(BaseModel):
     hash: str = ""
 
 
-class Incident(BaseModel):
-    incident_id: str = Field(default_factory=new_id)
-    fingerprint: str = Field(min_length=1)
-    severity: Severity
-    status: IncidentStatus = IncidentStatus.NEW
+# ---------------------------------------------------------------- incident
+# M01.2: canonical Incident lives in app.contracts.incident; re-exported here
+# for backward compatibility (single definition, no drift).
 
 
 # ---------------------------------------------------------------- evidence
