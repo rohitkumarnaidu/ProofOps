@@ -42,6 +42,7 @@ from app.contracts.values import (
     sha256_hex,
     utcnow,
 )
+from app.contracts.alert import Alert
 from app.contracts.incident import Incident
 
 CONTRACT_VERSION = "1.0"
@@ -67,6 +68,7 @@ __all__ = [
     "HypothesisStatus",
     "Incident",
     "IncidentStatus",
+    "Alert",
     "PageParams",
     "RiskLevel",
     "Severity",
