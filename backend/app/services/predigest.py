@@ -13,6 +13,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "backend"))
 
+from app.contracts import SourceType, TrustLevel  # noqa: E402 (M01.1 frozen enums)
 from app.schemas import Evidence, sha256_hex, utcnow  # noqa: E402
 
 MAX_COUNTED_LINES = 50
@@ -32,22 +33,22 @@ def build_evidence_pack(incident_id: str, tele: dict) -> dict[str, Any]:
     ev: list[Evidence] = []
     for i, (msg, cnt) in enumerate(sig_count.most_common(TOP_ERRORS)):
         h = sha256_hex(f"{incident_id}|log|{msg}|{cnt}")
-        ev.append(Evidence(incident_id=incident_id, source_type="log",
+        ev.append(Evidence(incident_id=incident_id, source_type=SourceType.LOG,
                            source_id=f"logs[{i}]", ref=f"count={cnt} :: {msg}",
                            hash=h, freshness_s=60.0,
-                           relevance=round(1.0 - i * 0.1, 2), trust="high"))
+                           relevance=round(1.0 - i * 0.1, 2), trust=TrustLevel.HIGH))
     if err_vals:
         h = sha256_hex(f"{incident_id}|metric|error_rate|{max(err_vals)}")
-        ev.append(Evidence(incident_id=incident_id, source_type="metric",
+        ev.append(Evidence(incident_id=incident_id, source_type=SourceType.METRIC,
                            source_id="error_rate", ref=f"max={max(err_vals)} delta={delta}",
-                           hash=h, freshness_s=60.0, relevance=0.9, trust="high"))
+                           hash=h, freshness_s=60.0, relevance=0.9, trust=TrustLevel.HIGH))
     for d in deploys:
         h = sha256_hex(f"{incident_id}|deploy|{d.get('deploy_id')}")
         ev.append(Evidence(
-            incident_id=incident_id, source_type="deploy",
+            incident_id=incident_id, source_type=SourceType.DEPLOY,
             source_id=str(d.get("deploy_id")), ts=utcnow(),
             ref=f"{d.get('from_v')}->{d.get('to_v')} by {d.get('author')}",
-            hash=h, freshness_s=300.0, relevance=0.95, trust="high"))
+            hash=h, freshness_s=300.0, relevance=0.95, trust=TrustLevel.HIGH))
     traces = [t.get("trace_id", "") for t in tele.get("traces", [])][:TRACE_EXEMPLARS]
 
     return {
