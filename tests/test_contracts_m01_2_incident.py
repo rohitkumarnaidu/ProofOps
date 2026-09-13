@@ -91,7 +91,10 @@ class TestIncidentPositive:
         assert inc.incident_id == "inc-1"
         assert inc.service == "checkout"
         assert inc.impact["error_rate"] == 0.18
-        assert inc.source_alert_ids == ["a1", "a2"]
+        # hardened (M01.2 zero-trust pass): ID lists stored immutable as tuple
+        # (list input still accepted); mappings stored as FrozenDict.
+        assert inc.source_alert_ids == ("a1", "a2")
+        assert list(inc.source_alert_ids) == ["a1", "a2"]  # reads stay ergonomic
         assert inc.diagnosis_reference == "diag-1"
         assert inc.metadata["owner"] == "sre"
 
@@ -102,7 +105,7 @@ class TestIncidentPositive:
 
     def test_lists_allow_empty(self):
         inc = Incident(fingerprint="f", severity="P1", source_alert_ids=[], evidence_ids=[], action_references=[])
-        assert inc.source_alert_ids == []
+        assert inc.source_alert_ids == ()
 
     def test_diagnosis_reference_none(self):
         inc = Incident(fingerprint="f", severity="P1", diagnosis_reference=None)
@@ -389,7 +392,7 @@ class TestIncidentLegacy:
         # callers using old import path get new fields for free
         inc = S.Incident(fingerprint="f", severity="P2", service="web", environment="prod", evidence_ids=["ev1"])
         assert inc.service == "web"
-        assert inc.evidence_ids == ["ev1"]
+        assert inc.evidence_ids == ("ev1",)  # hardened: stored immutable, list in accepted
 
     def test_incident_defaults_unchanged(self):
         inc = Incident(fingerprint="f", severity="P1")
@@ -456,10 +459,23 @@ class TestIncidentSecurity:
                 pytest.fail(f"schemas.py defines enum: {node.name}")
 
     def test_mutable_defaults_isolated(self):
+        # hardened: empty-tuple defaults MAY be shared (immutable singletons,
+        # sharing is safe); isolation is proven with populated values, and
+        # construction copies inputs instead of aliasing them.
         a = Incident(fingerprint="f", severity="P1")
         b = Incident(fingerprint="f", severity="P1")
-        assert a.source_alert_ids is not b.source_alert_ids
-        assert a.impact is not b.impact
+        assert a.source_alert_ids == () and b.source_alert_ids == ()
+        assert a.impact == {} and b.impact == {}
+        src = ["a1"]
+        imp = {"k": [1]}
+        meta = {"m": {"n": 1}}
+        x = Incident(fingerprint="f", severity="P1", source_alert_ids=src, impact=imp, metadata=meta)
+        src.append("evil")
+        imp["k"].append(999)
+        meta["m"]["n"] = "evil"
+        assert x.source_alert_ids == ("a1",)
+        assert x.impact == {"k": [1]}
+        assert x.metadata == {"m": {"n": 1}}
 
     def test_validation_error_does_not_echo_secret(self):
         # incident has no secrets, but ensure error loc is field-named not data dump
