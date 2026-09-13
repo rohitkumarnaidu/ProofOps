@@ -36,7 +36,7 @@ registry tracks unit-level status only.
 | M00.4 | health checks | APPROVED (95/100, human verdict, locked) | S | N | N | N | endpoint + dependency-down tests |
 | M00.5 | logging foundation | APPROVED (94/100, human verdict, locked) | S | N | N | N | format/redaction + no-secret-in-log tests |
 | M00.6 | documentation foundation | APPROVED (96/100, human verdict, locked) | N | N | N | N | 8-docs presence + spec-link tests |
-| M00.7 | CI foundation | NOT STARTED | S | N | N | N | ruff→mypy→unit→security pipeline green |
+| M00.7 | CI foundation | APPROVED (93/100, human verdict, locked) | S | N | N | N | ruff→mypy→unit→security pipeline green |
 
 ## PHASE 01 — Contracts (15)
 
