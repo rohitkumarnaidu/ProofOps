@@ -1,12 +1,18 @@
 __pycache__/
 *.py[cod]
+*.pyo
 .venv/
 venv/
 .env
+.env.local
 *.egg-info/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
+.hypothesis/
+.coverage
+coverage.xml
+htmlcov/
 node_modules/
 dist/
 build/
@@ -14,4 +20,8 @@ frontend/dist/
 runs/
 *.jsonl
 !**/suites/*.jsonl
+*.log
 .DS_Store
+.vscode/
+.idea/
+.opencode/
