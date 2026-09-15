@@ -1,7 +1,7 @@
 # ProofOps — Complete Module Registry (183 controlled units)
 
 > Authoritative spec: `docs/PS03_FINAL_SPEC_V2.md`. One module at a time. No auto-continue.
-> Progress: **22/183 with implementation** (10 APPROVED: M00.1, M00.3–M00.7, M01.1–M01.4 · 1 IMPLEMENTED awaiting verdict: M00.2 · 11 IMPLEMENTED_TESTED hardening-pending: M01.5–M01.15, merged 2026-09-15) · Overall project score: NOT COMPUTED.
+> Progress: **44/183 with implementation** (10 APPROVED: M00.1, M00.3–M00.7, M01.1–M01.4 · 1 IMPLEMENTED awaiting verdict: M00.2 · 33 IMPLEMENTED_TESTED hardening-pending: M01.5–M01.15, M02.1–M02.10, M03.1–M03.6, M04.1–M04.6) · Overall project score: NOT COMPUTED.
 
 ## Global Verification Gate (applies to every unit)
 
@@ -62,38 +62,38 @@ registry tracks unit-level status only.
 
 | ID | Unit | Status | Safety | Ground | Hall | Retr | Verify method |
 |---|---|---|---|---|---|---|---|
-| M02.1 | telemetry generator | NOT STARTED | S | N | N | N | determinism: same-seed→same-sha tests |
-| M02.2 | deterministic seeding | NOT STARTED | S | N | N | N | seed-log + replay-identical tests |
-| M02.3 | alert generation | NOT STARTED | S | N | N | N | count/shape per (scenario,variant,seed) tests |
-| M02.4 | log generation | NOT STARTED | S | N | N | N | injection-neutral content tests |
-| M02.5 | metrics generation | NOT STARTED | S | N | N | N | pre/post-delta shape tests |
-| M02.6 | traces | NOT STARTED | S | N | N | N | exemplar + span-ref tests |
-| M02.7 | Kubernetes events | NOT STARTED | S | N | N | N | event-shape + ts-index tests |
-| M02.8 | deployment events | NOT STARTED | S | N | N | N | from→to+author ±15m tests |
-| M02.9 | service topology | NOT STARTED | S | N | N | N | neighbor-edge tests |
-| M02.10 | telemetry hashing | NOT STARTED | S | N | N | N | sha-log completeness tests |
+| M02.1 | telemetry generator | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | determinism: same-seed→same-sha tests |
+| M02.2 | deterministic seeding | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | seed-log + replay-identical tests |
+| M02.3 | alert generation | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | count/shape per (scenario,variant,seed) tests |
+| M02.4 | log generation | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | injection-neutral content tests |
+| M02.5 | metrics generation | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | pre/post-delta shape tests |
+| M02.6 | traces | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | exemplar + span-ref tests |
+| M02.7 | Kubernetes events | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | event-shape + ts-index tests |
+| M02.8 | deployment events | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | from→to+author ±15m tests |
+| M02.9 | service topology | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | neighbor-edge tests |
+| M02.10 | telemetry hashing | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | sha-log completeness tests |
 
 ## PHASE 03 — Normalization (6)
 
 | ID | Unit | Status | Safety | Ground | Hall | Retr | Verify method |
 |---|---|---|---|---|---|---|---|
-| M03.1 | alert normalization | NOT STARTED | S | N | N | N | malformed-input + missing-field tests |
-| M03.2 | log normalization | NOT STARTED | S | N | N | N | DATA-not-instructions + delimit tests |
-| M03.3 | metrics normalization | NOT STARTED | S | N | N | N | window/delta tests |
-| M03.4 | trace normalization | NOT STARTED | S | N | N | N | ref-integrity tests |
-| M03.5 | deployment normalization | NOT STARTED | S | N | N | N | diff-shape tests |
-| M03.6 | canonical telemetry model | NOT STARTED | S | N | N | N | cross-source join + index tests |
+| M03.1 | alert normalization | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | malformed-input + missing-field tests |
+| M03.2 | log normalization | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | DATA-not-instructions + delimit tests |
+| M03.3 | metrics normalization | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | window/delta tests |
+| M03.4 | trace normalization | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | ref-integrity tests |
+| M03.5 | deployment normalization | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | diff-shape tests |
+| M03.6 | canonical telemetry model | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | cross-source join + index tests |
 
 ## PHASE 04 — Correlation (6)
 
 | ID | Unit | Status | Safety | Ground | Hall | Retr | Verify method |
 |---|---|---|---|---|---|---|---|
-| M04.1 | fingerprinting | NOT STARTED | S | N | N | N | sha256(service\|sig\|env\|window) tests |
-| M04.2 | grouping | NOT STARTED | S | N | N | N | 30-fixture group tests |
-| M04.3 | deduplication | NOT STARTED | S | N | N | N | ≤5s + duplicate-suppress tests |
-| M04.4 | severity | NOT STARTED | S | N | N | N | P1–P4 rule tests |
-| M04.5 | dependency correlation | NOT STARTED | S | N | N | N | edge+10m+sim>0.7 tests |
-| M04.6 | edge cases | NOT STARTED | S | N | N | N | split/merge adversarial-fixture tests |
+| M04.1 | fingerprinting | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | sha256(service\|sig\|env\|window) tests |
+| M04.2 | grouping | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | 30-fixture group tests |
+| M04.3 | deduplication | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | ≤5s + duplicate-suppress tests |
+| M04.4 | severity | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | P1–P4 rule tests |
+| M04.5 | dependency correlation | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | edge+10m+sim>0.7 tests |
+| M04.6 | edge cases | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | split/merge adversarial-fixture tests |
 
 ## PHASE 05 — Evidence (6)
 
