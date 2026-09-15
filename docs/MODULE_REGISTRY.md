@@ -1,7 +1,7 @@
 # ProofOps — Complete Module Registry (183 controlled units)
 
 > Authoritative spec: `docs/PS03_FINAL_SPEC_V2.md`. One module at a time. No auto-continue.
-> Progress: **44/183 with implementation** (10 APPROVED: M00.1, M00.3–M00.7, M01.1–M01.4 · 1 IMPLEMENTED awaiting verdict: M00.2 · 33 IMPLEMENTED_TESTED hardening-pending: M01.5–M01.15, M02.1–M02.10, M03.1–M03.6, M04.1–M04.6) · Overall project score: NOT COMPUTED.
+> Progress: **60/183 with implementation** (10 APPROVED: M00.1, M00.3–M00.7, M01.1–M01.4 · 1 IMPLEMENTED awaiting verdict: M00.2 · 49 IMPLEMENTED_TESTED hardening-pending: M01.5–M01.15, M02.1–M04.6, M05.1–M05.6, M06.1–M06.10) · Overall project score: NOT COMPUTED.
 
 ## Global Verification Gate (applies to every unit)
 
@@ -99,27 +99,27 @@ registry tracks unit-level status only.
 
 | ID | Unit | Status | Safety | Ground | Hall | Retr | Verify method |
 |---|---|---|---|---|---|---|---|
-| M05.1 | evidence object | NOT STARTED | S | R | N | N | field + ref tests |
-| M05.2 | evidence hashing | NOT STARTED | S | R | N | N | hash-validity tests |
-| M05.3 | evidence freshness | NOT STARTED | S | R | N | N | staleness>15m-escalate tests |
-| M05.4 | trust level | NOT STARTED | S | R | N | N | high/med/low + agreement tests |
-| M05.5 | evidence pack | NOT STARTED | S | R | N | N | ≤6k-token + predigest tests |
-| M05.6 | claim-to-evidence mapping | NOT STARTED | S | R | N | N | MUST-CITE coverage=1.0 gate tests |
+| M05.1 | evidence object | IMPLEMENTED_TESTED (build-first; hardening pending) | S | R | N | N | field + ref tests |
+| M05.2 | evidence hashing | IMPLEMENTED_TESTED (build-first; hardening pending) | S | R | N | N | hash-validity tests |
+| M05.3 | evidence freshness | IMPLEMENTED_TESTED (build-first; hardening pending) | S | R | N | N | staleness>15m-escalate tests |
+| M05.4 | trust level | IMPLEMENTED_TESTED (build-first; hardening pending) | S | R | N | N | high/med/low + agreement tests |
+| M05.5 | evidence pack | IMPLEMENTED_TESTED (build-first; hardening pending) | S | R | N | N | ≤6k-token + predigest tests |
+| M05.6 | claim-to-evidence mapping | IMPLEMENTED_TESTED (build-first; hardening pending) | S | R | N | N | MUST-CITE coverage=1.0 gate tests |
 
 ## PHASE 06 — Policy / Safety (10)
 
 | ID | Unit | Status | Safety | Ground | Hall | Retr | Verify method |
 |---|---|---|---|---|---|---|---|
-| M06.1 | action validator | NOT STARTED | R | N | N | N | shell/DROP/param-shape reject tests (pre-policy) |
-| M06.2 | action taxonomy | NOT STARTED | R | N | N | N | allowlist completeness tests |
-| M06.3 | risk matrix | NOT STARTED | R | N | N | N | matrix-vs-bundle consistency tests |
-| M06.4 | policy schema | NOT STARTED | R | N | N | N | bundle version/rule-ref tests |
-| M06.5 | policy engine | NOT STARTED | R | N | N | N | 40+ regression tests (ALLOW/ESCALATE/DENY) |
-| M06.6 | default deny | NOT STARTED | R | N | N | N | unknown/exception→DENY tests |
-| M06.7 | conflict resolution | NOT STARTED | R | N | N | N | most-restrictive-wins tests |
-| M06.8 | blast-radius evaluation | NOT STARTED | R | N | N | N | scope/replicas/traffic% threshold tests |
-| M06.9 | environment-aware rules | NOT STARTED | R | N | N | N | mock/staging/prod matrix tests |
-| M06.10 | policy audit | NOT STARTED | R | N | N | N | version+rule_id linkage tests |
+| M06.1 | action validator | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | shell/DROP/param-shape reject tests (pre-policy) |
+| M06.2 | action taxonomy | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | allowlist completeness tests |
+| M06.3 | risk matrix | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | matrix-vs-bundle consistency tests |
+| M06.4 | policy schema | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | bundle version/rule-ref tests |
+| M06.5 | policy engine | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | 40+ regression tests (ALLOW/ESCALATE/DENY) |
+| M06.6 | default deny | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | unknown/exception→DENY tests |
+| M06.7 | conflict resolution | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | most-restrictive-wins tests |
+| M06.8 | blast-radius evaluation | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | scope/replicas/traffic% threshold tests |
+| M06.9 | environment-aware rules | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | mock/staging/prod matrix tests |
+| M06.10 | policy audit | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | version+rule_id linkage tests |
 
 ## PHASE 07 — HITL (8)
 
