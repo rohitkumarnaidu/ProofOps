@@ -12,7 +12,8 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "backend"))
 
-from app.schemas import Runbook, canonical_json, sha256_hex  # noqa: E402
+from app.contracts.runbook import Runbook  # noqa: E402 (M01.6 canonical)
+from app.contracts.values import canonical_json, sha256_hex  # noqa: E402
 
 RUNBOOK_DIR = Path(__file__).resolve().parents[3] / "runbooks"
 

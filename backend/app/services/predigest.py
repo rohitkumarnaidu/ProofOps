@@ -14,7 +14,8 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "backend"))
 
 from app.contracts import SourceType, TrustLevel  # noqa: E402 (M01.1 frozen enums)
-from app.schemas import Evidence, sha256_hex, utcnow  # noqa: E402
+from app.contracts.evidence import Evidence  # noqa: E402 (M01.4 canonical)
+from app.contracts.values import sha256_hex, utcnow  # noqa: E402
 
 MAX_COUNTED_LINES = 50
 TOP_ERRORS = 5

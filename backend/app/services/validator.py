@@ -13,7 +13,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "backend"))
 
-from app.schemas import Action, Runbook  # noqa: E402
+from app.contracts.action import Action  # noqa: E402 (M01.7 canonical)
+from app.contracts.runbook import Runbook  # noqa: E402 (M01.6 canonical)
 
 SHELL_META = re.compile(r"[;&|`$()\\n]")
 IMAGE_TAG = re.compile(r"^[a-z0-9._-]{1,128}$")

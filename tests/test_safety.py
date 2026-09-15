@@ -1,4 +1,9 @@
-"""Safety tests: validator + policy engine + risk matrix + runbooks."""
+"""Safety tests: validator + policy engine + risk matrix + runbooks.
+
+M05-M06 rewire: constructs canonical contracts (app.contracts) - the legacy
+schemas wire is identical, but services now take canonical types only.
+Behavioral pins below are unchanged.
+"""
 import sys
 from pathlib import Path
 
@@ -7,7 +12,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 
-from app.schemas import Action, params_hash  # noqa: E402
+from app.contracts import Action, params_hash  # noqa: E402 (M01 canonical)
 from app.services.policy import evaluate, load_bundle, load_matrix  # noqa: E402
 from app.services.runbooks import content_hash, load_runbook  # noqa: E402
 from app.services.validator import validate_action  # noqa: E402
@@ -130,6 +135,9 @@ def test_llm_advisory_risk_ignored():
 
 def test_unknown_action_denied():
     a = act()
+    # Adversarial: smuggle an off-allowlist type past construction (the
+    # documented object.__setattr__ residual). The ENGINE must still DENY
+    # via matrix lookup - schema validation is not the only boundary.
     object.__setattr__(a, "action_type", "teleport")
     assert ev(a).decision == "DENY"
 
@@ -175,7 +183,8 @@ def test_tampered_runbook_rejected(tmp_path):
 
 def test_injection_runbook_allows_no_mutation():
     rb = load_runbook("injection-quarantine")
-    assert rb.allowed_actions == ["read", "describe", "logs", "metrics", "list"]
+    assert [str(a) for a in rb.allowed_actions] == ["read", "describe",
+                                                   "logs", "metrics", "list"]
     errs = validate_action(act(action_type="restart_pod",
                                rollback_action={"a": 1},
                                runbook_id="injection-quarantine",
