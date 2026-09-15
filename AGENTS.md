@@ -678,6 +678,19 @@ screenshots · model confidence · LLM assertions · client claims · prior audi
 BUILD PHASE per-module flow: INSPECT → PLAN → IMPLEMENT → TEST → SECURITY CHECK →
 RECORD EVIDENCE → COMMIT → CONTINUE (scope discipline §15.1, evidence §14.9).
 
+Continuous verification without continuous perfection — the time-saving mechanism:
+
+```text
+Per module: IMPLEMENT → TEST → RECORD EVIDENCE → CONTINUE
+Per wave:   WAVE REGRESSION → REVIEW BLOCKERS → CONTINUE
+Final:      DEEP ZERO-TRUST AUDIT → SCORE → HUMAN APPROVAL → INTEGRATE → FINAL REGRESSION
+```
+
+Every implementation still runs: unit tests · negative tests · relevant
+integration tests · relevant security checks · static analysis · type checks ·
+secret scan. But do NOT stop after every small module for a full 100-point audit
+during BUILD — record the estimate and continue breadth.
+
 FINAL TRUST PHASE per-module flow: IMPLEMENT → SELF-AUDIT → STATIC CHECK → POSITIVE →
 NEGATIVE → SECURITY → ADVERSARIAL → INTEGRATION → PERFORMANCE →
 OBSERVABILITY → EVIDENCE → HIERARCHICAL SCORE → HUMAN REVIEW →
@@ -703,11 +716,19 @@ prioritize blockers, continue breadth — do not self-score as final truth. A hi
 self-score does not authorize integration. During FINAL TRUST, independently
 score from evidence, compare against project gates, fix failures, re-run the audit.
 
+Score targets are project engineering gates (`Overall ≥90 · Safety ≥95 where
+REQUIRED · Grounding ≥95 where REQUIRED · Hallucination ≥95 where REQUIRED`),
+not automatically `[OFFICIAL]` organizer rules unless the official source says
+so. Do NOT spend large effort moving 92→98 during breadth while another required
+module is still absent — record the estimate and continue.
+
 ### 14.4 Hierarchical scoring + statuses
 
 Score Project → Phase → Module → Submodule → Sub-submodule; never hide failed
 children behind a passing parent. Every leaf: status · evidence · test · owner ·
-score · blocker state.
+score · blocker state. Per unit maintain: module · submodule · implementation ·
+tests · security · evidence · known gaps · score — a phase that looks healthy
+while one safety-critical submodule is broken must remain visible (no-average-hiding).
 
 Build-first status set (binding):
 
@@ -773,6 +794,24 @@ exists · what remains unverified. Never write "verified" when only static code
 inspection was performed. Never fabricate metrics, benchmark results, Lyzr
 traces, or runtime evidence.
 
+Minimum evidence per significant feature: implementation path · test path ·
+sample output · failure case · security behavior where applicable · commit ·
+known limitation. For final critical claims expand to:
+`CLAIM → IMPLEMENTATION → TEST → RUNTIME EVIDENCE → METRIC → AUDIT TRACE → DEMO STEP`.
+
+### 14.10 Deferral boundary (what may wait vs what never waits)
+
+May wait for FINAL TRUST hardening: cosmetic refactoring · naming cleanup ·
+non-critical duplicate helpers · UI polish · performance micro-optimization ·
+benchmark presentation polish · documentation wording cleanup · low-risk style
+cleanup · non-functional abstraction improvements.
+
+Never deferred (see §14.6): security boundary · policy enforcement ·
+authorization · HITL correctness · sandbox boundary · secret handling ·
+ground-truth isolation · deterministic validation · independent verification ·
+rollback safety · audit integrity · truthful Lyzr labeling · truthful
+LIVE/REPLAY/MOCK labeling · critical regression fixes.
+
 ---
 
 ## §15 — Module plan, development order, dependencies
@@ -803,6 +842,19 @@ registry modules without explicit project decision.
 16. orchestration/FSM → 17. audit/AIMS → 18. evaluation → 19. adversarial →
 20. frontend → 21. performance → 22. integration → 23. demo → 24. submission.
 Respect registry dependency locks; do not bypass locked prerequisites.
+
+Build waves (registry phases M00–M22; `docs/MODULE_REGISTRY.md` is exact
+naming/status authority):
+
+- Wave 1 Foundation + Contracts: M00 → M01
+- Wave 2 Data / Evidence pipeline: M02 → M03 → M04 → M05
+- Wave 3 Governance / Safety: M06 → M07 → M08 → M09 → M10 → M11
+- Wave 4 Intelligence / Retrieval: M12 → M13 → M14
+- Wave 5 Audit / Evaluation: M15 → M16 → M17 → M18
+- Wave 6 Product surface / Optimization: M19 → M20
+- Wave 7 End-to-end integration / Demo: M21 → M22
+
+Parallelize independent work inside a wave, but do not violate dependencies.
 In BUILD PHASE work in waves: land breadth (`IMPLEMENTED_TESTED` /
 `IMPLEMENTED_HARDENING_PENDING`) across a wave before hardening any single
 module. Do not perfect early modules while most registered modules remain
@@ -949,6 +1001,16 @@ approval replay · destructive action escaping the safety boundary. Concretely
 
 ## §19 — Final definition of DONE (ALL must be true)
 
+Milestones (in order — "implemented" ≠ "submission ready"):
+
+- **Completion:** ALL REQUIRED MODULES IMPLEMENTED + basic tests green +
+  core E2E path runs + no known critical safety bypass.
+- **Trust:** ZERO-TRUST AUDIT + adversarial tests + spec reconciliation +
+  scores + HUMAN APPROVAL + integration + FULL REGRESSION.
+- **Submission:** CLEAN CLONE + deployment + LIVE endpoint + demo +
+  benchmarks + six-gate scorecard + documentation + SUBMISSION DRY-RUN +
+  platform verification (§16.3).
+
 1. Official PS03 requirements satisfied (§0.3). 2. Authoritative architecture
    satisfied (§2). 3. Four real Lyzr agents work (§3). 4. Lyzr capabilities
    authentic (§2.3). 5. Deterministic control plane enforced (§4–§5).
@@ -973,14 +1035,16 @@ approval replay · destructive action escaping the safety boundary. Concretely
 
 BUILD BROADLY FIRST. PERFECT DELIBERATELY SECOND. NEVER DEFER SAFETY.
 BUILD LESS. PROVE MORE. GOVERN THE AGENT. MEASURE EVERYTHING. MAKE THE DEMO
-UNFORGETTABLE. Parallel Build. Serial Trust. The model is not the authority —
-the policy is. The executor is not the verifier — the verifier is independent.
-Evidence is not decoration. Audit is not a fake log. Safety is not a prompt.
-Benchmarks are not marketing. A score is not proof. A claim is not evidence.
-A human approval is not implied. A green test is not permission to merge. The
-repository is part of the product. The demo is part of the evaluation. Every
-important feature must be IMPLEMENTED + TESTED + ATTACKED + MEASURED +
-TRACEABLE + DEFENSIBLE.
+UNFORGETTABLE. Parallel Build. Serial Trust. NO TRUST WITHOUT EVIDENCE.
+NO CLAIM WITHOUT PROOF. DO NOT POLISH ONE MODULE WHILE THE PRODUCT IS STILL
+MISSING THE REST. SAFETY IS NEVER DEFERRED. COSMETIC PERFECTION IS.
+The model is not the authority — the policy is. The executor is not the
+verifier — the verifier is independent. Evidence is not decoration. Audit is
+not a fake log. Safety is not a prompt. Benchmarks are not marketing.
+A score is not proof. A claim is not evidence. A human approval is not implied.
+A green test is not permission to merge. The repository is part of the product.
+The demo is part of the evaluation. Every important feature must be
+IMPLEMENTED + TESTED + ATTACKED + MEASURED + TRACEABLE + DEFENSIBLE.
 
 ---
 
