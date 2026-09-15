@@ -1,7 +1,7 @@
 # ProofOps — Complete Module Registry (183 controlled units)
 
 > Authoritative spec: `docs/PS03_FINAL_SPEC_V2.md`. One module at a time. No auto-continue.
-> Progress: **3/183 implemented** (M00.1 APPROVED 84, M00.2 awaiting verdict, M00.3 APPROVED 90/100, locked) · **2/183 approved** · Overall project score: NOT COMPUTED.
+> Progress: **14/183 with implementation** (10 APPROVED: M00.1, M00.3–M00.7, M01.1–M01.4 · 1 IMPLEMENTED awaiting verdict: M00.2 · 3 IMPLEMENTED_TESTED hardening-pending: M01.5–M01.7, merged 2026-09-15) · Overall project score: NOT COMPUTED.
 
 ## Global Verification Gate (applies to every unit)
 
