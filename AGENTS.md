@@ -6,10 +6,16 @@
 > VERIFICATION PROVES. AIMS RECORDS.
 >
 > **THE LLM IS NOT THE SECURITY BOUNDARY.**
+>
+> **CURRENT MODE: BUILD-FIRST — breadth before perfection. PARALLEL BUILD, SERIAL TRUST. Never defer safety (see §14).**
 
 Every coding agent working on ProofOps must read this file first, then the
 authoritative spec, then the module tracker — before touching any code.
 Documentation/governance only: this file contains no implementation code.
+Current mission: complete system coverage first (§14 BUILD PHASE), then a
+dedicated zero-trust hardening and audit phase (§14 FINAL TRUST PHASE).
+Do not spend disproportionate time perfecting early modules while most
+registered modules remain unimplemented.
 
 - Authoritative spec: `docs/PS03_FINAL_SPEC_V2.md` (FINAL AUTHORITATIVE —
   supersedes `docs/archive/PS03_FINAL_SPEC.md` Part B on conflict).
@@ -26,22 +32,29 @@ Documentation/governance only: this file contains no implementation code.
 
 | # | Source | Role |
 |---|--------|------|
+| 0 | Current HiDevs / challenge submission UI + current organizer instructions | OPERATIONAL source of truth for submission state, limits, required fields, late changes. |
 | 1 | `docs/PS03_FINAL_SPEC_V2.md` | AUTHORITATIVE implementation spec. V2 wins over V1 everywhere. |
-| 2 | `docs/research/AI_Quest_2026_PS03_Hackathon_Rules_and_Evaluation.md` | OFFICIAL competition requirements. Never upgrade recommendations into requirements. |
-| 3 | `docs/research/AI_Quest_2026_PS03_Master_Research.md` | Research-backed engineering guidance, competitive strategy. |
-| 4 | `docs/research/Beyond the Wrapper…md` | Winner patterns, verifiability, architecture, evaluation, demo strategy. |
-| 5 | `docs/research/From Code to Confidence…md` | Trust engineering, observability, evaluation, Lyzr capability role separation. |
-| 6 | `docs/research/From Hallucination to Verifiable Action…md` | Regulated-agent patterns, safety, governance, action control. |
-| 7 | `docs/research/The Minimalist Safeguard…md` | Deterministic safety boundary, sandboxing, risk containment. |
-| 8 | `docs/research/Why Action Safety is the Winning Hackathon Strategy…md` | Strategic positioning, defensible safety architecture. |
-| 9 | Master operational checklist (`ProofOps_PS03_Master_Winning_Implementation_Trust_Submission_Checklist.md`) | [UNVERIFIED] — file not present in this tree. Its role is filled by `docs/MODULE_REGISTRY.md` + spec §60–§61. Do not assume its contents. |
-| 10 | Existing repo state + audit reports | Current implementation truth always overrides assumptions. Never assume a capability exists because a spec mentions it. |
+| 2 | `docs/archive/PS03_FINAL_SPEC.md` (V1) | Background only unless superseded by V2. |
+| 3 | `docs/research/AI_Quest_2026_PS03_Hackathon_Rules_and_Evaluation.md` | OFFICIAL competition requirements. Never upgrade recommendations into requirements. |
+| 4 | `docs/research/AI_Quest_2026_PS03_Master_Research.md` | Research-backed engineering guidance, competitive strategy. |
+| 5 | `docs/research/Beyond the Wrapper…md` | Winner patterns, verifiability, architecture, evaluation, demo strategy. |
+| 6 | `docs/research/From Code to Confidence…md` | Trust engineering, observability, evaluation, Lyzr capability role separation. |
+| 7 | `docs/research/From Hallucination to Verifiable Action…md` | Regulated-agent patterns, safety, governance, action control. |
+| 8 | `docs/research/The Minimalist Safeguard…md` | Deterministic safety boundary, sandboxing, risk containment. |
+| 9 | `docs/research/Why Action Safety is the Winning Hackathon Strategy…md` | Strategic positioning, defensible safety architecture. |
+| 10 | `docs/MODULE_REGISTRY.md` + audit reports | Current implementation truth + evidence. Never assume a capability exists because a spec mentions it. |
+| 11 | Agent judgment | LOWEST authority; never silently overrides higher sources. |
+
+Master operational checklist (`docs/ProofOps_PS03_Master_Winning_Implementation_Trust_Submission_Checklist.md`,
+when present) is `[UNVERIFIED]` input — `docs/MODULE_REGISTRY.md` + spec §60–§61
+govern on conflict. Do not assume its contents.
 
 ### 0.2 Claim labels (mandatory — every important claim carries one)
 
-`[OFFICIAL]` organizer requirement · `[RESEARCH]` evidence-backed ·
-`[PROPOSED]` our choice · `[OPTIONAL]` stretch · `[FUTURE]` post-hackathon ·
-`[PROVISIONAL]` target to revise after baseline runs · `[UNVERIFIED]` not confirmed.
+`[OFFICIAL]` organizer requirement · `[SPEC]` V2 spec requirement ·
+`[RESEARCH]` evidence-backed · `[PROPOSED]` our choice · `[OPTIONAL]` stretch ·
+`[FUTURE]` post-hackathon · `[PROVISIONAL]` target to revise after baseline runs ·
+`[UNVERIFIED]` not confirmed.
 
 Never present `[PROPOSED]` or `[RESEARCH]` material as an official organizer requirement.
 
@@ -157,8 +170,15 @@ function "Lyzr"; create decorative agents; claim Safe AI is Kubernetes
 authorization; claim custom hash audit is AIMS; claim a custom FSM is Automata;
 claim replay is live Lyzr execution; claim a local log is AIMS.
 
+Before claiming any Lyzr capability, check: current official Lyzr docs ·
+current challenge expectations · actual project account/workspace capability ·
+verify the implementation · label the result accurately. Never fake: Automata
+graphs · Safe AI traces · AIMS traces · Agent API calls · screenshots ·
+execution results.
+
 README/UI/demo must clearly distinguish: **LYZR-NATIVE · CUSTOM-DETERMINISTIC ·
-SIMULATED · FUTURE**.
+SIMULATED · FUTURE**. If custom, say CUSTOM. If simulated, say SIMULATED.
+If future, say FUTURE. If Lyzr-native and verified, say LYZR-NATIVE.
 
 A capability is authentic only when all six authenticity properties hold.
 `[OPTIONAL]` Manager Agent = conversational front only, may call GET views or
@@ -562,36 +582,103 @@ python scripts/secret_scan.py   # values never printed; hunter2-fake-* are fixtu
 
 ---
 
-## §14 — Git, parallel development, zero-trust verification
+## §14 — Build-First operating policy + Git, parallel development, zero-trust verification
+
+> **Core principle: Build broadly first. Perfect deliberately second. Never defer safety.**
+
+### 14.0 Operating modes (frozen for this mission)
+
+Project rule: `BUILD BROADLY → TEST CONTINUOUSLY → EVIDENCE CONTINUOUSLY →
+COMPLETE ALL REGISTERED WORK → DEEP AUDIT → HARDEN → FINALIZE → SUBMISSION DRY-RUN`.
+
+**BUILD PHASE (current) — Phase A Breadth / completion:** complete registered
+scope breadth-first. Goal: every registered module reaches a real, runnable,
+testable implementation. During Phase A: implement the actual capability ·
+write meaningful tests · preserve safety-critical invariants · record evidence ·
+document known gaps · avoid unnecessary refactoring / premature optimization /
+low-value UI polish · do not fake missing integrations · do not claim
+production readiness.
+
+```text
+INSPECT → PLAN → IMPLEMENT → TEST → SECURITY CHECK → RECORD EVIDENCE → COMMIT → CONTINUE
+```
+
+**FINAL TRUST PHASE (declared explicitly by human only) — Phase B Deep trust /
+perfection:** after registered scope is substantially complete: zero-trust audit ·
+adversarial testing · spec reconciliation · security hardening · performance
+optimization · compatibility hardening · documentation reconciliation · evidence
+cleanup · score every module · fix all P0/P1 + important P2 · full regression ·
+clean-clone validation · demo rehearsal · submission dry-run.
+
+```text
+ZERO-TRUST AUDIT → ADVERSARIAL TEST → SPEC RECONCILIATION → MEASURE → SCORE →
+FIX → RE-AUDIT → HUMAN APPROVAL → INTEGRATE → FULL REGRESSION
+```
+
+Build-first rules (binding in BUILD PHASE):
+
+1. Implement the complete registered scope before deep perfection work.
+2. Work in dependency-aware waves (§15.2) — do not perfect early modules while
+   most registered modules remain unimplemented.
+3. Parallelize independent implementation where useful (§14.1).
+4. Keep safety-critical controls fail-closed from their first implementation
+   (§1.1, §6, §14.6). Safety is never deferred for breadth.
+5. Test continuously; do not postpone all testing to the end. Every module
+   ships with positive + negative + security tests.
+6. Record evidence continuously (§14.9).
+7. Do not fabricate missing integrations, metrics, benchmark results, Lyzr
+   capabilities, or runtime evidence. Missing = missing, marked PLANNED with owner.
+8. Do not mark an incomplete feature as production-ready. Use
+   `IMPLEMENTED_HARDENING_PENDING` when the capability exists but final
+   hardening remains (§14.4).
+9. Do not start unrelated polish when required modules are still absent.
+10. Do not invent requirements; do not silently change module IDs; do not rename
+    registry modules without explicit project decision (§15.1).
 
 ### 14.1 Parallel development (multiple agents/worktrees simultaneously — not one agent pretending)
 
 1. Every module gets one focused owner.
 2. Branches originate from current trusted master; never use a stale baseline intentionally.
-3. Never force-push blindly; never rewrite trusted history.
+3. Never force-push blindly; never rewrite trusted history; never delete
+   candidate history for convenience; never overwrite another agent's work
+   without reconciliation.
 4. Preserve old branches for forensic history when required.
 5. Shared files (central exports, registry, root docs, global config, shared
-   compatibility surfaces) have an explicit owner — normally the integration/lead session.
+   compatibility surfaces, contracts, policy boundaries, execution code,
+   integration points) have an explicit owner — normally the integration/lead
+   session — and require dependency-aware review.
 6. No two agents modify the same high-conflict files.
-7. Integration is separate from implementation: parallel build allowed, **trust is serial**.
-8. Merge ONE approved unit at a time with full regression between merges.
-9. Never merge an unapproved module; never start a dependent module before its dependency gate passes.
+7. Integration is separate from implementation: **PARALLEL BUILD, SERIAL TRUST.**
+   Parallel implementation is allowed for independent modules; trust/integration
+   stays serial.
+8. In BUILD PHASE: merge ONE `IMPLEMENTED_TESTED` / `IMPLEMENTED_HARDENING_PENDING`
+   unit at a time with regression between merges. In FINAL TRUST PHASE: merge ONE
+   `HUMAN_APPROVED` unit at a time with full regression between merges.
+9. Never merge a module that fails its phase gate; never start a dependent module
+   before its dependency's implementation exists (BUILD) / gate passes (TRUST).
 10. Parallel tracks use worktrees under `C:\Users\Dell\AppData\Local\Temp\opencode\`,
-    one branch each, merged `--no-ff` ONE AT A TIME with full regression between.
+    one branch each, merged `--no-ff` ONE AT A TIME with regression between.
     Never touch another lane's files.
 11. Registry row flips are per-module, one line each; merge conflicts there are
     routine — keep all APPROVED rows.
 12. No merge, push, force-push, amend, or new module without explicit human approval.
 13. `origin/master` is canonical since the reconcile;
     `archive/remote-master-before-reconcile` must be kept.
+14. Before significant work, capture baseline:
+    `git status --short; git branch --show-current; git rev-parse HEAD; git log --oneline --decorate -20`.
+    Keep implementation commits small enough to audit. Never commit secrets;
+    never hide failures.
 
-### 14.2 Zero-trust development model
+### 14.2 Zero-trust development model (full weight in FINAL TRUST PHASE, recorded in BUILD PHASE)
 
 Never trust: self-reported agent score · "tests pass" without reproducible
 evidence · branch age/naming · registry status · README claims · generated demo
 screenshots · model confidence · LLM assertions · client claims · prior audit claims.
 
-Every module follows: IMPLEMENT → SELF-AUDIT → STATIC CHECK → POSITIVE →
+BUILD PHASE per-module flow: INSPECT → PLAN → IMPLEMENT → TEST → SECURITY CHECK →
+RECORD EVIDENCE → COMMIT → CONTINUE (scope discipline §15.1, evidence §14.9).
+
+FINAL TRUST PHASE per-module flow: IMPLEMENT → SELF-AUDIT → STATIC CHECK → POSITIVE →
 NEGATIVE → SECURITY → ADVERSARIAL → INTEGRATION → PERFORMANCE →
 OBSERVABILITY → EVIDENCE → HIERARCHICAL SCORE → HUMAN REVIEW →
 APPROVE/REJECT/FIX → INTEGRATE → REGRESSION → MERGE → VERIFY MASTER.
@@ -611,20 +698,80 @@ reproducible · human approval · no hidden regressions. Scores start at zero
 against the rubric; never average old scores. **Never average away a critical
 failure** — a severe security failure is not "good enough" at average ≥90.
 
+Score discipline: during BUILD, estimate current state, identify gaps,
+prioritize blockers, continue breadth — do not self-score as final truth. A high
+self-score does not authorize integration. During FINAL TRUST, independently
+score from evidence, compare against project gates, fix failures, re-run the audit.
+
 ### 14.4 Hierarchical scoring + statuses
 
 Score Project → Phase → Module → Submodule → Sub-submodule; never hide failed
 children behind a passing parent. Every leaf: status · evidence · test · owner ·
-score · blocker state. Statuses: NOT STARTED · IN PROGRESS · IMPLEMENTED ·
-READY FOR HUMAN REVIEW · APPROVED · MERGED · TRUSTED · BLOCKED ·
-FIX REQUIRED · REJECTED · DEFERRED · OPTIONAL · FUTURE.
-Registry must not claim APPROVED before actual human approval.
+score · blocker state.
+
+Build-first status set (binding):
+
+```text
+NOT_STARTED · IN_PROGRESS · IMPLEMENTED · IMPLEMENTED_TESTED ·
+IMPLEMENTED_HARDENING_PENDING · AUDIT_READY · AUDITED · HUMAN_APPROVED ·
+INTEGRATED · BLOCKED · DEFERRED · REJECTED
+```
+
+During BUILD-FIRST prefer `IMPLEMENTED_TESTED` or
+`IMPLEMENTED_HARDENING_PENDING` (capability exists, final hardening remains).
+Only the FINAL TRUST process converts required modules to `HUMAN_APPROVED` and
+then `INTEGRATED`. Registry must not claim `HUMAN_APPROVED` / `APPROVED` /
+`INTEGRATED` / `TRUSTED` before actual human approval.
 
 ### 14.5 Human gate (real state transition, never inferred)
 
 Human approval = implementation reviewed · evidence inspected · test output
 inspected · security inspected · integration boundary inspected. Never infer it
 from self-score, green tests, branch naming, "ready" messages, or registry wording.
+
+### 14.6 Safety rules — NEVER DEFER (BUILD and TRUST phases alike)
+
+Even in breadth-first BUILD, these are fail-closed from first implementation —
+any violation = BLOCK + surface immediately (§18):
+
+1. LLM output is never authorization.
+2. No arbitrary model-generated shell reaches an executor.
+3. Structured actions must be validated before policy evaluation.
+4. Unknown/malformed actions fail closed.
+5. RED actions do not execute in the hackathon path (§6.1).
+6. YELLOW actions require valid scoped approval (§6.4).
+7. Telemetry is data, not instructions; telemetry cannot change trusted instructions.
+8. Ground truth never enters model-visible context.
+9. Verification is independent from planning (`EXIT 0 ≠ RESOLVED`).
+10. Rollback is governed by the same safety boundary as execution.
+11. Secrets never enter code, prompts, logs, traces, screenshots or evidence.
+12. LIVE/REPLAY/MOCK/OFFLINE modes must be truthful; never present REPLAY as LIVE.
+13. Lyzr-native capabilities must be actually verified (§2.3) — never fake Lyzr/AIMS/Safe AI.
+
+### 14.7 Scope discipline (before implementing a module)
+
+```text
+READ SPEC → CHECK DEPENDENCIES → INSPECT EXISTING CODE → IMPLEMENT ONLY REQUIRED SCOPE
+```
+
+Do not invent requirements. Do not silently change module IDs. Do not rename
+registry modules without explicit project decision. See §15.1 for the required
+pre-implementation checklist.
+
+### 14.8 Completion discipline (word bans)
+
+Do not say "Project complete" until all registered required work has been
+implemented AND the FINAL TRUST audit confirms readiness (§19).
+Do not say "Submission ready" until the clean-clone, deployment, demo,
+benchmark, evidence and submission gates pass (§16.3).
+
+### 14.9 Evidence discipline (continuous)
+
+For each meaningful capability record: what was built · where it lives · what
+test proves it · what negative test proves its boundary · what runtime evidence
+exists · what remains unverified. Never write "verified" when only static code
+inspection was performed. Never fabricate metrics, benchmark results, Lyzr
+traces, or runtime evidence.
 
 ---
 
@@ -641,11 +788,14 @@ Gate UI · T16 hash audit + verify endpoint · T17 evaluation engine + scorecard
 T18 frontend 5 views + dual SSE · T19 adversarial suite · T20 budgets/performance ·
 T21 demo hardening (`seed.sh`, `eval.sh`, `demo.sh --check`, REPLAY pack, DEMO.md).
 
-Before implementing a module: inspect dependencies · contract ownership ·
-existing implementation · current master · audit history · current tests ·
-conflict risk · integration files · acceptance criteria.
+Before implementing a module: READ SPEC → CHECK DEPENDENCIES → INSPECT
+EXISTING CODE → IMPLEMENT ONLY REQUIRED SCOPE. Concretely: inspect dependencies ·
+contract ownership · existing implementation · current master · audit history ·
+current tests · conflict risk · integration files · acceptance criteria.
+Do not invent requirements. Do not silently change module IDs. Do not rename
+registry modules without explicit project decision.
 
-### 15.2 Development order (dependency locks)
+### 15.2 Development order (dependency-aware waves, not deep perfection)
 
 1. repository foundation → 2. shared contracts → 3. telemetry → 4. normalization →
 5. correlation → 6. evidence → 7. policy → 8. validation → 9. HITL → 10. sandbox →
@@ -653,6 +803,10 @@ conflict risk · integration files · acceptance criteria.
 16. orchestration/FSM → 17. audit/AIMS → 18. evaluation → 19. adversarial →
 20. frontend → 21. performance → 22. integration → 23. demo → 24. submission.
 Respect registry dependency locks; do not bypass locked prerequisites.
+In BUILD PHASE work in waves: land breadth (`IMPLEMENTED_TESTED` /
+`IMPLEMENTED_HARDENING_PENDING`) across a wave before hardening any single
+module. Do not perfect early modules while most registered modules remain
+unimplemented. Do not start unrelated polish when required modules are absent.
 UI only after T02–T10 merged. Each PR states: purpose/files/deps/input/output/
 acceptance/test/metric/rubric-impact.
 
@@ -709,32 +863,41 @@ file-backed seed+audit; sandbox down → mock; net down → local images+video);
 ### 17.1 NEVER
 
 Modify code without inspecting existing code · assume a feature exists · claim
-"production-ready"/"secure"/"hallucination-free" without evidence · trust LLM
+"production-ready"/"secure"/"hallucination-free" without evidence · mark an
+incomplete feature as production-ready · fabricate missing integrations, metrics,
+benchmark results, Lyzr capabilities, or runtime evidence · trust LLM
 risk labels · allow arbitrary shell · bypass policy/HITL/validation/
 verification/audit · silently weaken or remove failing tests · inflate scores ·
-mark registry APPROVED without human approval · rewrite trusted history ·
-blind-force-push · merge stale branches without rebase/rebuild policy · copy
+self-score as final truth · mark registry APPROVED without human approval ·
+rewrite trusted history · delete candidate history for convenience ·
+blind-force-push · hide failures · overwrite another agent's work without
+reconciliation · merge stale branches without rebase/rebuild policy · copy
 proprietary competitor material · fake Lyzr/AIMS/Safe AI integration · invent
 benchmark numbers or make unsupported benchmark claims · expose secrets or put
-them in prompts/logs · dump giant telemetry into prompts · add agents to raise
+them in prompts/logs · commit secrets · dump giant telemetry into prompts · add agents to raise
 agent count · add infrastructure (pgvector, Kafka/Redis, …) without measured
 need · add live cloud credentials · connect to production · implement
 autonomous RED or hidden break-glass · present OPTIONAL as mandatory or
-research recommendations as official rules.
+research recommendations as official rules · start unrelated polish when required
+modules are still absent · say "Project complete" / "Submission ready" before
+§14.8 gates pass.
 
 ### 17.2 Every coding agent MUST
 
 **Before coding:** read AGENTS.md · read the spec · read the module checklist ·
 inspect master/contracts/dependencies/tests · identify ownership + integration
-risks · write a small implementation plan.
-**During coding:** modify only owned files unless authorized · preserve
-contracts and safety boundaries · add positive + negative + security tests with
-implementation · keep deterministic logic deterministic · emit evidence ·
-preserve auditability · document deviations · maintain compatibility.
+risks · write a small implementation plan. Before significant work capture
+`git status --short; git branch --show-current; git rev-parse HEAD; git log --oneline --decorate -20`.
+**During coding (BUILD PHASE flow):** INSPECT → PLAN → IMPLEMENT → TEST →
+SECURITY CHECK → RECORD EVIDENCE → COMMIT → CONTINUE. Modify only owned files
+unless authorized · preserve contracts and safety boundaries (§14.6 never deferred) ·
+add positive + negative + security tests with implementation · keep deterministic
+logic deterministic · emit evidence (§14.9) · preserve auditability · document
+deviations · maintain compatibility.
 **After coding:** self-audit · run positive/negative/adversarial/security/
 integration/performance/lint/type checks · verify no secret leakage · inspect
-diff (no unrelated files) · score from zero · list residual risks honestly ·
-produce a human review package.
+diff (no unrelated files) · estimate state from zero (BUILD) — do not self-score
+as final truth · list residual risks honestly · produce a human review package.
 
 ### 17.3 Change management (every meaningful PR contains all 15)
 
@@ -754,11 +917,19 @@ to human review.
 
 ## §18 — STOP conditions (progress is BLOCKED while any hold)
 
+Stop implementation and surface immediately for: unsafe execution · policy
+bypass · secret exposure · ground-truth leakage · critical regression ·
+fake/unsupported platform capability · falsified metric · broken authorization ·
+approval replay · destructive action escaping the safety boundary. Concretely
+(progress is BLOCKED while any hold):
+
 - Unvalidated Action can reach the executor; RED path executable; YELLOW
   executable without valid token; approval replay/tamper accepted.
 - `POLICY_CHECK → EXECUTING` bypass possible; verifier trusts planner output;
   exit code accepted as resolution.
 - Telemetry can alter trusted instructions; secrets in prompts/logs; secret committed.
+- Ground truth leaked into model-visible context; critical regression; falsified
+  metric (benchmark number without linked run JSONL counts here too).
 - RCA publishable below MUST-CITE coverage; audit chain tamper undetectable;
   blocks emitted without audit events.
 - Unbounded agent loop (any of hyp>3 / re-plan>2 / tools>5/agent / calls>12
@@ -800,6 +971,7 @@ to human review.
 
 ## §20 — Governing principles
 
+BUILD BROADLY FIRST. PERFECT DELIBERATELY SECOND. NEVER DEFER SAFETY.
 BUILD LESS. PROVE MORE. GOVERN THE AGENT. MEASURE EVERYTHING. MAKE THE DEMO
 UNFORGETTABLE. Parallel Build. Serial Trust. The model is not the authority —
 the policy is. The executor is not the verifier — the verifier is independent.
@@ -828,10 +1000,9 @@ TRACEABLE + DEFENSIBLE.
 
 1. Master operational checklist file named in the task brief is **absent from
    this tree** — `docs/MODULE_REGISTRY.md` + spec §60–§61 govern instead.
-2. Registry header tally ("3/183 implemented · 2/183 approved · overall NOT
-   COMPUTED") is **stale relative to its own per-row table** (multiple M00/M01
-   rows show human APPROVED with scores 84–96). Per-row status + human verdict
-   govern, not the header line.
+2. Registry header tally (e.g. "87/183 with implementation · overall NOT
+   COMPUTED") can go **stale relative to its own per-row table**. Per-row status
+   + human verdict govern, not the header line.
 3. Lyzr platform details (SuperFlow programmatic API shape, credit/rate limits,
    session-window behavior beyond the 10-message summarize note) are
    `[UNVERIFIED]` for our purposes — mitigated by caps + REPLAY fallback + local-first demo.
