@@ -8,7 +8,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "telemetry"))
 import gen  # noqa: E402
 from app.schemas import sha256_hex  # noqa: E402
 from app.services.correlator import correlate  # noqa: E402
-from app.services.normalizer import hash_record, normalize_alert  # noqa: E402
+from app.services.normalizer import (  # noqa: E402
+    alert_hash,
+    hash_record,
+    normalize_alert,
+)
 from app.services.predigest import build_evidence_pack  # noqa: E402
 
 
@@ -76,9 +80,11 @@ def test_unrelated_services_split():
 
 
 def test_normalizer_hash_stable():
+    # M03 rewire: the in-model .hash hack is gone (frozen canonical Alert);
+    # custody hashes are computed OUT of model over the canonical dump.
     raw = {"alert_id": "a", "service": "web", "environment": "prod",
            "severity_raw": "critical", "signature": "s", "labels": {}, "ts": 1}
-    assert normalize_alert(raw).hash == normalize_alert(raw).hash
+    assert alert_hash(normalize_alert(raw)) == alert_hash(normalize_alert(raw))
     assert hash_record({"x": 1}) == sha256_hex('{"x":1}')
 
 

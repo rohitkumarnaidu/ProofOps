@@ -154,8 +154,10 @@ class TestStaticAudit:
             ("backend/app/contracts/incident.py", ("FrozenDict", "__new__")),
             # M00.2-frozen: Settings fills its own DATABASE_URL default
             ("backend/app/config.py", ("Settings", "_cross_field_rules")),
-            # legacy T-series (unwired): Alert ts/hash fixup, predates M01.2
-            ("backend/app/services/normalizer.py", ("normalize_alert",)),
+            # M02-M04 REMOVED the legacy normalizer object.__setattr__ bypass
+            # (Alert ts/hash fixup): the rewired normalizer builds canonical
+            # Alerts via validated construction only. The entry is deleted,
+            # not relaxed - any new site still fails this test.
         }
         found = set()
         for path in self._py_files():
@@ -775,8 +777,12 @@ class TestIntegrationCorrelatorHardened:
         assert inc.fingerprint and len(inc.fingerprint) <= MAX_FINGERPRINT_LEN
         assert inc.severity is C.Severity.P1
         assert inc.status is C.IncidentStatus.CORRELATED
-        assert inc.service == "unknown" and inc.environment is C.Environment.MOCK
+        # M02-M04 rewire: the correlator populates linkage from the alerts
+        # (service/environment/source ids); "unknown"/MOCK was the legacy
+        # unwired default, not a contract promise.
+        assert inc.service == "web" and inc.environment is C.Environment.PROD
         assert isinstance(inc.source_alert_ids, tuple)
+        assert len(inc.source_alert_ids) == 4
         assert isinstance(inc.impact, FrozenDict) and isinstance(inc.metadata, FrozenDict)
         assert inc.incident_id and inc.created_at.tzinfo is not None
         json.loads(inc.model_dump_json())  # wire-serializable

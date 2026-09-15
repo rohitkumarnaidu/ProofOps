@@ -185,8 +185,8 @@ class TestStaticAudit:
             ("backend/app/contracts/incident.py", ("FrozenDict", "__new__")),
             # M00.2-frozen: Settings fills its own DATABASE_URL default
             ("backend/app/config.py", ("Settings", "_cross_field_rules")),
-            # legacy T-series (unwired): Alert ts/hash fixup, predates M01.2
-            ("backend/app/services/normalizer.py", ("normalize_alert",)),
+            # M02-M04 REMOVED the legacy normalizer object.__setattr__ bypass:
+            # validated construction only. Deleted, not relaxed.
         }
         found = set()
         for path in self._py_files():

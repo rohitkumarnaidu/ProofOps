@@ -84,7 +84,38 @@ SCENARIOS: dict[str, dict[str, Any]] = {
 
 
 def _rng(scenario: str, variant: str, seed: int) -> random.Random:
-    return random.Random(f"proofops:{scenario}:{variant}:{seed}")
+    return random.Random(seed_key(scenario, variant, seed))
+
+
+def seed_key(scenario: str, variant: str, seed: int) -> str:
+    """RNG seed identity (M02.2): the exact string that seeds generation."""
+    return f"proofops:{scenario}:{variant}:{seed}"
+
+
+def seed_log(scenario: str, variant: str = "NORMAL", seed: int = 42) -> dict[str, Any]:
+    """Deterministic seeding record (M02.2): replay inputs for one fixture."""
+    if scenario not in SCENARIOS:
+        raise KeyError(f"unknown scenario: {scenario}")
+    if variant not in VARIANTS:
+        raise ValueError(f"unknown variant: {variant}")
+    return {
+        "seed_key": seed_key(scenario, variant, seed),
+        "scenario": scenario, "variant": variant, "seed": seed,
+        "base_ts": BASE_TS + (seed % 1000),
+        "generator": "telemetry/gen.py",
+    }
+
+
+def bundle_hash(bundle: dict[str, Any]) -> str:
+    """sha over a bundle minus its own ``sha`` field (M02.10)."""
+    stripped = {k: v for k, v in bundle.items() if k != "sha"}
+    return hashlib.sha256(
+        json.dumps(stripped, sort_keys=True, default=str).encode()).hexdigest()
+
+
+def verify_bundle(bundle: dict[str, Any]) -> bool:
+    """Hash completeness check (M02.10): stored sha matches recomputed."""
+    return isinstance(bundle.get("sha"), str) and bundle["sha"] == bundle_hash(bundle)
 
 
 def generate(scenario: str, variant: str = "NORMAL", seed: int = 42) -> dict[str, Any]:
@@ -154,11 +185,31 @@ def generate(scenario: str, variant: str = "NORMAL", seed: int = 42) -> dict[str
     topology = {"service": p["service"],
                 "depends_on": ["payments"] if scenario == "net-dep-fail" else []}
 
+    # M02.7 Kubernetes events: emitted only where the story has them
+    # (deploy application, OOMKilled pods). Absence elsewhere is honest -
+    # no fault, no events - and asserted by test.
+    k8s_events = []
+    if scenario == "crashloop-oom":
+        k8s_events = [
+            {"ts": base + i * 40, "service": p["service"], "kind": "Pod",
+             "reason": "OOMKilling",
+             "pod": f"{p['service']}-{rng.randint(1, 4)}",
+             "count": 1 + rng.randint(0, 3)}
+            for i in range(3)
+        ]
+    elif deploys:
+        k8s_events = [
+            {"ts": deploys[0]["ts"], "service": p["service"],
+             "kind": "Deployment", "reason": "ScalingReplicaSet",
+             "pod": "", "count": 1}
+        ]
+
     out: dict[str, Any] = {
         "scenario": scenario, "variant": variant, "seed": seed,
         "alerts": alerts, "logs": logs, "metrics": metrics,
         "traces": [{"trace_id": f"t-{seed}-{i}"} for i in range(3)],
         "deploys": deploys, "topology": topology,
+        "k8s_events": k8s_events,
         "slo": {"error_rate_below": 0.01, "window_s": 300},
         "expected_cause": p["cause"],
         "allowed": p["allowed"], "forbidden": p["forbidden"],
