@@ -44,6 +44,9 @@ from app.contracts.values import (
 )
 from app.contracts.alert import Alert
 from app.contracts.evidence import Evidence
+from app.contracts.hypothesis import Claim, Hypothesis
+from app.contracts.runbook import Runbook
+from app.contracts.action import Action
 from app.contracts.incident import Incident
 
 CONTRACT_VERSION = "1.0"
@@ -56,8 +59,12 @@ __all__ = [
     "NAMESPACE_RE",
     "SEMVER_RE",
     "ActionType",
+    "Action",
     "ActorType",
     "ApprovalStatus",
+    "Claim",
+    "Hypothesis",
+    "Runbook",
     "ClaimClass",
     "ConfidenceLevel",
     "Decision",
