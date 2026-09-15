@@ -47,6 +47,14 @@ from app.contracts.evidence import Evidence
 from app.contracts.hypothesis import Claim, Hypothesis
 from app.contracts.runbook import Runbook
 from app.contracts.action import Action
+from app.contracts.policy import PolicyDecision
+from app.contracts.approval import ApprovalRequest, ApprovalToken
+from app.contracts.execution import Execution
+from app.contracts.verification import VerificationResult
+from app.contracts.rollback import Rollback
+from app.contracts.rca import RCA
+from app.contracts.audit import AuditEvent
+from app.contracts.evaluation import BenchmarkResult, EvaluationRun
 from app.contracts.incident import Incident
 
 CONTRACT_VERSION = "1.0"
@@ -62,8 +70,17 @@ __all__ = [
     "Action",
     "ActorType",
     "ApprovalStatus",
+    "ApprovalRequest",
+    "ApprovalToken",
+    "AuditEvent",
+    "BenchmarkResult",
     "Claim",
+    "EvaluationRun",
+    "Execution",
     "Hypothesis",
+    "PolicyDecision",
+    "RCA",
+    "Rollback",
     "Runbook",
     "ClaimClass",
     "ConfidenceLevel",
@@ -78,6 +95,7 @@ __all__ = [
     "IncidentStatus",
     "Alert",
     "Evidence",
+    "VerificationResult",
     "PageParams",
     "RiskLevel",
     "Severity",

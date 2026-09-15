@@ -1,7 +1,7 @@
 # ProofOps — Complete Module Registry (183 controlled units)
 
 > Authoritative spec: `docs/PS03_FINAL_SPEC_V2.md`. One module at a time. No auto-continue.
-> Progress: **14/183 with implementation** (10 APPROVED: M00.1, M00.3–M00.7, M01.1–M01.4 · 1 IMPLEMENTED awaiting verdict: M00.2 · 3 IMPLEMENTED_TESTED hardening-pending: M01.5–M01.7, merged 2026-09-15) · Overall project score: NOT COMPUTED.
+> Progress: **22/183 with implementation** (10 APPROVED: M00.1, M00.3–M00.7, M01.1–M01.4 · 1 IMPLEMENTED awaiting verdict: M00.2 · 11 IMPLEMENTED_TESTED hardening-pending: M01.5–M01.15, merged 2026-09-15) · Overall project score: NOT COMPUTED.
 
 ## Global Verification Gate (applies to every unit)
 
@@ -49,14 +49,14 @@ registry tracks unit-level status only.
 | M01.5 | Hypothesis schema | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | status-enum + citation-field tests |
 | M01.6 | Runbook schema | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | pin + hash-field tests |
 | M01.7 | Action schema | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | allowlist + param-shape + shell-reject tests |
-| M01.8 | PolicyDecision schema | NOT STARTED | S | N | N | N | ALLOW/ESCALATE/DENY + rule-ref tests |
-| M01.9 | Approval schema | NOT STARTED | S | N | N | N | token/nonce/expiry-field tests |
-| M01.10 | Execution schema | NOT STARTED | S | N | N | N | idempotency-field + diff-field tests |
-| M01.11 | Verification schema | NOT STARTED | S | N | N | N | verdict-enum tests |
-| M01.12 | Rollback schema | NOT STARTED | S | N | N | N | reversibility-field tests |
-| M01.13 | RCA schema | NOT STARTED | S | N | N | N | gate-field + claim-map tests |
-| M01.14 | Audit schema | NOT STARTED | S | N | N | N | hash-chain-field + ordering tests |
-| M01.15 | Evaluation schema | NOT STARTED | S | N | N | N | metric-JSONB + run-ref tests |
+| M01.8 | PolicyDecision schema | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | ALLOW/ESCALATE/DENY + rule-ref tests |
+| M01.9 | Approval schema | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | token/nonce/expiry-field tests |
+| M01.10 | Execution schema | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | idempotency-field + diff-field tests |
+| M01.11 | Verification schema | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | verdict-enum tests |
+| M01.12 | Rollback schema | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | reversibility-field tests |
+| M01.13 | RCA schema | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | gate-field + claim-map tests |
+| M01.14 | Audit schema | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | hash-chain-field + ordering tests |
+| M01.15 | Evaluation schema | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | metric-JSONB + run-ref tests |
 
 ## PHASE 02 — Telemetry (10)
 
