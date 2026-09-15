@@ -1,9 +1,10 @@
-"""HMAC approval tokens: identity+scope+param+time bound, single-use (V2 §27).
+"""HMAC approval tokens (M07): identity+scope+param+time bound, single-use.
 
 Token = HMAC-SHA256(secret, action_id|actor|params_hash|scope|expiry|nonce).
 verify() enforces: signature, actor match, EXACT params hash, scope match,
 expiry, and nonce freshness (replay -> DENY). Never trust the browser:
-all checks are server-side. RULE 08/09.
+all checks are server-side. Approval is explicit, action-specific,
+identity-bound, scope-bound, time-bound, single-use, auditable.
 """
 from __future__ import annotations
 
@@ -13,10 +14,15 @@ import secrets
 import sys
 from datetime import timedelta
 from pathlib import Path
+from typing import Any
+from collections.abc import Mapping
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "backend"))
 
-from app.schemas import Action, ApprovalRequest, params_hash, utcnow  # noqa: E402
+from app.contracts.action import Action  # noqa: E402 (M01.7 canonical)
+from app.contracts.approval import ApprovalRequest  # noqa: E402 (M01.9 canonical)
+from app.contracts.incident import FrozenDict  # noqa: E402 (frozen mapping)
+from app.contracts.values import params_hash, utcnow  # noqa: E402
 
 
 class ApprovalError(Exception):
@@ -41,6 +47,18 @@ def scope_of(action: Action) -> str:
             f"{action.environment}:{action.namespace}")
 
 
+def _params_dict(action: Action) -> dict[str, Any]:
+    """Exact parameter set for scope binding (frozen -> plain, detached)."""
+    params = action.parameters
+    if isinstance(params, FrozenDict):
+        return params.to_plain()
+    if isinstance(params, Mapping):
+        return dict(params)
+    raise ApprovalError("parameters must be an object")
+    return (f"{action.action_type}:{action.resource_type}:{action.resource_id}:"
+            f"{action.environment}:{action.namespace}")
+
+
 def _mac(secret: str, parts: list[str]) -> str:
     return hmac.new(secret.encode(), "|".join(parts).encode(),
                     hashlib.sha256).hexdigest()
@@ -48,9 +66,15 @@ def _mac(secret: str, parts: list[str]) -> str:
 
 def issue(action: Action, actor: str, secret: str,
           ttl_seconds: int = 600) -> tuple[ApprovalRequest, str]:
+    """Issue a request + HMAC token. Empty secrets fail closed (fail-closed
+    secrets are worse than useless: they mint self-verifying tokens)."""
+    if not isinstance(secret, str) or not secret:
+        raise ValueError("approval secret must be a non-empty string")
+    if not isinstance(actor, str) or not actor.strip():
+        raise ValueError("actor must be a non-empty string")
     nonce = secrets.token_hex(16)
     expires = utcnow() + timedelta(seconds=ttl_seconds)
-    ph = params_hash(action.parameters)
+    ph = params_hash(_params_dict(action))
     scope = scope_of(action)
     token = _mac(secret, [action.action_id, actor, ph, scope,
                           expires.isoformat(), nonce])
@@ -64,11 +88,13 @@ def issue(action: Action, actor: str, secret: str,
 def verify(token: str, req: ApprovalRequest, action: Action, actor: str,
            secret: str, store: NonceStore) -> ApprovalRequest:
     """Return req on success; raise ApprovalError (=> DENY) otherwise."""
+    if not isinstance(token, str) or not token:
+        raise ApprovalError("missing token")
     if utcnow() >= req.expires_at:
         raise ApprovalError("approval expired")
     if actor != req.actor:
         raise ApprovalError("wrong actor")
-    if params_hash(action.parameters) != req.params_hash:
+    if params_hash(_params_dict(action)) != req.params_hash:
         raise ApprovalError("parameters differ from approved scope")
     if scope_of(action) != req.scope or action.action_id != req.action_id:
         raise ApprovalError("scope mismatch")
