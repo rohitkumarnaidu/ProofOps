@@ -43,6 +43,7 @@ from app.contracts.values import (
     utcnow,
 )
 from app.contracts.alert import Alert
+from app.contracts.evidence import Evidence
 from app.contracts.incident import Incident
 
 CONTRACT_VERSION = "1.0"
@@ -69,6 +70,7 @@ __all__ = [
     "Incident",
     "IncidentStatus",
     "Alert",
+    "Evidence",
     "PageParams",
     "RiskLevel",
     "Severity",

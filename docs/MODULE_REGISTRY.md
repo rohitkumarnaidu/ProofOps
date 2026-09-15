@@ -45,7 +45,7 @@ registry tracks unit-level status only.
 | M01.1 | shared types | APPROVED (94/100, human verdict, locked) | S | N | N | N | schema unit + 20-invalid-fixture tests |
 | M01.2 | Incident schema | APPROVED (93/100, human verdict, locked) | S | N | N | N | valid + invalid + 14-state CHECK tests |
 | M01.3 | Alert schema | APPROVED (95/100, human verdict, locked) | S | N | N | N | valid + invalid tests |
-| M01.4 | Evidence schema | NOT STARTED | S | N | N | N | valid + invalid + hash-field tests |
+| M01.4 | Evidence schema | APPROVED (97/100, human verdict, locked) | S | N | N | N | valid + invalid + hash-field tests |
 | M01.5 | Hypothesis schema | NOT STARTED | S | N | N | N | status-enum + citation-field tests |
 | M01.6 | Runbook schema | NOT STARTED | S | N | N | N | pin + hash-field tests |
 | M01.7 | Action schema | NOT STARTED | S | N | N | N | allowlist + param-shape + shell-reject tests |
