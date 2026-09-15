@@ -1,4 +1,8 @@
-"""Execution-half tests: HITL crypto, sandbox transitions, verifier, rollback."""
+"""Execution-half tests: HITL crypto, sandbox transitions, verifier, rollback.
+
+M07-M10 rewire: constructs canonical contracts (app.contracts) - services
+take canonical types only. Behavioral pins below are unchanged.
+"""
 import sys
 from pathlib import Path
 
@@ -6,7 +10,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 
-from app.schemas import Action  # noqa: E402
+from app.contracts import Action  # noqa: E402 (M01 canonical)
 from app.services.approval import NonceStore, issue, verify, ApprovalError  # noqa: E402
 from app.services.rollback import rollback_for, should_rollback  # noqa: E402
 from app.services.sandbox import MOCKABLE, apply, initial_state  # noqa: E402

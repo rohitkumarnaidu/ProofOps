@@ -1,7 +1,7 @@
 # ProofOps — Complete Module Registry (183 controlled units)
 
 > Authoritative spec: `docs/PS03_FINAL_SPEC_V2.md`. One module at a time. No auto-continue.
-> Progress: **60/183 with implementation** (10 APPROVED: M00.1, M00.3–M00.7, M01.1–M01.4 · 1 IMPLEMENTED awaiting verdict: M00.2 · 49 IMPLEMENTED_TESTED hardening-pending: M01.5–M01.15, M02.1–M04.6, M05.1–M05.6, M06.1–M06.10) · Overall project score: NOT COMPUTED.
+> Progress: **87/183 with implementation** (10 APPROVED: M00.1, M00.3–M00.7, M01.1–M01.4 · 1 IMPLEMENTED awaiting verdict: M00.2 · 76 IMPLEMENTED_TESTED hardening-pending: M01.5–M10.5) · Overall project score: NOT COMPUTED.
 
 ## Global Verification Gate (applies to every unit)
 
@@ -125,48 +125,48 @@ registry tracks unit-level status only.
 
 | ID | Unit | Status | Safety | Ground | Hall | Retr | Verify method |
 |---|---|---|---|---|---|---|---|
-| M07.1 | approval request | NOT STARTED | R | N | N | N | field + params-hash binding tests |
-| M07.2 | HMAC token | NOT STARTED | R | N | N | N | sign/verify + wrong-secret DENY tests |
-| M07.3 | nonce | NOT STARTED | R | N | N | N | single-use burn tests |
-| M07.4 | TTL | NOT STARTED | R | N | N | N | expiry→410 + escalate tests |
-| M07.5 | scope binding | NOT STARTED | R | N | N | N | tampered-params DENY tests |
-| M07.6 | actor binding | NOT STARTED | R | N | N | N | wrong-role DENY tests |
-| M07.7 | replay protection | NOT STARTED | R | N | N | N | replay→DENY + audit tests |
-| M07.8 | approval audit | NOT STARTED | R | N | N | N | approve/deny/expire event tests |
+| M07.1 | approval request | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | field + params-hash binding tests |
+| M07.2 | HMAC token | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | sign/verify + wrong-secret DENY tests |
+| M07.3 | nonce | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | single-use burn tests |
+| M07.4 | TTL | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | expiry→410 + escalate tests |
+| M07.5 | scope binding | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | tampered-params DENY tests |
+| M07.6 | actor binding | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | wrong-role DENY tests |
+| M07.7 | replay protection | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | replay→DENY + audit tests |
+| M07.8 | approval audit | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | approve/deny/expire event tests |
 
 ## PHASE 08 — Sandbox (6)
 
 | ID | Unit | Status | Safety | Ground | Hall | Retr | Verify method |
 |---|---|---|---|---|---|---|---|
-| M08.1 | stateful mock executor | NOT STARTED | R | N | N | N | state-flap/ready transition tests |
-| M08.2 | action state transitions | NOT STARTED | R | N | N | N | restart/scale/rollback transition tests |
-| M08.3 | zero-diff block guarantee | NOT STARTED | R | N | N | N | blocked-action→zero-diff assert tests |
-| M08.4 | execution logging | NOT STARTED | R | N | N | N | tier + diff + log-record tests |
-| M08.5 | Docker executor | NOT STARTED | R | N | N | N | allowlist-mutate + RED-refuse tests |
-| M08.6 | isolation checks | NOT STARTED | R | N | N | N | unpriv + no-secret-mount + net-isolated tests |
+| M08.1 | stateful mock executor | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | state-flap/ready transition tests |
+| M08.2 | action state transitions | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | restart/scale/rollback transition tests |
+| M08.3 | zero-diff block guarantee | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | blocked-action→zero-diff assert tests |
+| M08.4 | execution logging | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | tier + diff + log-record tests |
+| M08.5 | Docker executor | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | allowlist-mutate + RED-refuse tests |
+| M08.6 | isolation checks | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | unpriv + no-secret-mount + net-isolated tests |
 
 ## PHASE 09 — Verification (8)
 
 | ID | Unit | Status | Safety | Ground | Hall | Retr | Verify method |
 |---|---|---|---|---|---|---|---|
-| M09.1 | health checks | NOT STARTED | R | N | N | N | pod-ready tests |
-| M09.2 | deployment checks | NOT STARTED | R | N | N | N | available-replicas + version tests |
-| M09.3 | SLO checks | NOT STARTED | R | N | N | N | threshold-config tests |
-| M09.4 | error-rate checks | NOT STARTED | R | N | N | N | err<thr tests |
-| M09.5 | latency checks | NOT STARTED | R | N | N | N | p95<SLO tests |
-| M09.6 | CrashLoop checks | NOT STARTED | R | N | N | N | zero-new-CrashLoop-60s tests |
-| M09.7 | verification verdict | NOT STARTED | R | N | N | N | RESOLVED/PARTIAL/FAILED/WORSENED matrix tests |
-| M09.8 | rollback trigger | NOT STARTED | R | N | N | N | exit-0-bad-SLO→FAILED + trigger tests |
+| M09.1 | health checks | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | pod-ready tests |
+| M09.2 | deployment checks | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | available-replicas + version tests |
+| M09.3 | SLO checks | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | threshold-config tests |
+| M09.4 | error-rate checks | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | err<thr tests |
+| M09.5 | latency checks | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | p95<SLO tests |
+| M09.6 | CrashLoop checks | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | zero-new-CrashLoop-60s tests |
+| M09.7 | verification verdict | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | RESOLVED/PARTIAL/FAILED/WORSENED matrix tests |
+| M09.8 | rollback trigger | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | exit-0-bad-SLO→FAILED + trigger tests |
 
 ## PHASE 10 — Rollback (5)
 
 | ID | Unit | Status | Safety | Ground | Hall | Retr | Verify method |
 |---|---|---|---|---|---|---|---|
-| M10.1 | rollback action schema | NOT STARTED | R | N | N | N | template-field tests |
-| M10.2 | rollback conditions | NOT STARTED | R | N | N | N | FAILED/WORSENED/REQUIRED-condition tests |
-| M10.3 | rollback executor | NOT STARTED | R | N | N | N | one-auto-attempt tests |
-| M10.4 | re-verification | NOT STARTED | R | N | N | N | re-verify→RESOLVED\|ESCALATED tests |
-| M10.5 | escalation | NOT STARTED | R | N | N | N | irreversible-no-path + escalate tests |
+| M10.1 | rollback action schema | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | template-field tests |
+| M10.2 | rollback conditions | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | FAILED/WORSENED/REQUIRED-condition tests |
+| M10.3 | rollback executor | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | one-auto-attempt tests |
+| M10.4 | re-verification | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | re-verify→RESOLVED\|ESCALATED tests |
+| M10.5 | escalation | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | irreversible-no-path + escalate tests |
 
 ## PHASE 11 — Runbooks (6)
 
