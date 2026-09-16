@@ -27,8 +27,9 @@ on:
 
 # LACK-15 fix (least-privilege + no duplicate runs). This pipeline only reads
 # the repo and runs tests, so `contents: read` suffices; concurrent runs on
-# the same ref cancel (fail-fast, no stale green). Action SHA-pinning is a
-# recorded P2 (needs verified SHAs; majors float today -- see ADR-008).
+# the same ref cancel (fail-fast, no stale green). Actions are SHA-pinned
+# (SHAs verified live via api.github.com, version kept in trailing `# vN`
+# comment for greppable updates); runner is pinned `ubuntu-24.04` (see ADR-009).
 permissions:
   contents: read
 
@@ -39,10 +40,10 @@ concurrency:
 jobs:
   lint:
     name: "1/5 ruff"
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@7f4fc3e22c37d6ff65e88745f38bd3157c663f7c # v5
         with:
           python-version: "3.12"
           cache: pip
@@ -56,11 +57,11 @@ jobs:
 
   typecheck:
     name: "2/5 mypy"
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [lint]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@7f4fc3e22c37d6ff65e88745f38bd3157c663f7c # v5
         with:
           python-version: "3.12"
           cache: pip
@@ -74,11 +75,11 @@ jobs:
 
   unit:
     name: "3/5 unit (host-safe)"
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [typecheck]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@7f4fc3e22c37d6ff65e88745f38bd3157c663f7c # v5
         with:
           python-version: "3.12"
           cache: pip
@@ -97,24 +98,26 @@ jobs:
 
   security:
     name: "4/5 security (secret scan)"
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [unit]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@7f4fc3e22c37d6ff65e88745f38bd3157c663f7c # v5
         with:
           python-version: "3.12"
       - name: Secret scan (redacted output, never prints values)
         run: python scripts/secret_scan.py
 
   lockfile:
-    name: "5/5 lockfile (freeze check)"
-    runs-on: ubuntu-latest
+    name: "5/5 lockfile (freeze check + audit)"
+    runs-on: ubuntu-24.04
     needs: [security]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@7f4fc3e22c37d6ff65e88745f38bd3157c663f7c # v5
         with:
           python-version: "3.12"
       - name: Lock covers requirements with exact in-range pins
         run: python scripts/freeze.py --check
+      - name: Dependency vulnerability audit (allowlisted IDs in scripts/pip_audit_allowlist.txt)
+        run: pip install "pip-audit>=2.10,<2.11" && python scripts/freeze.py --audit

@@ -48,6 +48,27 @@ class TestWorkflowShape:
         text = WORKFLOW.read_text(encoding="utf-8")
         assert 'python-version: "3.12"' in text
 
+    def test_actions_sha_pinned_with_version_comment(self):  # STATIC
+        # Floating majors (checkout@v4) let upstream move under us; SHAs were
+        # verified live via api.github.com (see ADR-009), versions kept as
+        # trailing comments for greppable updates.
+        import re
+        text = WORKFLOW.read_text(encoding="utf-8")
+        uses = re.findall(r"uses:\s*(\S+)", text)
+        assert len(uses) == 10, uses  # 5 jobs x checkout + setup-python
+        for ref in uses:
+            assert re.fullmatch(
+                r"actions/(checkout|setup-python)@[0-9a-f]{40}", ref), ref
+        assert "actions/checkout@v4" not in text
+        assert "actions/setup-python@v5" not in text
+        assert text.count("# v4") == 5 and text.count("# v5") == 5
+
+    def test_runner_pinned_not_latest(self):  # STATIC
+        text = WORKFLOW.read_text(encoding="utf-8")
+        assert "ubuntu-latest" not in text
+        import re
+        assert len(re.findall(r"runs-on:\s*ubuntu-24\.04", text)) == 5
+
     def test_installs_from_lock(self):  # STATIC
         # CI (ubuntu py3.12) consumes the linux/cp312 lock (ADR-010); the
         # Windows-local runner keeps portable ranges (see parity test below).
@@ -81,6 +102,18 @@ class TestStageCommands:
     def test_lockfile_runs_freeze_check(self):  # STATIC
         run = _job_run(_workflow()["jobs"]["lockfile"])
         assert "scripts/freeze.py" in run and "--check" in run
+
+    def test_lockfile_runs_pip_audit(self):  # STATIC
+        run = _job_run(_workflow()["jobs"]["lockfile"])
+        assert "pip-audit" in run and "--audit" in run
+        # The audited exceptions live in scripts/pip_audit_allowlist.txt
+        # (referenced by the step name; content gated in test_freeze.py).
+        assert "pip_audit_allowlist.txt" in WORKFLOW.read_text(
+            encoding="utf-8")
+
+    def test_lockfile_job_name(self):  # STATIC
+        assert _workflow()["jobs"]["lockfile"].get("name") == \
+            "5/5 lockfile (freeze check + audit)"
 
 
 class TestWorkflowHygiene:
@@ -134,8 +167,11 @@ class TestLocalRunnerParity:
         # installs from the lock. Both run the identical freeze --check gate.
         # If this split ever closes, delete this test and unify.
         sh = CI_SH.read_text(encoding="utf-8")
+        # Executable installs only (the SKIP echo quotes an install command
+        # as text — that is documentation, not an install).
         executable_installs = [
             line.split("#", 1)[0] for line in sh.splitlines()
+            if "echo" not in line.split("#", 1)[0]
         ]
         assert not any("pip install" in code for code in executable_installs), \
             "local runner must not install (ambient env only)"
@@ -148,3 +184,12 @@ class TestLocalRunnerParity:
             code = line.split("#", 1)[0]
             assert "compose config" not in code or "--quiet" in code or \
                 "--services" in code or "config --quiet" in text
+
+    def test_ci_sh_audit_skips_honestly_when_absent(self):  # STATIC
+        # pip-audit cannot be assumed on a host: the runner must run it when
+        # present and print SKIP (never PASS) when absent — same honesty rule
+        # as the runtime-daemon exclusions. CI installs it unconditionally.
+        sh = CI_SH.read_text(encoding="utf-8")
+        assert "scripts/freeze.py --audit" in sh
+        assert "SKIP: pip-audit not installed" in sh
+        assert "never PASS" in sh

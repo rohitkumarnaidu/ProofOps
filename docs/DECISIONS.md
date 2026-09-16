@@ -113,19 +113,27 @@ emptiness unpinned (now asserted — no silent shared default); README
 fabrication hygiene untested (now gated like the 11 docs); `os.getenv("X")`
 form missed by BOTH parity detectors (regex needs `os.environ`, AST missed
 attribute-getenv — prospective fail-loud test added, zero hits today).
-Recorded boundaries (P2, owned, non-blocking with evidence): `python-dotenv`
-is in `backend/requirements.txt` but imported nowhere (`grep dotenv` over
-backend/scripts/telemetry hits requirements only) — removal changes the image
-and needs a container rebuild proof (owner M00.1, needs daemon); compose `$`
+Recorded boundaries (P2, owned, non-blocking with evidence): compose `$`
 in passwords collides with `${VAR}` interpolation (passwords must avoid raw
-`$` — noted in `docs/COMPOSE.md` stickiness); `Settings(env_file=".env")`
-resolves relative to CWD (works by convention: repo root locally, `/app` in
-image where no `.env` ships and process env wins — anchoring owned by M00.2
-future work); action majors (`checkout@v4`, `setup-python@v5`) and
-`ubuntu-latest` float instead of SHA/image pins (needs verified SHAs from a
-connected run — never fabricate); `pyproject.toml` lint scope is narrow
-(E4/E7/E9/F) so some `noqa` markers are inert decorations (widening owned by
-M00.7 with a full-violation triage).
+`$` — noted in `docs/COMPOSE.md` stickiness); `pyproject.toml` lint scope is
+narrow (E4/E7/E9/F) so some `noqa` markers are inert decorations (widening
+owned by M00.7 with a full-violation triage).
+CORRECTED here (was wrong in ADR-009): `python-dotenv` is NOT unused —
+`pydantic-settings` hard-requires it (`Requires-Dist: python-dotenv>=0.21.0`,
+verified via importlib metadata) and uses it for `.env` parsing
+(`test_env_beats_dotenv_file` exercises it). Removal is REJECTED, and a
+presence test pins it. (Lesson: "grep shows no import" missed transitive
+library use — check metadata, not just imports.)
+CLOSED here: `Settings(env_file=".env")` stays CWD-relative BY DECISION
+(investigated anchoring, REJECTED with proof): anchoring to the repo root
+would couple every bare process to the repo `.env` (present on dev boxes),
+so the hermetic fail-closed proof (`test_process_fails_closed_actionable`:
+scrubbed env + foreign CWD must raise naming the key) would go green-by-
+accident locally while staying red on clean clones — the worst kind of
+environment-dependent test. CWD-relative fails loud and safe everywhere, and
+the contract is now pinned by test + documented in CONFIGURATION.md.
+CLOSED here: action SHAs pinned (verified live via api.github.com, `# vN`
+comments) and runner pinned `ubuntu-24.04` (was "floats" in ADR-009).
 Spec: §43–§46. Detail: `docs/TESTING.md`, `docs/ARCHITECTURE.md`, `docs/API.md`.
 
 ## ADR-010 — No lockfile yet (recorded gap, not a decision)
@@ -162,9 +170,15 @@ strict `--check` for CI, `--generate` that REFUSES non-3.12 interpreters so a
 drifted host can never bake the lock). CI now installs from the lock and runs
 a 5th `lockfile` job (`needs: [security]`); the Windows-local runner keeps
 portable ranges with the split documented + tested (manylinux wheels cannot
-install on Windows). REMAINING (owned, next): Dockerfiles still install from
-`requirements.txt` — switching them needs a daemon `--no-cache` build proof
-(M00.1/M00.3, needs daemon); `pip-audit`/hashes still open (M00.7).
+install on Windows). CLOSED after landing (this pass): both Dockerfiles now
+install from `requirements.lock` — proven by a clean `--no-cache` build
+(`proofops-api:lockproof`) + container smoke (`/healthz` 200 frozen body,
+`/readyz` 503 with no DB) on Docker Desktop 29.6.2. CLOSED after landing
+(this pass): `pip-audit` gates the lock in CI with 8 documented per-ID
+exceptions (7 starlette: no in-bounds fix under fastapi<0.120, zero
+exploitable surface proven by grep; 1 pytest: local-only) — live scan
+evidence from a 3.12-slim run, unknown IDs fail loud. REMAINING (owned,
+next): `--require-hashes` still open (M00.7).
 
 ## PLANNED ADR slots (not taken in M00.6)
 

@@ -85,6 +85,59 @@ class TestExtraFailClosed:
         assert s.SEED_SCENARIO == ""
 
 
+class TestCwdContract:
+    def test_env_file_is_relative_by_decision(self):  # STATIC
+        # Anchoring to the repo root was investigated and REJECTED (ADR-009):
+        # it would let a bare process silently load a dev box's `.env`,
+        # breaking the hermetic fail-closed proof. Relative fails loud.
+        from app.config import Settings
+        assert Settings.model_config.get("env_file") == ".env"
+
+    def test_fail_closed_from_foreign_cwd(self, tmp_path):  # RUNTIME
+        # No .env under tmp_path and a scrubbed env: bare load must raise
+        # naming the key, independent of repo layout.
+        import os
+        import subprocess
+        import sys
+        keep = ("PATH", "SYSTEMROOT", "PYTHONIOENCODING", "PYTHONUTF8",
+                "TEMP", "TMP", "HOME", "APPDATA", "USERPROFILE",
+                "SYSTEMDRIVE", "WINDIR")
+        env = {k: v for k, v in os.environ.items() if k in keep}
+        env["PYTHONPATH"] = str(ROOT / "backend")  # import path only, no secrets
+        proc = subprocess.run(
+            [sys.executable, "-c",
+             "from app.config import load_settings; load_settings()"],
+            capture_output=True, text=True, cwd=str(tmp_path), env=env,
+            timeout=60)
+        assert proc.returncode != 0
+        assert "APPROVAL_SECRET" in proc.stderr
+
+
+class TestDotenvLoadBearing:
+    def test_dotenv_present_and_used(self, monkeypatch, tmp_path):  # UNIT
+        # Correction of an ADR-009 error ("unused"): pydantic-settings
+        # hard-requires python-dotenv for `.env` parsing. Pin presence...
+        import importlib.util
+        assert importlib.util.find_spec("dotenv") is not None
+
+    def test_dotenv_parses_env_file(self, monkeypatch, tmp_path):  # UNIT
+        # ...and pin behavior: a dotenv FILE beats defaults (proven through
+        # the public loader, no private API).
+        for k in KNOWN_KEYS:
+            monkeypatch.delenv(k, raising=False)
+        dotenv = tmp_path / ".env"
+        dotenv.write_text(
+            "EXECUTOR=docker\nAPPROVAL_SECRET=file-secret-16-chars-ok\n"
+            "POSTGRES_PASSWORD=file-db-pass\nPROOFOPS_API_KEY=file-api-key\n",
+            encoding="utf-8")
+        get_settings.cache_clear()
+        try:
+            s = load_settings(_env_file=str(dotenv))
+        finally:
+            get_settings.cache_clear()
+        assert s.APPROVAL_SECRET == "file-secret-16-chars-ok"
+
+
 class TestInventoryDocsParity:
     def test_every_inventory_key_documented(self):  # INTEGRATION
         from app.config import Settings

@@ -30,6 +30,13 @@ Nothing here claims production readiness or certification.
 - Safe vs unsafe commands: SAFE is `docker compose config --quiet`,
   `config --services`, `ps`, `logs`. UNSAFE is plain `docker compose config`
   (renders secret values) and `down -v` (destroys `pgdata`).
+- Dependency posture (M00.7, live): `backend/requirements.lock` (34 exact
+  cp312/manylinux pins) + `scripts/freeze.py --check` gate + `pip-audit`
+  gate with per-ID written exceptions
+  (`scripts/pip_audit_allowlist.txt`: 7 starlette IDs with no in-bounds fix
+  and no exploitable surface in this 2-route API, 1 local-only pytest ID).
+  Anything unlisted FAILS. Repro: `python scripts/freeze.py --audit`
+  (needs `pip-audit`; fails closed without it).
 
 ## PLANNED (owning modules, not implemented)
 

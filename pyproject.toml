@@ -1,8 +1,8 @@
 # ProofOps CI baseline (M00.7 CI foundation).
 # Container python:3.12-slim is the source of truth (see backend/requirements.txt
-# header); CI pins python 3.12 + `pip install -r backend/requirements.txt` so
-# tool versions are the bounded ranges in requirements (ruff 0.5.x, mypy 1.10-1.11),
-# never host-drifted 3.13/3.14 + starlette v1.x.
+# header); CI pins python 3.12 + `pip install -r backend/requirements.lock` so
+# tool versions are the exact pins in the lock (ADR-010b), never host-drifted
+# 3.13/3.14 + starlette v1.x.
 #
 # M00.1-M00.5 are FROZEN: frozen files cannot be edited to add noqa/type-ignore,
 # so the 6 ruff + 2 mypy findings below are codified here as acknowledged debt
