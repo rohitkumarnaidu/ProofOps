@@ -23,6 +23,17 @@ on:
   push:
   pull_request:
 
+# LACK-15 fix (least-privilege + no duplicate runs). This pipeline only reads
+# the repo and runs tests, so `contents: read` suffices; concurrent runs on
+# the same ref cancel (fail-fast, no stale green). Action SHA-pinning is a
+# recorded P2 (needs verified SHAs; majors float today — see ADR-008).
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   lint:
     name: "1/4 ruff"

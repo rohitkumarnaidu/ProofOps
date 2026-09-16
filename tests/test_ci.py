@@ -95,6 +95,17 @@ class TestWorkflowHygiene:
         assert "echo" in code and "secrets." in code  # detector fires
 
 
+class TestWorkflowLeastPrivilege:
+    def test_permissions_read_only(self):  # STATIC
+        # LACK-15: default token is broad; this pipeline only reads + tests.
+        assert _workflow().get("permissions") == {"contents": "read"}
+
+    def test_concurrency_cancels_duplicates(self):  # STATIC
+        conc = _workflow().get("concurrency", {})
+        assert conc.get("cancel-in-progress") is True
+        assert "github.ref" in str(conc.get("group", ""))
+
+
 class TestLocalRunnerParity:
     def test_ci_sh_mirrors_workflow_stages(self):  # STATIC
         text = CI_SH.read_text(encoding="utf-8")

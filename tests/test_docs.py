@@ -227,3 +227,8 @@ class TestDocSecrets:
         assert _secret_markers("key=sk-abc123") == ["sk-"]
         assert _secret_markers("pw hunter2 hunter2") == ["hunter2"]
         assert _secret_markers("clean prose, nothing here") == []
+
+    def test_readme_has_no_fabrication_claims(self):  # STATIC
+        # The 11-doc gate never covered the root entrypoint (most-read file).
+        body = (ROOT / "README.md").read_text(encoding="utf-8")
+        assert _forbidden_claims(body) == []

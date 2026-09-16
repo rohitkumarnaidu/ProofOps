@@ -35,7 +35,9 @@ later does NOT change the live DB password (postgres semantics, verified live:
 ambient mismatch discovered by M00.3 testing). After a password change either
 `ALTER USER proofops WITH PASSWORD '...'` inside db, or `down -v` + fresh
 `up` (data loss). The compose `:?` guard ensures fresh setups fail fast instead
-of silently diverging.
+of silently diverging. Passwords must avoid raw `$`: compose interpolates
+`${VAR}` (use `$$` for a literal dollar) — a `$` password silently becomes a
+different password at interpolate time (same drift class as above).
 
 ## Startup order
 

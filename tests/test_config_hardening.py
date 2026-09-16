@@ -110,3 +110,25 @@ class TestInventoryDocsParity:
             encoding="utf-8")
         assert re.search(r"os\.environ", (ROOT / "scripts" / "verify_lyzr.py").read_text(
             encoding="utf-8"))
+
+    def test_no_getenv_form_anywhere(self):  # INTEGRATION
+        # Parity-hole pin: BOTH detectors (regex in test_repo_structure.py,
+        # AST above) miss `os.getenv("X")` — regex needs `os.environ`, AST
+        # misses attribute-getenv. Zero hits today (verified); any future
+        # `os.getenv` fails loudly here instead of slipping parity.
+        offenders = []
+        for base in ("backend", "scripts", "telemetry"):
+            for path in (ROOT / base).rglob("*.py"):
+                if "__pycache__" in path.parts:
+                    continue
+                text = path.read_text(encoding="utf-8")
+                tree = ast.parse(text)
+                for node in ast.walk(tree):
+                    if isinstance(node, ast.Attribute) and \
+                            node.attr == "getenv" and \
+                            isinstance(node.value, ast.Name) and \
+                            node.value.id == "os":
+                        offenders.append(
+                            f"{path.relative_to(ROOT)}:os.getenv")
+                        break
+        assert not offenders, f"os.getenv bypasses parity: {offenders}"

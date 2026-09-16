@@ -54,3 +54,40 @@ class TestFrontendBadge:
         assert "MOCK" in body
         assert "/healthz" in body and "/readyz" in body
         assert "ProofOps" in body
+
+
+class TestShellHygiene:
+    def test_gitattributes_pins_sh_to_lf(self):  # STATIC
+        # LACK-14: ci.sh shipped CRLF (autocrlf), breaking the bash shebang.
+        body = (ROOT / ".gitattributes").read_text(encoding="utf-8")
+        assert "*.sh text eol=lf" in body
+
+    def test_ci_sh_is_lf_with_intact_shebang(self):  # STATIC
+        raw = (ROOT / "scripts" / "ci.sh").read_bytes()
+        assert b"\r" not in raw, "CRLF breaks bash (LACK-14)"
+        assert raw.startswith(b"#!/usr/bin/env bash\n")
+        assert "set -euo pipefail" in raw.decode("utf-8")
+
+
+class TestTemplateFailClosed:
+    @staticmethod
+    def _template() -> dict[str, str]:
+        keys: dict[str, str] = {}
+        for line in (ROOT / ".env.example").read_text(
+                encoding="utf-8").splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                k, v = line.split("=", 1)
+                keys[k.strip()] = v.strip()
+        return keys
+
+    def test_db_password_ships_empty(self):  # STATIC
+        # A template default here would silently share one password across
+        # fresh setups — the exact failure the compose `:?` guard exists for.
+        assert self._template().get("POSTGRES_PASSWORD") == ""
+
+    def test_ids_ship_empty_secret_ships_placeholder(self):  # STATIC
+        keys = self._template()
+        assert keys.get("LYZR_API_KEY") == ""
+        assert keys.get("LYZR_AGENT_ID") == ""
+        assert "change-me" in keys.get("APPROVAL_SECRET", "")
