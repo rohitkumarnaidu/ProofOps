@@ -31,11 +31,11 @@ REQUIRED_FILES = [
     "frontend/Dockerfile",
 ]
 # Intentionally empty at M00.1: the .gitkeep IS the implementation (layout freeze).
-# M13 fills agents/ (workforce lane); tools/evaluation/benchmarks stay empty.
-FUTURE_EMPTY_DIRS = ["tools", "evaluation", "benchmarks"]
+# M13 fills agents/ (workforce lane); M17 fills benchmarks/suites (suite lane).
+FUTURE_EMPTY_DIRS = ["tools", "evaluation"]
 # Non-empty at M00.1: a stale .gitkeep here would masquerade as intentional.
-NON_EMPTY_DIRS = ["agents", "backend", "frontend", "policies", "runbooks", "scripts",
-                  "telemetry", "tests", "docs"]
+NON_EMPTY_DIRS = ["agents", "backend", "benchmarks", "frontend", "policies",
+                  "runbooks", "scripts", "telemetry", "tests", "docs"]
 REQUIRED_ENV_KEYS = [
     "LYZR_API_KEY", "LYZR_AGENT_ID", "LYZR_AGENT_TRIAGE_ID",
     "LYZR_AGENT_DIAGNOSTIC_ID", "LYZR_AGENT_PLANNER_ID",
