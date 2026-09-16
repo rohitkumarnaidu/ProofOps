@@ -35,8 +35,13 @@ class DatabaseCheck:
 
 def _to_psycopg_dsn(dsn: str) -> str:
     # App contract (M00.2) stores the SQLAlchemy dialect; psycopg wants the
-    # plain scheme. Convert at this boundary, nowhere else.
-    return dsn.replace("+psycopg", "", 1)
+    # plain scheme. Replace the scheme prefix ONLY: a naive
+    # `.replace("+psycopg", "", 1)` corrupts passwords containing "+psycopg"
+    # (e.g. postgresql://u:a+psycopgB@h/db lost "+psycopg" from the password).
+    prefix = "postgresql+psycopg://"
+    if dsn.startswith(prefix):
+        return "postgresql://" + dsn[len(prefix):]
+    return dsn
 
 
 def check_database(dsn: str, timeout_s: float = DEFAULT_PROBE_TIMEOUT_S) -> DatabaseCheck:

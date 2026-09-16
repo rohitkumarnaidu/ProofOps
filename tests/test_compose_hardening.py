@@ -34,3 +34,19 @@ class TestLogRotation:
         body = (ROOT / "docs" / "COMPOSE.md").read_text(encoding="utf-8")
         assert "max-size 10m" in body and "max-file 3" in body
         assert "M00.3" in body
+
+
+class TestExplicitHealthchecks:
+    def test_api_healthcheck_declared_in_compose(self):  # STATIC
+        # LACK-13: `service_healthy` must not rely on an implicit image
+        # contract. Compose mirrors the Dockerfile probe explicitly.
+        hc = _compose()["services"]["api"].get("healthcheck", {})
+        test = str(hc.get("test", ""))
+        assert "/healthz" in test, hc
+        image = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+        assert "/healthz" in image
+
+    def test_ui_healthcheck_declared_in_compose(self):  # STATIC
+        hc = _compose()["services"]["ui"].get("healthcheck", {})
+        test = str(hc.get("test", ""))
+        assert "wget" in test and "localhost" in test, hc

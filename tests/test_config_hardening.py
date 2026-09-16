@@ -76,6 +76,14 @@ class TestExtraFailClosed:
             **BASE_ENV, "LYZR_AGENT_TRIAGE_ID": "ag-123"})
         assert s.LYZR_AGENT_TRIAGE_ID == "ag-123"
 
+    def test_empty_seed_scenario_pinned_with_owner(self, monkeypatch, tmp_path):  # UNIT
+        # LACK-7 boundary, pinned not fixed: frozen `config.py` accepts empty
+        # SEED_SCENARIO today; validation is owned by a future contracts pass
+        # (see ADR-008). This test documents the boundary so a silent change
+        # fails loudly instead of drifting.
+        s = make(monkeypatch, tmp_path, **{**BASE_ENV, "SEED_SCENARIO": ""})
+        assert s.SEED_SCENARIO == ""
+
 
 class TestInventoryDocsParity:
     def test_every_inventory_key_documented(self):  # INTEGRATION

@@ -17,7 +17,8 @@ python -m mypy backend/app
 python scripts/secret_scan.py
 ```
 
-- Baseline (measured 2026-09-16): `1573 passed, 1 skipped` (host-safe) ·
+- Baseline (measured 2026-09-16, refreshed by each wave landing — current:
+  `1645 passed, 1 skipped` host-safe after the M00 90+ hardening pass) ·
   `ruff` pass · `mypy` pass · `secret_scan` PASS. The 1 skip is
   `test_healthz_runtime_parity` on drifted hosts (reported SKIP, never PASS;
   container `python:3.12-slim` is source of truth).
@@ -42,6 +43,10 @@ python scripts/secret_scan.py
 
 - Integration (3 paths: happy/block/rollback) + no-skip
   `POLICY_CHECK→EXECUTING` + tamper tests (M14/M21).
+- CI daemon jobs (image build + compose smoke on ubuntu runners, which have a
+  daemon) + dependency vulnerability scan (`pip-audit` or equivalent) + eval
+  gates (M16/M22). NOT in CI today: the unit job is host-safe only by design;
+  runtime proofs live in `tests/test_*_runtime.py` + the M00.3 matrix.
 - Eval runner CASE→RUN→TRACE→GRADE→SCORE→COMPARE→REPORT + JSONL + scorecard,
   six gates C1–C6 (`[PROVISIONAL]`, revise after 20 baseline runs) (M16).
 - Golden benchmarks deep-5×5 + stub-7 (M17); adversarial-10 (M18);

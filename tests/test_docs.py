@@ -122,6 +122,25 @@ class TestPresence:
         assert len(CANONICAL_8) == 11  # 4 frozen + 7 foundation (ADR-007)
         assert len(set(CANONICAL_8)) == 11
 
+    def test_tree_has_no_ungoverned_docs(self):  # STATIC
+        # LACK-6 fix: the canonical pin used to cover only the list constant,
+        # never the real tree — CONTRACTS.md etc. drifted ungoverned. Every
+        # top-level doc must be canonical or explicitly known-extra.
+        known_extra = {
+            "CONTRACTS.md",  # M01 freeze surface (owned by contracts phase)
+            "MODULE_REGISTRY.md",  # naming/status authority (registry)
+            "PS03_FINAL_SPEC_V2.md",  # authoritative spec (source of truth)
+            "BUILD_FIRST_MASTER_PLAN.md",  # wave plan (M21 owned)
+            "ProofOps_PS03_Master_Winning_Implementation_Trust_Submission_Checklist.md",  # UNVERIFIED companion
+            "README.md",  # repo entrypoint (tested in test_repo_structure.py)
+            "ZERO_TRUST_AUDIT_M00-M11.md",  # dated historical report (do not rewrite)
+        }
+        actual = {p.name for p in DOCS.glob("*.md")}
+        assert set(CANONICAL_8) <= actual, \
+            f"canonical missing: {sorted(set(CANONICAL_8) - actual)}"
+        ungoverned = actual - set(CANONICAL_8) - known_extra
+        assert not ungoverned, f"ungoverned docs: {sorted(ungoverned)}"
+
     def test_presence_detector_fires_on_fixture_gap(self, tmp_path):  # UNIT
         (tmp_path / "A.md").write_text("x" * 400, encoding="utf-8")
         missing = [n for n in ("A.md", "B.md") if not (tmp_path / n).is_file()]

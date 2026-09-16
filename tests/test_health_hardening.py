@@ -26,6 +26,16 @@ class TestDsnBoundary:
         assert _to_psycopg_dsn(
             "postgresql://u:p@db:5432/x") == "postgresql://u:p@db:5432/x"
 
+    def test_password_containing_plus_psycopg_preserved(self):  # UNIT
+        # LACK-2: naive `.replace("+psycopg", "", 1)` ate "+psycopg" out of
+        # the password. Only the scheme prefix may be rewritten.
+        assert _to_psycopg_dsn(
+            "postgresql://u:a+psycopgB@h/db") == \
+            "postgresql://u:a+psycopgB@h/db"
+        assert _to_psycopg_dsn(
+            "postgresql+psycopg://u:a+psycopgB@h/db") == \
+            "postgresql://u:a+psycopgB@h/db"
+
     def test_empty_dsn_readiness_not_ready(self):  # UNIT
         body = readiness("")
         assert body["status"] == "not-ready"

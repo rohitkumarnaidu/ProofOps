@@ -81,6 +81,26 @@ byte-frozen, `Settings` trust boundary preserved, liveness vs readiness split
 preserved). New tests in new files where the original file is frozen; edits to
 frozen docs/compose/logging are minimal, reviewed, and re-tested. Registry
 status flips only on human APPROVE.
+
+## ADR-008 — Adversarial re-audit lacks + boundaries (this pass)
+
+Context: adversarial re-audit after the 90+ pass reproduced 13 concrete lacks
+with file:line proof. Fixed now (each with tests): UTC-vs-localtime lie
+(`logging_setup.py`, converter pinned to `gmtime`); DSN corruption on
+`+psycopg` passwords (`health.py`, scheme-prefix replace); stale TESTING
+baseline (refreshed + refresh rule); scanner PGP/`github_pat_`/`xoxe-` gaps;
+logging quoted-space passwords + PGP + `github_pat_` + extended Slack;
+implicit compose healthchecks (now explicit, mirroring images); vacuous
+canonical-set test (now governs the real tree); weak CI echo assert
+(tightened). Recorded boundaries (P2, owned, non-blocking): `SEED_SCENARIO`
+accepts empty (frozen `config.py`; validation owned by a future contracts
+pass); DB passwords must be URL-safe (no raw `@/:?#% ` — derived and compose
+URLs interpolate without quoting; quoting owned by M00.2 future work);
+`/readyz` carries no timestamp and no auth (M00.4 scope is liveness/readiness
+split only; freshness/auth owned by API phase); bearer tokens <20 chars and
+exact values <8 chars rely on URI/assignment paths (documented in
+`docs/LOGGING.md`); CI has no daemon build/smoke or vuln scan yet
+(`docs/TESTING.md` PLANNED, owners M16/M20/M22).
 Spec: §43–§46. Detail: `docs/TESTING.md`, `docs/ARCHITECTURE.md`, `docs/API.md`.
 
 ## PLANNED ADR slots (not taken in M00.6)

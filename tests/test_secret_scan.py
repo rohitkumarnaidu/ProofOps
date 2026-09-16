@@ -45,6 +45,18 @@ class TestLivePatterns:
         prose = "you-know-a-20-step-ai-agent-task-with-95-accuracy-at-each-step"
         assert scanner._scan_live_patterns(Path("doc.md"), prose) == []
 
+    def test_fine_grained_pat_and_xoxe_fail(self):  # SECURITY
+        # LACK-4: fine-grained PATs and extended Slack types must fail.
+        # Dynamic construction keeps this file scanner-clean.
+        for shape, name in [
+            ("github_pat_" + "a" * 22, "github-fine-grained-pat"),
+            ("xox" + "e-1234567890ab", "slack-token"),
+            ("xox" + "o-1234567890ab", "slack-token"),
+        ]:
+            findings = scanner._scan_live_patterns(
+                Path("x.py"), "tok=" + shape)
+            assert any(name in f for f in findings), (shape, findings)
+
     def test_fixtures_do_not_trip(self):  # UNIT (negative)
         # Hyphenated/short fixtures are documentation, not live keys.
         for fixture in [
@@ -71,6 +83,13 @@ class TestPemBlocks:
                  + "MIIEpAIBAAKCAQEA7b2m3n4p5q6r7s8t9u0v1w2x3y4z5\n"
                  + end)
         assert scanner._scan_pem_blocks("k.pem", block) != []
+
+    def test_pgp_block_fails(self):  # SECURITY
+        # LACK-4: PGP armor must fail like PEM. Dynamic, stays file-clean.
+        begin = "-----BEGIN " + "PGP PRIVATE KEY BLOCK-----"
+        end = "-----END " + "PGP PRIVATE KEY BLOCK-----"
+        block = begin + "\nMIIEpic\n" + end
+        assert scanner._scan_pem_blocks("k.asc", block) != []
 
     def test_fixture_block_passes(self):  # UNIT (negative)
         block = ("-----BEGIN RSA PRIVATE KEY-----\n"

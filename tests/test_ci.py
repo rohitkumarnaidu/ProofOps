@@ -76,16 +76,23 @@ class TestStageCommands:
 
 class TestWorkflowHygiene:
     def test_no_secret_echo_or_unsafe_compose(self):  # STATIC (SECURITY)
-        # Executable lines only (comments document the bans).
+        # Executable lines only (comments document the bans). LACK-5 fix: the
+        # old `or`-chain passed `echo ${{ secrets.X }}` (echo without `==>`).
+        # Tight form: no executable line may echo secrets, period.
         for line in WORKFLOW.read_text(encoding="utf-8").splitlines():
             code = line.split("#", 1)[0]
             assert "printenv" not in code
-            assert "echo" not in code or "==>" not in code or \
-                "secrets." not in code
+            assert not ("echo" in code and "secrets." in code), line
         import sys
         sys.path.insert(0, str(ROOT / "scripts"))
         import secret_scan as scanner
         assert scanner._check_workflows(ROOT) == []
+
+    def test_echo_detector_would_catch_secret_echo(self):  # UNIT (negative)
+        # Proof the tightened detector fires (feed the forbidden shape).
+        line = "run: echo ${{ secrets.FOO }}"
+        code = line.split("#", 1)[0]
+        assert "echo" in code and "secrets." in code  # detector fires
 
 
 class TestLocalRunnerParity:

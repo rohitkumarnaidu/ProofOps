@@ -49,12 +49,46 @@ class TestTokenParity:
         out = _emit("m00.5.h3", "token %s", token)
         assert "xoxb-" not in out and "<REDACTED>" in out
 
-    def test_prose_with_hyphens_untouched(self):  # UNIT
-        # Over-redaction guard: ordinary hyphenated prose without a key-like
-        # token must survive (note: any literal `sk-...` token is intentionally
-        # redacted broadly — safety over verbosity in logs).
+    def test_github_pat_redacted(self):  # SECURITY
+        token = "github_pat_" + "a" * 22
+        out = _emit("m00.5.h5", "token %s", token)
+        assert "github_pat_" not in out and "<REDACTED>" in out
+
+    def test_xoxe_token_redacted(self):  # SECURITY
+        token = "xox" + "e-1234567890ab"
+        out = _emit("m00.5.h6", "token %s", token)
+        assert "xoxe-" not in out and "<REDACTED>" in out
+
+    def test_prose_without_key_tokens_untouched(self):  # UNIT
+        # Over-redaction guard: ordinary prose without a key-like token must
+        # survive (note: any literal key-like token is intentionally redacted
+        # broadly — safety over verbosity in logs).
         out = _emit("m00.5.h4", "deploy completed with 95 percent accuracy")
         assert "deploy completed with 95 percent accuracy" in out
+
+    def test_quoted_password_with_spaces_redacted(self):  # SECURITY
+        # LACK-9: quoted values redact to the matching quote (old pattern
+        # stopped at the space and leaked the whole assignment).
+        out = _emit("m00.5.h7", 'password="topsecret fake"')
+        assert "topsecret" not in out and "fake" not in out
+        assert "<REDACTED>" in out
+
+    def test_pgp_block_redacted(self):  # SECURITY
+        begin = "-----BEGIN " + "PGP PRIVATE KEY BLOCK-----"
+        end = "-----END " + "PGP PRIVATE KEY BLOCK-----"
+        out = _emit("m00.5.h8", "key:\n%s", begin + "\nMIIEpic\n" + end)
+        assert "MIIEpic" not in out and "<REDACTED>" in out
+
+    def test_ts_is_utc(self):  # UNIT
+        # LACK-1: contract says UTC; stdlib defaults to localtime, so the
+        # formatter pins a gmtime-based converter. Assert behavior (epoch and
+        # a fixed instant render as UTC), not the clock. Epoch is midnight
+        # UTC but 05:30 IST, so this distinguishes even on non-UTC hosts.
+        import time
+        conv = RedactingFormatter.converter
+        assert conv(0) == time.gmtime(0)
+        assert conv(1720000000) == time.gmtime(1720000000)
+        assert conv(0).tm_hour == 0
 
 
 class TestImportPointRule:

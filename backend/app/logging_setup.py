@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from collections.abc import Iterable
 
 REDACTED = "<REDACTED>"
@@ -46,8 +47,11 @@ _DATE_FORMAT = "%Y-%m-%dT%H:%M:%S%z"
 _GENERIC_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     # URI credentials: postgresql://user:password@host -> ://<REDACTED>@
     (re.compile(r"://[^/\s:@]+:[^/\s@]+@"), "://<REDACTED>@"),
-    # password-style assignments: password=secret / passwd: secret / pwd='x'
-    (re.compile(r"(?i)(password|passwd|pwd)(\s*[:=]\s*)(['\"]?)[^\s'\"]+\3"),
+    # password-style assignments: password=secret / passwd: secret / pwd='a b'
+    # Quoted values may contain spaces (redact to the matching quote);
+    # unquoted values run to whitespace. Bearer floor (20+) and short-value
+    # behavior are deliberate boundaries, documented in docs/LOGGING.md.
+    (re.compile(r"(?i)(password|passwd|pwd)(\s*[:=]\s*)(?:(['\"])(.+?)\3|([^\s'\"]+))"),
      r"\1\2" + REDACTED),
     # bearer tokens: "Bearer abc..." (20+ non-space chars to avoid mangling words)
     (re.compile(r"(?i)bearer\s+[A-Za-z0-9\-._~+/=]{20,}"), "Bearer " + REDACTED),
@@ -58,15 +62,30 @@ _GENERIC_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     # is safe, while the repo scanner stays precise to avoid false positives).
     (re.compile(r"AKIA[0-9A-Z]{16}"), REDACTED),
     (re.compile(r"gh[pousr]_[A-Za-z0-9]{36}"), REDACTED),
-    (re.compile(r"xox[baprs]-[A-Za-z0-9-]{10,}"), REDACTED),
-    # PEM private key blocks (multiline: DOTALL so the whole block is one match)
-    (re.compile(r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----.*?-----END [A-Z0-9 ]*PRIVATE KEY-----",
+    (re.compile(r"github_pat_[A-Za-z0-9_]{22,}"), REDACTED),
+    (re.compile(r"xox[beoaprsxd]-[A-Za-z0-9-]{10,}"), REDACTED),
+    # PEM/PGP private key blocks (multiline: DOTALL so the whole block is one
+    # match). Covers RSA/EC/OPENSSH/DSA plus PGP ... BLOCK armor.
+    (re.compile(r"-----BEGIN (?:[A-Z0-9 ]* )?PRIVATE KEY(?: BLOCK)?-----.*?-----END (?:[A-Z0-9 ]* )?PRIVATE KEY(?: BLOCK)?-----",
                 re.DOTALL), REDACTED),
 )
 
 
+def _utc_converter(sec: float | None = None) -> time.struct_time:
+    """UTC replacement for :func:`logging.Formatter.converter` (stdlib
+    defaults to localtime while this module's contract is UTC ISO-8601)."""
+    return time.gmtime(sec)
+
+
 class RedactingFormatter(logging.Formatter):
     """Format-then-scrub: redacts the whole rendered line, incl. tracebacks."""
+
+    # logging.Formatter defaults to localtime; the contract (module docstring
+    # + docs/LOGGING.md) is UTC ISO-8601, so pin the converter (LACK-1 fix).
+    # staticmethod: plain functions assigned as class attributes would bind
+    # `self` when accessed via the instance; builtins would not, but an
+    # explicit wrapper keeps the type checker honest too.
+    converter = staticmethod(_utc_converter)
 
     def __init__(self, secrets: Iterable[str] = ()) -> None:
         super().__init__(_FORMAT, datefmt=_DATE_FORMAT)

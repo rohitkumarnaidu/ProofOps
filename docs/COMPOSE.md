@@ -42,7 +42,9 @@ of silently diverging.
 `db (healthy via pg_isready) → api (healthy via /healthz) → ui (healthy via
 wget /)`, enforced with `service_healthy` conditions (runtime-verified creation
 order db ≤ api ≤ ui). "Started" ≠ "ready": dependents wait for health, not
-existence. Deep readiness (DB-depth checks) is M00.4 scope.
+existence. Deep readiness (DB-depth checks) is M00.4 scope. Compose declares
+its own `healthcheck` blocks mirroring the image HEALTHCHECKs (90+ pass):
+`service_healthy` must never depend on an implicit image contract.
 
 ## Health semantics (wiring only — M00.4 owns depth)
 

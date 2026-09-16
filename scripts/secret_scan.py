@@ -41,13 +41,15 @@ LIVE_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     # hyphenated fixtures like `sk-FAKE-...` never match either).
     ("openai-generic-key", re.compile(r"sk-[A-Za-z0-9]{20,}")),
     ("github-token", re.compile(r"gh[pousr]_[A-Za-z0-9]{36}")),
-    ("slack-token", re.compile(r"xox[baprs]-[A-Za-z0-9-]{10,}")),
+    # Fine-grained PATs (different prefix, longer body).
+    ("github-fine-grained-pat", re.compile(r"github_pat_[A-Za-z0-9_]{22,}")),
+    ("slack-token", re.compile(r"xox[beoaprsxd]-[A-Za-z0-9-]{10,}")),
 ]
 
 PEM_BEGIN_RE = re.compile(
-    r"-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----")
+    r"-----BEGIN (?:[A-Z0-9 ]* )?PRIVATE KEY(?: BLOCK)?-----")
 PEM_END_RE = re.compile(
-    r"-----END (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----")
+    r"-----END (?:[A-Z0-9 ]* )?PRIVATE KEY(?: BLOCK)?-----")
 # Fixture markers that prove a PEM block is a test/redaction fixture, not a key.
 PEM_FIXTURE_MARKERS = ("Fake", "fake", "EXAMPLE", "hunter2", "MIIFake")
 
