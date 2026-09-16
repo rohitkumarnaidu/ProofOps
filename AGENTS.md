@@ -816,6 +816,10 @@ LIVE/REPLAY/MOCK labeling · critical regression fixes.
 
 ## §15 — Module plan, development order, dependencies
 
+High-level end-to-end runbook: `docs/BUILD_FIRST_MASTER_PLAN.md` (waves with
+entry/exit criteria, live baseline snapshot, Phase A→B map). Registry stays the
+naming/status authority; this section states the dependency order.
+
 ### 15.1 Task backbone T01–T21 (spec §60; full 183-unit expansion in registry phases 00–22)
 
 T01 repo+compose · T02 schemas (+20 invalid fixtures) · T03 telemetry generator

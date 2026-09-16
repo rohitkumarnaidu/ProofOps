@@ -2157,35 +2157,43 @@ Return to the smallest failing gate, fix, re-audit, and repeat the dry-run.
 
 # 23. Current Project State — Known Baseline
 
-At the time this checklist was created from the supplied reports:
+Refreshed against `docs/MODULE_REGISTRY.md` per-row table (build-first mode —
+see `docs/BUILD_FIRST_MASTER_PLAN.md` §1 for the wave map; that plan's §1 is the
+live snapshot, this section records the same baseline for audit continuity):
 
-- [x] M00 Foundation — trusted/merged.
-- [x] M01.1 Shared Types — trusted/merged.
-- [x] M01.2 Incident — trusted/merged.
-- [x] M01.3 Alert — implementation/hardening human-approved.
-- [ ] M01.3 integration/merge/push verification remains.
-- [ ] Remaining M01/M02 modules require their individual human trust gates and controlled integration.
-- [ ] M01+M02 cross-track final zero-trust audit required after approvals.
-- [ ] M03 and later remain locked until dependency gates close.
+- [x] M00 Foundation — 6/7 APPROVED (M00.1, M00.3–M00.7, human verdict, locked).
+- [ ] M00.2 environment/configuration — IMPLEMENTED, awaiting human verdict.
+- [x] M01.1–M01.4 contracts — APPROVED (human verdict, locked).
+- [x] M01.5 → M10 (76 units: contracts tail, telemetry, normalization,
+  correlation, evidence, policy/safety, HITL, sandbox, verification, rollback) —
+  IMPLEMENTED_TESTED (build-first; hardening pending, NOT yet human-approved).
+- [ ] M11 Runbooks (6 units) — NOT STARTED. **Live frontier; closes Wave 3.**
+- [ ] M12 → M22 (90 units: retrieval, agents, orchestration, audit, eval,
+  benchmarks, adversarial, frontend, performance, integration, demo) —
+  NOT STARTED (Waves 4–7 untouched).
+- Total with implementation: 87/183. Overall project score: NOT COMPUTED.
 
-### M01.3 approved branch state to preserve
+### Historical record (preserved forensic history — superseded, do not act on)
 
-- Branch: `feature/m01.3-alert-final`
-- Approved commit: `c347ea7`
-- Trusted master at the reported review point: `d9105f7`
-- Old candidate `feature/m01.3-alert` remains preserved.
+- M01.3 approved branch state at the original review point: branch
+  `feature/m01.3-alert-final`, approved commit `c347ea7`, trusted master
+  `d9105f7`; old candidate `feature/m01.3-alert` preserved. M01.3/M01.4 since
+  merged via the contracts freeze surface; the per-module serial-approve flow
+  below is superseded by the build-first wave flow for all non-approval work.
 
 ### Immediate next controlled operation
 
-1. [ ] Integrate `Alert` export in `backend/app/contracts/__init__.py`.
-2. [ ] Update the M01.3 registry row to the appropriate post-approval status.
-3. [ ] Run M00 + M01 regression.
-4. [ ] Inspect integration diff.
-5. [ ] Commit integration.
-6. [ ] Merge one module at a time.
-7. [ ] Push safely.
-8. [ ] Fetch and verify remote state.
-9. [ ] Only then process the next approved module.
+1. [ ] Human verdict on M00.2 (IMPLEMENTED, awaiting verdict).
+2. [ ] Implement M11 Runbooks (loader hash/pin + 5 seeds + poison rejection)
+   to `IMPLEMENTED_TESTED`; flip registry rows one per module.
+3. [ ] Run Wave 3 regression (M06–M11 scope) + static analysis + type checks +
+   secret scan.
+4. [ ] Inspect integration diff (scoped, no unrelated files).
+5. [ ] Commit (small, auditable); merge ONE unit at a time; push only with
+   explicit human approval.
+6. [ ] Update `docs/BUILD_FIRST_MASTER_PLAN.md` §1 baseline on wave landing.
+7. [ ] Only then open Wave 4 (M12 retrieval first — agents pin runbooks the
+   M11 loader provides).
 
 ---
 
