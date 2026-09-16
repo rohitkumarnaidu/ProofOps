@@ -143,9 +143,13 @@ class TestDockerCompose:
     def test_backend_dockerfile_parity(self):
         # Functional parity modulo build context: strip the `backend/` prefix
         # that only exists because the root build uses repo-root context.
+        # M14b exception: `COPY agents ./agents` ships only in the root image
+        # (compose builds it); the backend/ context cannot reach ../agents,
+        # so backend/Dockerfile legitimately lacks that one line.
         def norm(name: str) -> list[str]:
             return [d.replace("backend/", "") for d in _docker_directives(name)
-                    if not d.startswith("HEALTHCHECK")]
+                    if not d.startswith("HEALTHCHECK")
+                    and d != "COPY agents ./agents"]
         assert norm("Dockerfile") == norm("backend/Dockerfile"), \
             f"Dockerfile drift:\n{norm('Dockerfile')}\nvs\n{norm('backend/Dockerfile')}"
         for name in ("Dockerfile", "backend/Dockerfile"):

@@ -19,6 +19,9 @@ COPY backend/requirements.txt backend/requirements.lock .
 RUN pip install --no-cache-dir -r requirements.lock \
     && useradd --create-home --uid 10001 appuser
 COPY backend/app ./app
+# M14b: agents/ ships too (routers import it at boot; without this line the
+# container ImportErrors while host tests pass via repo-root CWD).
+COPY agents ./agents
 USER appuser
 EXPOSE 8000
 HEALTHCHECK --interval=10s --timeout=3s --start-period=15s --retries=3 CMD python -c "import sys,urllib.request; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/healthz', timeout=2).status == 200 else 1)"
