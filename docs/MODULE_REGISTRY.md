@@ -1,7 +1,7 @@
 # ProofOps — Complete Module Registry (183 controlled units)
 
 > Authoritative spec: `docs/PS03_FINAL_SPEC_V2.md`. One module at a time. No auto-continue.
-> Progress: **93/183 with implementation** (11 APPROVED: M00.1–M00.7, M01.1–M01.4 · 82 IMPLEMENTED_TESTED hardening-pending: M01.5–M11.6) · Overall project score: NOT COMPUTED.
+> Progress: **100/183 with implementation** (11 APPROVED: M00.1–M00.7, M01.1–M01.4 · 89 IMPLEMENTED_TESTED hardening-pending: M01.5–M12.7) · Overall project score: NOT COMPUTED.
 
 ## Global Verification Gate (applies to every unit)
 
@@ -183,13 +183,13 @@ registry tracks unit-level status only.
 
 | ID | Unit | Status | Safety | Ground | Hall | Retr | Verify method |
 |---|---|---|---|---|---|---|---|
-| M12.1 | Lyzr KB | NOT STARTED | S | R | N | R | Classic-KB wiring + threshold tests |
-| M12.2 | metadata filtering | NOT STARTED | S | R | N | R | service/env filter tests |
-| M12.3 | temporal filtering | NOT STARTED | S | R | N | R | ±window + decay tests |
-| M12.4 | pre-digestion | NOT STARTED | S | R | N | R | raw-vs-predigest comparison tests |
-| M12.5 | Evidence Pack generation | NOT STARTED | S | R | N | R | ≤6k-token pack tests |
-| M12.6 | ranking | NOT STARTED | S | R | N | R | rerank + top-k=5 tests |
-| M12.7 | retrieval metrics | NOT STARTED | S | R | N | R | p@5/r@5/MRR/nDCG + baseline-vs-optimized delta |
+| M12.1 | Lyzr KB | IMPLEMENTED_TESTED (build-first; hardening pending) | S | R | N | R | Classic-KB wiring + threshold tests |
+| M12.2 | metadata filtering | IMPLEMENTED_TESTED (build-first; hardening pending) | S | R | N | R | service/env filter tests |
+| M12.3 | temporal filtering | IMPLEMENTED_TESTED (build-first; hardening pending) | S | R | N | R | ±window + decay tests |
+| M12.4 | pre-digestion | IMPLEMENTED_TESTED (build-first; hardening pending) | S | R | N | R | raw-vs-predigest comparison tests |
+| M12.5 | Evidence Pack generation | IMPLEMENTED_TESTED (build-first; hardening pending) | S | R | N | R | ≤6k-token pack tests |
+| M12.6 | ranking | IMPLEMENTED_TESTED (build-first; hardening pending) | S | R | N | R | rerank + top-k=5 tests |
+| M12.7 | retrieval metrics | IMPLEMENTED_TESTED (build-first; hardening pending) | S | R | N | R | p@5/r@5/MRR/nDCG + baseline-vs-optimized delta |
 
 ## PHASE 13 — Lyzr Agents (10)
 
