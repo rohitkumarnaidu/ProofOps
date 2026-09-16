@@ -1,7 +1,7 @@
 # ProofOps — Complete Module Registry (183 controlled units)
 
 > Authoritative spec: `docs/PS03_FINAL_SPEC_V2.md`. One module at a time. No auto-continue.
-> Progress: **110/183 with implementation** (11 APPROVED: M00.1–M00.7, M01.1–M01.4 · 99 IMPLEMENTED_TESTED hardening-pending: M01.5–M13.10) · Overall project score: NOT COMPUTED.
+> Progress: **110/183 with implementation** (22 APPROVED: M00.1–M00.7, M01.1–M01.15 · 88 IMPLEMENTED_TESTED hardening-pending: M02–M13.10) · Overall project score: NOT COMPUTED.
 
 ## Global Verification Gate (applies to every unit)
 
@@ -42,21 +42,21 @@ registry tracks unit-level status only.
 
 | ID | Unit | Status | Safety | Ground | Hall | Retr | Verify method |
 |---|---|---|---|---|---|---|---|
-| M01.1 | shared types | APPROVED (94/100, human verdict, locked) | S | N | N | N | schema unit + 20-invalid-fixture tests |
-| M01.2 | Incident schema | APPROVED (93/100, human verdict, locked) | S | N | N | N | valid + invalid + 14-state CHECK tests |
-| M01.3 | Alert schema | APPROVED (95/100, human verdict, locked) | S | N | N | N | valid + invalid tests |
-| M01.4 | Evidence schema | APPROVED (97/100, human verdict, locked) | S | N | N | N | valid + invalid + hash-field tests |
-| M01.5 | Hypothesis schema | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | status-enum + citation-field tests |
-| M01.6 | Runbook schema | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | pin + hash-field tests |
-| M01.7 | Action schema | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | allowlist + param-shape + shell-reject tests |
-| M01.8 | PolicyDecision schema | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | ALLOW/ESCALATE/DENY + rule-ref tests |
-| M01.9 | Approval schema | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | token/nonce/expiry-field tests |
-| M01.10 | Execution schema | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | idempotency-field + diff-field tests |
-| M01.11 | Verification schema | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | verdict-enum tests |
-| M01.12 | Rollback schema | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | reversibility-field tests |
-| M01.13 | RCA schema | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | gate-field + claim-map tests |
-| M01.14 | Audit schema | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | hash-chain-field + ordering tests |
-| M01.15 | Evaluation schema | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | metric-JSONB + run-ref tests |
+| M01.1 | shared types | HUMAN_APPROVED (92/100, re-audit 2026-09-16: P1 rival-models closed, single validation path) | S | N | N | N | schema unit + 20-invalid-fixture + rivalry-closure tests |
+| M01.2 | Incident schema | HUMAN_APPROVED (95/100, re-audit 2026-09-16: holds + nesting-crash net) | S | N | N | N | valid + invalid + 14-state CHECK tests |
+| M01.3 | Alert schema | HUMAN_APPROVED (95/100, re-audit 2026-09-16: holds + strict from_legacy bridge) | S | N | N | N | valid + invalid tests |
+| M01.4 | Evidence schema | HUMAN_APPROVED (91/100, re-audit 2026-09-16: single-path + linkage preserved) | S | N | N | N | valid + invalid + hash-field tests |
+| M01.5 | Hypothesis schema | HUMAN_APPROVED (91/100, re-audit 2026-09-16: doc/depth fix + lossless bridges) | S | N | N | N | status-enum + citation-field + bound tests |
+| M01.6 | Runbook schema | HUMAN_APPROVED (91/100, re-audit 2026-09-16: disjoint + caps + cross-file pin) | S | N | N | N | pin + hash-field + bound tests |
+| M01.7 | Action schema | HUMAN_APPROVED (92/100, re-audit 2026-09-16: rollback bounds + shell-reject) | S | N | N | N | allowlist + param-shape + shell-reject + bound tests |
+| M01.8 | PolicyDecision schema | HUMAN_APPROVED (91/100, re-audit 2026-09-16: obligation/version caps) | S | N | N | N | ALLOW/ESCALATE/DENY + rule-ref + bound tests |
+| M01.9 | Approval schema | HUMAN_APPROVED (91/100, re-audit 2026-09-16: hash caps; nonce-crypto stays M07) | S | N | N | N | token/nonce/expiry-field + bound tests |
+| M01.10 | Execution schema | HUMAN_APPROVED (91/100, re-audit 2026-09-16: log/diff caps + docker tier) | S | N | N | N | idempotency-field + diff-field + bound tests |
+| M01.11 | Verification schema | HUMAN_APPROVED (91/100, re-audit 2026-09-16: check/detail caps + bool-exact) | S | N | N | N | verdict-enum + bound tests |
+| M01.12 | Rollback schema | HUMAN_APPROVED (91/100, re-audit 2026-09-16: outcome-consistency + edges) | S | N | N | N | reversibility-field + consistency tests |
+| M01.13 | RCA schema | HUMAN_APPROVED (91/100, re-audit 2026-09-16: timeline keys + row/impact caps) | S | N | N | N | gate-field + claim-map + bound tests |
+| M01.14 | Audit schema | HUMAN_APPROVED (91/100, re-audit 2026-09-16: policy-key rule + edges) | S | N | N | N | hash-chain-field + ordering + bound tests |
+| M01.15 | Evaluation schema | HUMAN_APPROVED (91/100, re-audit 2026-09-16: counter/map edges) | S | N | N | N | metric-JSONB + run-ref + bound tests |
 
 ## PHASE 02 — Telemetry (10)
 
