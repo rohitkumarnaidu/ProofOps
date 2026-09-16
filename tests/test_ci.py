@@ -32,23 +32,28 @@ def _job_run(job: dict) -> str:
 
 
 class TestWorkflowShape:
-    def test_four_jobs_in_order(self):  # STATIC
+    def test_five_jobs_in_order(self):  # STATIC
         jobs = list(_workflow()["jobs"])
-        assert jobs == ["lint", "typecheck", "unit", "security"], jobs
+        assert jobs == ["lint", "typecheck", "unit", "security",
+                        "lockfile"], jobs
 
     def test_stage_ordering_via_needs(self):  # STATIC
         jobs = _workflow()["jobs"]
         assert jobs["typecheck"].get("needs") == ["lint"]
         assert jobs["unit"].get("needs") == ["typecheck"]
         assert jobs["security"].get("needs") == ["unit"]
+        assert jobs["lockfile"].get("needs") == ["security"]
 
     def test_python_pinned_312(self):  # STATIC
         text = WORKFLOW.read_text(encoding="utf-8")
         assert 'python-version: "3.12"' in text
 
-    def test_installs_from_bounded_requirements(self):  # STATIC
+    def test_installs_from_lock(self):  # STATIC
+        # CI (ubuntu py3.12) consumes the linux/cp312 lock (ADR-010); the
+        # Windows-local runner keeps portable ranges (see parity test below).
         text = WORKFLOW.read_text(encoding="utf-8")
-        assert "pip install -r backend/requirements.txt" in text
+        assert "pip install -r backend/requirements.lock" in text
+        assert "pip install -r backend/requirements.txt" not in text
 
     def test_dependency_consistency_gated(self):  # STATIC
         text = WORKFLOW.read_text(encoding="utf-8")
@@ -72,6 +77,10 @@ class TestStageCommands:
     def test_security_runs_secret_scan(self):  # STATIC
         run = _job_run(_workflow()["jobs"]["security"])
         assert "scripts/secret_scan.py" in run
+
+    def test_lockfile_runs_freeze_check(self):  # STATIC
+        run = _job_run(_workflow()["jobs"]["lockfile"])
+        assert "scripts/freeze.py" in run and "--check" in run
 
 
 class TestWorkflowHygiene:
@@ -113,10 +122,24 @@ class TestLocalRunnerParity:
             "ruff check backend tests scripts",
             "mypy backend/app",
             "scripts/secret_scan.py",
+            "scripts/freeze.py --check",
         ]:
             assert needle in text, needle
         for ignored in RUNTIME_IGNORES:
             assert f"--ignore={ignored}" in text, ignored
+
+    def test_ci_sh_install_divergence_is_documented(self):  # STATIC
+        # Deliberate split (ADR-010): manylinux pins cannot install on a
+        # Windows host, so the LOCAL runner keeps portable ranges while CI
+        # installs from the lock. Both run the identical freeze --check gate.
+        # If this split ever closes, delete this test and unify.
+        sh = CI_SH.read_text(encoding="utf-8")
+        executable_installs = [
+            line.split("#", 1)[0] for line in sh.splitlines()
+        ]
+        assert not any("pip install" in code for code in executable_installs), \
+            "local runner must not install (ambient env only)"
+        assert "requirements.txt" in sh and "ADR-010" in sh
 
     def test_ci_sh_fail_fast_and_no_unsafe_compose(self):  # STATIC
         text = CI_SH.read_text(encoding="utf-8")

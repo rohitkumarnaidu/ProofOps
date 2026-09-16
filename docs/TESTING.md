@@ -18,8 +18,9 @@ python scripts/secret_scan.py
 ```
 
 - Baseline (measured 2026-09-16, refreshed by each wave landing — current:
-  `1645 passed, 1 skipped` host-safe after the M00 90+ hardening pass) ·
-  `ruff` pass · `mypy` pass · `secret_scan` PASS. The 1 skip is
+  `1666 passed, 1 skipped` host-safe after the M00 lockfile pass) ·
+  `ruff` pass · `mypy` pass · `secret_scan` PASS · `freeze --check` PASS.
+  The 1 skip is
   `test_healthz_runtime_parity` on drifted hosts (reported SKIP, never PASS;
   container `python:3.12-slim` is source of truth).
 - `*_runtime.py` (4 files) need a live Docker daemon and are excluded host-safe;
@@ -35,9 +36,13 @@ python scripts/secret_scan.py
   logging-unit, docs, contracts, dataplane, safety, execution, runbooks.
 - Daemon-only (Docker Desktop/dockerd): `test_*_runtime.py` (compose matrix,
   failure injection, persistence, live `/healthz`+`/readyz`, log hygiene).
-- CI (`.github/workflows/ci.yml` + `scripts/ci.sh`): ruff → mypy → unit
-  (host-safe, 4 runtime files ignored) → security (secret scan). Mirrored
-  stage-for-stage; `pip check` gates the starlette upper bound in CI.
+- CI (`.github/workflows/ci.yml` + `scripts/ci.sh`): lockfile → ruff → mypy →
+  unit (host-safe, 4 runtime files ignored) → security (secret scan) →
+  lockfile `--check`. Mirrored stage-for-stage except the install source:
+  CI installs from `backend/requirements.lock` (deterministic, ubuntu py3.12),
+  the local runner keeps portable `requirements.txt` (manylinux pins cannot
+  install on Windows — ADR-010); the freeze `--check` gate itself runs
+  identically everywhere. `pip check` gates the starlette upper bound in CI.
 
 ## PLANNED (owning modules, not implemented)
 

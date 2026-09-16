@@ -148,6 +148,24 @@ lower and an upper bound, pinned by test — nobody silently adds a floating
 dep while the lock is missing. Owner: M00.7 (needs a daemon/container run +
 human review of the resolved set).
 
+## ADR-010b — Lock LANDED (this pass, closes ADR-010)
+
+Resolution: live `pip install --dry-run --report` against PyPI with
+`--python-version 3.12 --implementation cp --abi cp312
+--platform manylinux_2_17_x86_64 --only-binary=:all:` → 36 resolved, minus
+win32-only `colorama`/`tzdata` (false on linux per resolver `requires_dist`
+markers) → committed `backend/requirements.lock` (34 exact pins,
+name-sorted, every pin inside its declared range — proven by
+`scripts/freeze.py --check` + `tests/test_freeze.py`, including a real-files
+pass and a win32-exclusion pin). Enforcer: `scripts/freeze.py` (stdlib-only;
+strict `--check` for CI, `--generate` that REFUSES non-3.12 interpreters so a
+drifted host can never bake the lock). CI now installs from the lock and runs
+a 5th `lockfile` job (`needs: [security]`); the Windows-local runner keeps
+portable ranges with the split documented + tested (manylinux wheels cannot
+install on Windows). REMAINING (owned, next): Dockerfiles still install from
+`requirements.txt` — switching them needs a daemon `--no-cache` build proof
+(M00.1/M00.3, needs daemon); `pip-audit`/hashes still open (M00.7).
+
 ## PLANNED ADR slots (not taken in M00.6)
 
 - FSM-primary over SuperFlow mirror (owning module: orchestration phase).
