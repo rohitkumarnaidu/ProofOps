@@ -91,3 +91,19 @@ class TestTemplateFailClosed:
         assert keys.get("LYZR_API_KEY") == ""
         assert keys.get("LYZR_AGENT_ID") == ""
         assert "change-me" in keys.get("APPROVAL_SECRET", "")
+
+
+class TestDependencyBounds:
+    def test_every_requirement_has_lower_and_upper_bound(self):  # STATIC
+        # Interim guard while ADR-010 (no lockfile) is open: with no freeze,
+        # an unbounded line floats silently. Every pinned line needs BOTH
+        # bounds; the lockfile removes this check's reason to exist.
+        floating = []
+        for line in (ROOT / "backend" / "requirements.txt").read_text(
+                encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if ">=" not in line or ",<" not in line:
+                floating.append(line)
+        assert not floating, f"floating requirements (need >= and <): {floating}"

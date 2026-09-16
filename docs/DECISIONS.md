@@ -128,6 +128,26 @@ connected run — never fabricate); `pyproject.toml` lint scope is narrow
 M00.7 with a full-violation triage).
 Spec: §43–§46. Detail: `docs/TESTING.md`, `docs/ARCHITECTURE.md`, `docs/API.md`.
 
+## ADR-010 — No lockfile yet (recorded gap, not a decision)
+
+Context: `backend/requirements.txt:9` promises "M00.7 CI foundation adds pip
+freeze / hash check" — that piece never landed. Today there is no
+`requirements.lock`, freeze gate, or `--require-hashes`; only narrow bounded
+ranges + `pip check` (consistency, not CVEs, not drift) + the
+`python:3.12-slim` container convention. Two fresh installs weeks apart can
+resolve different versions inside the ranges (the starlette v1.x breakage was
+fixed reactively with an upper bound — a lockfile prevents the class, not one
+instance). "Reproducible" currently means constrained-float, not locked; docs
+must not claim more.
+Decision: resolve + freeze on the source of truth (`python:3.12-slim`, never
+the drifted 3.13/3.14 host) → commit `backend/requirements.lock` → CI
+installs from the lock + a stale-lock check job. A hand-written lock with
+unresolved versions is forbidden (false precision is worse than honest
+ranges). Interim guard (this pass): every requirements line must carry BOTH a
+lower and an upper bound, pinned by test — nobody silently adds a floating
+dep while the lock is missing. Owner: M00.7 (needs a daemon/container run +
+human review of the resolved set).
+
 ## PLANNED ADR slots (not taken in M00.6)
 
 - FSM-primary over SuperFlow mirror (owning module: orchestration phase).
