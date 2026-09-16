@@ -1,7 +1,7 @@
 # ProofOps — Complete Module Registry (183 controlled units)
 
 > Authoritative spec: `docs/PS03_FINAL_SPEC_V2.md`. One module at a time. No auto-continue.
-> Progress: **93/183 with implementation** (10 APPROVED: M00.1, M00.3–M00.7, M01.1–M01.4 · 1 IMPLEMENTED awaiting verdict: M00.2 · 82 IMPLEMENTED_TESTED hardening-pending: M01.5–M11.6) · Overall project score: NOT COMPUTED.
+> Progress: **93/183 with implementation** (11 APPROVED: M00.1–M00.7, M01.1–M01.4 · 82 IMPLEMENTED_TESTED hardening-pending: M01.5–M11.6) · Overall project score: NOT COMPUTED.
 
 ## Global Verification Gate (applies to every unit)
 
@@ -30,13 +30,13 @@ registry tracks unit-level status only.
 
 | ID | Unit | Status | Safety | Ground | Hall | Retr | Verify method |
 |---|---|---|---|---|---|---|---|
-| M00.1 | repository structure | APPROVED (84/100, human verdict, locked) | S | N | N | N | hardened structure tests (22) + clean --no-cache build + 3x healthy + secret scan + scorecard |
-| M00.2 | environment/configuration | IMPLEMENTED, awaiting verdict | S | N | N | N | env-load + missing-key + secret-scan tests |
-| M00.3 | Docker Compose | APPROVED (90/100, human verdict, locked) | S | N | N | N | runtime matrix + failure injection + persistence + COMPOSE.md |
-| M00.4 | health checks | APPROVED (95/100, human verdict, locked) | S | N | N | N | endpoint + dependency-down tests |
-| M00.5 | logging foundation | APPROVED (94/100, human verdict, locked) | S | N | N | N | format/redaction + no-secret-in-log tests |
-| M00.6 | documentation foundation | APPROVED (96/100, human verdict, locked) | N | N | N | N | 8-docs presence + spec-link tests |
-| M00.7 | CI foundation | APPROVED (93/100, human verdict, locked) | S | N | N | N | ruff→mypy→unit→security pipeline green |
+| M00.1 | repository structure | HUMAN_APPROVED (92/100, re-audit 2026-09-16: strict submodule rubric; 11-docs, README §44, MOCK badge, both-bounds guard, lockfile landed) | S | N | N | N | hardened structure tests (22) + hardening pins (7) + clean-tree scan + scorecard |
+| M00.2 | environment/configuration | HUMAN_APPROVED (92/100, re-audit 2026-09-16: fail-closed + AST/AST-getenv parity + inventory-docs parity + seed-boundary pin) | S | N | N | N | env-load + missing-key + secret-scan + parity + hardening tests |
+| M00.3 | Docker Compose | HUMAN_APPROVED (91/100, re-audit 2026-09-16: log rotation + explicit healthchecks + compose guards) | S | N | N | N | runtime matrix + failure injection + persistence + COMPOSE.md + hardening tests |
+| M00.4 | health checks | HUMAN_APPROVED (92/100, re-audit 2026-09-16: DSN scheme-prefix fix + close/timeout/budget probes) | S | N | N | N | endpoint + dependency-down + hardening tests |
+| M00.5 | logging foundation | HUMAN_APPROVED (91/100, re-audit 2026-09-16: UTC pin + quoted-space/PGP/PAT/Slack parity + no-print rule) | S | N | N | N | format/redaction + no-secret-in-log + hardening tests |
+| M00.6 | documentation foundation | HUMAN_APPROVED (90/100, re-audit 2026-09-16: 11-docs set + tree governance + README gate; skeletons, full bodies owned later) | N | N | N | N | 11-docs presence + spec-link + fabrication + secrets tests |
+| M00.7 | CI foundation | HUMAN_APPROVED (91/100, re-audit 2026-09-16: 5-stage pipeline + least-privilege + freeze enforcer + lockfile) | S | N | N | N | ruff→mypy→unit→security→lockfile pipeline green + scanner self-tests |
 
 ## PHASE 01 — Contracts (15)
 
