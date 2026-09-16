@@ -232,7 +232,32 @@ scalars) may raise `TypeError` on exotic coercions — never silently
 accepted; constructors remain THE trust boundary. `Alert.from_legacy`
 takes legacy-shaped OBJECTS, not raw dicts (raw dicts → normalizer, M02).
 
-## PLANNED ADR slots (not taken in M00.6)- FSM-primary over SuperFlow mirror (owning module: orchestration phase).
+## ADR-013 — M02 telemetry hardening (this pass)
+
+Context: M02 scored 44.6 (thinnest phase: 70 tests for 10 units, one golden
+combo). Zero-trust re-audit found: answers co-packaged without a sanctioned
+model-visible view (P1, downgraded by evidence — retrieval guards queries
+and predigest never packs answers, but no primitive existed); bare-ID
+traces with dangling log refs (t-*-3..6 unresolvable); list-aliased
+CONTRADICTORY rows (one object ×5); ruff gate blind to telemetry/ (an
+orphaned dead fragment from this pass proved it).
+Decision: `public_bundle()` (drops exactly `GROUND_TRUTH_KEYS` + seal,
+one-line change surface, pinned); span-shaped traces with pure-arithmetic
+ids/durations (never `hash()`, separate from legacy rng streams so golden
+bytes hold); log groups 0..2 resolving to trace objects (specials first so
+3-exemplars include them); `topology_edges` + `events_in_window` helpers
+(fail-closed); aliasing fix; ruff scope widened to telemetry/ (CI + local +
+test pinned). Full 12×5 matrix determinism incl. cross-process
+(PYTHONHASHSEED 0 vs 12345), per-combo counts, deploy ±15m window,
+pre/post metric shapes, per-section tamper seal, payload present-once /
+absent-where-clean rules.
+Boundaries: `slo` thresholds STAY in the public view (policy config, not
+answers — one-line change if human disagrees); metrics cover ~11 min at 60s
+(pre/post SHAPE for delta, not a 15m series); stub-7 stay minimal by design.
+
+## PLANNED ADR slots (not taken in M00.6)
+
+- FSM-primary over SuperFlow mirror (owning module: orchestration phase).
 - 4-agent split plus session_id=incident_id (M13).
 - No-pgvector retrieval freeze: Classic KB plus local pre-digestion (M12/M13).
 - RAI per-agent placement, policy engine as authz boundary (M06/M13).

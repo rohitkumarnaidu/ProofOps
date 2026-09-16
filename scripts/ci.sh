@@ -24,7 +24,7 @@ PYBIN="${PYTHON:-python}"
 command -v "$PYBIN" >/dev/null 2>&1 || PYBIN=python3
 
 echo "==> [1/5] ruff (lint correctness; format NOT gated, see pyproject.toml)"
-"$PYBIN" -m ruff check backend tests scripts
+"$PYBIN" -m ruff check backend tests scripts telemetry
 
 echo "==> [2/5] mypy (typed control plane)"
 "$PYBIN" -m mypy backend/app

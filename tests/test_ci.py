@@ -84,7 +84,7 @@ class TestWorkflowShape:
 class TestStageCommands:
     def test_ruff_stage(self):  # STATIC
         run = _job_run(_workflow()["jobs"]["lint"])
-        assert "ruff check backend tests scripts" in run
+        assert "ruff check backend tests scripts telemetry" in run
 
     def test_mypy_stage(self):  # STATIC
         run = _job_run(_workflow()["jobs"]["typecheck"])
