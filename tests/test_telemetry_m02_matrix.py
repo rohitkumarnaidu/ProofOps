@@ -67,6 +67,27 @@ class TestDeterminismMatrix:
             shas.add(proc.stdout.strip())
         assert len(shas) == 1 and len(next(iter(shas))) == 64
 
+    def test_cross_process_sample_matrix(self):  # UNIT
+        # One combo proves the mechanism; a 16-combo sample (all variants of
+        # bad-deploy + NORMAL of every scenario) proves it is not luck.
+        combos = [("bad-deploy", v) for v in VARIANTS] + [
+            (s, "NORMAL") for s in SCENARIOS]
+        probe = ("import sys, json; sys.path.insert(0, 'telemetry'); "
+                 "import gen; sc, va = sys.argv[1], sys.argv[2]; "
+                 "print(gen.generate(sc, va, 7)['sha'])")
+        for scenario, variant in combos:
+            shas = set()
+            for hashseed in ("0", "999"):
+                env = dict(os.environ, PYTHONHASHSEED=hashseed)
+                proc = subprocess.run(
+                    [sys.executable, "-c", probe, scenario, variant],
+                    capture_output=True, text=True, cwd=str(ROOT),
+                    env=env, timeout=60)
+                assert proc.returncode == 0, (scenario, variant,
+                                              proc.stderr[-300:])
+                shas.add(proc.stdout.strip())
+            assert len(shas) == 1, (scenario, variant)
+
     def test_rejects_unknown_inputs(self):  # UNIT
         with pytest.raises(KeyError):
             gen.generate("nope", "NORMAL", 1)
@@ -154,6 +175,15 @@ class TestTopologyEdges:
             else:
                 assert edges == []
 
+    def test_matrix_service_matches_scenario(self):  # UNIT
+        for scenario in SCENARIOS:
+            t = gen.generate(scenario, "NORMAL", 11)
+            assert t["topology"]["service"] == gen.SCENARIOS[scenario][
+                "service"]
+            assert t["topology"]["service"] == t["alerts"][0]["service"]
+            assert all(a["environment"] == gen.SCENARIOS[scenario]["env"]
+                       for a in t["alerts"])
+
 
 class TestK8sWindowIndex:
     def test_slice_inclusive_bounds(self):  # UNIT
@@ -193,6 +223,17 @@ class TestMetricsPrePostShape:
         ts = [m["ts"] for m in t["metrics"]]
         assert all(b - a == 60 for a, b in zip(ts, ts[1:]))
         assert {m["name"] for m in t["metrics"]} == {"error_rate"}
+
+    def test_values_bounded_and_shaped(self):  # UNIT
+        # Ratio shape per scenario: exact baseline first half, spike±jitter
+        # second half (false-positive: no spike by design, hovers at floor).
+        for scenario in SCENARIOS:
+            vals = [m["value"] for m in
+                    gen.generate(scenario, "NORMAL", 7)["metrics"]]
+            assert all(0.0 <= v <= 1.0 for v in vals), scenario
+            assert all(v == gen.BASE_ERROR for v in vals[:6]), scenario
+            spike = gen.SCENARIOS[scenario]["spike"]
+            assert all(abs(v - spike) <= 0.005 for v in vals[6:]), scenario
 
 
 class TestSpanTraceIntegrity:

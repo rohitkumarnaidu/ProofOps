@@ -241,6 +241,9 @@ def generate(scenario: str, variant: str = "NORMAL", seed: int = 42) -> dict[str
                      "trace_id": "t-evil"})
 
     series = [BASE_ERROR] * 6 + [round(p["spike"] + rng.uniform(-0.005, 0.005), 4)] * 6
+    # error_rate is a ratio: clamp jitter into [0, 1] (a -0.004 "rate" from a
+    # tiny spike minus jitter is nonsense data for verifiers to trip on).
+    series = [min(1.0, max(0.0, v)) for v in series]
     if variant == "INCOMPLETE":
         series = series[6:]  # baseline missing -> must cope, not crash
     metrics = [{"ts": base + i * 60, "service": p["service"],
