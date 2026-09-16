@@ -4,7 +4,8 @@ from fastapi.responses import JSONResponse
 
 from app.config import get_settings  # noqa: E402  (M00.2 trust boundary)
 from app.health import readiness  # noqa: E402  (M00.4 readiness probes)
-from app.logging_setup import configure_logging, get_logger  # noqa: E402  (M00.5)
+from app.logging_setup import configure_logging, get_logger  # noqa: E402 (M00.5)
+from app.routers import runs as runs_router  # noqa: E402 (M14b runs router)
 
 # M00.2: load typed config at startup. Missing/invalid required values raise
 # ConfigurationError here (fail-closed) instead of failing mid-request later.
@@ -23,6 +24,12 @@ configure_logging(settings.LOG_LEVEL,
 logger = get_logger(__name__)
 
 app = FastAPI(title="ProofOps", version="0.1.0")
+# M14b (deliberate minimal touch to the M00.1-locked file, like M00.2): wire
+# the runs router. Guarded: host starlette drift leaves runs.router None
+# (unit/structure tests only there); the container wires it. /healthz body
+# below is untouched (byte-frozen contract).
+if runs_router.router is not None:
+    app.include_router(runs_router.router)
 # Public values only (APP_ENV/LOG_LEVEL/EXECUTOR are non-secret by contract).
 logger.info("proofops api starting env=%s level=%s executor=%s",
             settings.APP_ENV, settings.LOG_LEVEL, settings.EXECUTOR)

@@ -31,9 +31,11 @@ import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Mapping, Sequence
+from typing import Any, Callable, Sequence
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+# Repo root for the top-level agents/ package (runtime CWD-independent).
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from agents import AGENTS  # noqa: E402 (M13 workforce map, dep-free)
 from app.contracts.enums import FSM_STATES  # noqa: E402 (frozen vocabulary)

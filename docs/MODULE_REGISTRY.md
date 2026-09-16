@@ -1,7 +1,7 @@
 # ProofOps — Complete Module Registry (183 controlled units)
 
 > Authoritative spec: `docs/PS03_FINAL_SPEC_V2.md`. One module at a time. No auto-continue.
-> Progress: **110/183 with implementation** (11 APPROVED: M00.1–M00.7, M01.1–M01.4 · 99 IMPLEMENTED_TESTED hardening-pending: M01.5–M13.10) · Overall project score: NOT COMPUTED.
+> Progress: **118/183 with implementation** (11 APPROVED: M00.1–M00.7, M01.1–M01.4 · 107 IMPLEMENTED_TESTED hardening-pending: M01.5–M14.8) · Overall project score: NOT COMPUTED.
 
 ## Global Verification Gate (applies to every unit)
 
@@ -210,14 +210,14 @@ registry tracks unit-level status only.
 
 | ID | Unit | Status | Safety | Ground | Hall | Retr | Verify method |
 |---|---|---|---|---|---|---|---|
-| M14.1 | FSM | NOT STARTED | R | N | N | N | 14-state definition tests |
-| M14.2 | transitions | NOT STARTED | R | N | N | N | valid/invalid/terminal transition tests |
-| M14.3 | retries | NOT STARTED | R | N | N | N | bounded-retry (re-plan≤2) tests |
-| M14.4 | timeouts | NOT STARTED | R | N | N | N | stage-TTL→ESCALATED tests |
-| M14.5 | idempotency | NOT STARTED | R | N | N | N | duplicate→cached + audit tests |
-| M14.6 | agent handoffs | NOT STARTED | R | N | N | N | handoff-schema + ACL tests |
-| M14.7 | approval branch | NOT STARTED | R | N | N | N | no-skip POLICY_CHECK→EXECUTING tests |
-| M14.8 | failure branches | NOT STARTED | R | N | N | N | BLOCKED/ESCALATED path + audit tests |
+| M14.1 | FSM | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | 14-state definition tests |
+| M14.2 | transitions | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | valid/invalid/terminal transition tests |
+| M14.3 | retries | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | bounded-retry (re-plan≤2) tests |
+| M14.4 | timeouts | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | stage-TTL→ESCALATED tests |
+| M14.5 | idempotency | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | duplicate→cached + audit tests |
+| M14.6 | agent handoffs | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | handoff-schema + ACL tests |
+| M14.7 | approval branch | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | no-skip POLICY_CHECK→EXECUTING tests |
+| M14.8 | failure branches | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | BLOCKED/ESCALATED path + audit tests |
 
 ## PHASE 15 — Audit / AIMS (6)
 
