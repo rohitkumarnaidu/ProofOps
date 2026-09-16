@@ -233,7 +233,6 @@ accepted; constructors remain THE trust boundary. `Alert.from_legacy`
 takes legacy-shaped OBJECTS, not raw dicts (raw dicts → normalizer, M02).
 
 ## ADR-013 — M02 telemetry hardening (this pass)
-
 Context: M02 scored 44.6 (thinnest phase: 70 tests for 10 units, one golden
 combo). Zero-trust re-audit found: answers co-packaged without a sanctioned
 model-visible view (P1, downgraded by evidence — retrieval guards queries
@@ -254,6 +253,56 @@ absent-where-clean rules.
 Boundaries: `slo` thresholds STAY in the public view (policy config, not
 answers — one-line change if human disagrees); metrics cover ~11 min at 60s
 (pre/post SHAPE for delta, not a 15m series); stub-7 stay minimal by design.
+
+## ADR-014 — M03 normalization hardening (this pass)
+
+Context: M03 scored 52.8 with three P1s. All three closed with file:line
+proof, plus a None-hole sweep and span preservation.
+Decision:
+- P1 #18 (environment mock-default): missing/null environment now REJECTS
+  before the fingerprint binds it (blank still rejects in the model). No
+  test pinned the default; gen and all fixtures always set env.
+- P1 #19 (dual severity): documented as TWO deliberate levels, not a
+  contradiction — signal severity on Alert (indicator strength) vs triage
+  severity on Incident (env+error+signature). WARNING/prod = P3-signal but
+  P2-incident by design (degraded prod pages); pinned jointly with M04.
+  Neither mapping changed (both pinned by pre-existing tests).
+- P1 #20 (ts parity): TWO rules, not one (uniformity was impossible — an
+  existing k8s test pins missing-ts→reject while an existing log test pins
+  missing-ts→fill). Observations (alert/log/trace): missing/null takes
+  arrival time, malformed rejects. Anchored events (metric/deploy/k8s):
+  missing/null rejects, malformed rejects. Shared strict core
+  (bool/NaN/negative/unparseable/naive rejected).
+- Identity-fallback doctrine (visible-noise over silent-blindness): missing
+  ids take unique/generated markers, never colliding placeholders; grouping
+  keys with no safe default (signature, environment) reject.
+- None-hole sweep: every `str(raw.get(...))` now routes through `_raw_str`
+  (present-None used to stringify into "None" groups/versions).
+- Traces carry spans through normalization (M02.6 enrichment survives;
+  non-mapping spans reject).
+- Verified NON-lack: blank resource stays "" (canonical allows absent
+  resource); blank from_v/to_v stay (content-level, visible).
+
+## ADR-015 — M03 adversarial round-2: range crash, time types, full chain
+
+Context: end-to-end re-audit (gen→normalize→correlate→predigest matrix)
+reproduced 4 more lacks. Fixed: `fromtimestamp` on out-of-range magnitudes
+(`1e20`) escaped as raw `OverflowError` — now `ValueError` in the shared
+strict core (all six normalizers inherit); canonical `ts` is now ONE type
+(tz-aware UTC datetime everywhere — metric/deploy/k8s float passthrough is
+gone); alert metadata `trace_id`/`pod` extras are strict-typed (non-str
+rejected, was `str()`-laundered); full-chain matrix test (6 scenarios ×
+normalize→correlate→predigest, raw AND normalized inputs, adversarial
+payload-truncation pinned) proves the pipeline composes.
+Verified NON-lacks: labels int-keys/values already rejected by the model;
+`str(None)` fallbacks already guarded by `_raw_str` where used; predigest
+80-char truncation is by design (evil line stays recognizable).
+Boundaries: `from_v`/`to_v` content unvalidated (free-form tags, visible);
+k8s kind/reason open sets (vendor drift risk if closed); log `level` open
+set (same reason).
+- Methodology note: test-count arithmetic is verified via isolated
+  worktree baselines, never memory (a stale 2174 figure was caught and
+  corrected to a measured 2248+21 this pass).
 
 ## PLANNED ADR slots (not taken in M00.6)
 
