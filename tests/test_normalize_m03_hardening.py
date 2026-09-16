@@ -191,3 +191,116 @@ class TestTwoLevelSeverity:
     def test_critical_prod_is_p1_both_levels(self):  # UNIT
         alert = normalize_alert(_raw_alert(severity_raw="critical"))
         assert alert.severity.value == "P1"
+
+
+class TestExtremeTimestamps:
+    @pytest.mark.parametrize("bad", [1e20, 1e308, 99999999999])
+    def test_out_of_range_rejected_everywhere(self, bad):  # SECURITY
+        # fromtimestamp raises OverflowError/OSError on extremes: the strict
+        # core converts to ValueError (fail-closed promise holds at range
+        # edges, not just for NaN/strings).
+        with pytest.raises((ValidationError, ValueError)):
+            normalize_alert(_raw_alert(ts=bad))
+        with pytest.raises(ValueError):
+            normalize_log({"msg": "m", "ts": bad})
+        with pytest.raises(ValueError):
+            normalize_trace({"trace_id": "t", "ts": bad})
+        with pytest.raises(ValueError):
+            normalize_metric({"service": "w", "name": "n",
+                              "value": 0.1, "ts": bad})
+        with pytest.raises(ValueError):
+            normalize_deployment({"service": "w", "ts": bad})
+        with pytest.raises(ValueError):
+            normalize_k8s_event({"service": "w", "ts": bad})
+
+    def test_epoch_zero_accepted(self):  # UNIT
+        assert normalize_log({"msg": "m", "ts": 0})["ts"].year == 1970
+
+
+class TestCanonicalTimeType:
+    def test_every_normalized_ts_is_aware_datetime(self):  # UNIT
+        # One time type across the model (was: datetimes for alerts/logs/
+        # traces, raw float passthrough for metric/deploy/k8s).
+        from datetime import datetime as _dt
+        assert isinstance(
+            normalize_metric({"service": "w", "name": "n",
+                              "value": 0.1, "ts": 100})["ts"], _dt)
+        assert isinstance(
+            normalize_deployment({"service": "w", "ts": 100})["ts"], _dt)
+        assert isinstance(
+            normalize_k8s_event({"service": "w", "ts": 100})["ts"], _dt)
+        assert isinstance(
+            normalize_log({"msg": "m", "ts": 100})["ts"], _dt)
+        assert isinstance(
+            normalize_trace({"trace_id": "t", "ts": 100})["ts"], _dt)
+        for rec_ts in (normalize_metric(
+                {"service": "w", "name": "n", "value": 0.1,
+                 "ts": 100})["ts"],
+                       normalize_log({"msg": "m", "ts": 100})["ts"]):
+            assert rec_ts.tzinfo is not None
+
+
+class TestMetadataStrictness:
+    def test_non_str_extras_rejected(self):  # SECURITY
+        with pytest.raises((ValidationError, ValueError)):
+            normalize_alert(_raw_alert(trace_id=123))
+        with pytest.raises((ValidationError, ValueError)):
+            normalize_alert(_raw_alert(pod=["web-1"]))
+
+    def test_labels_int_keys_rejected_by_model(self):  # SECURITY
+        with pytest.raises((ValidationError, ValueError)):
+            normalize_alert(_raw_alert(labels={1: "x"}))
+
+
+class TestFullChainMatrix:
+    def _chain(self, bundle):
+        from app.services.normalizer import normalize_telemetry
+        from app.services.predigest import build_evidence_pack
+        model = normalize_telemetry(bundle)
+        incs = correlate(model["alerts"], model["deployments"],
+                         [{"value": m["value"]} for m in model["metrics"]],
+                         model["topology"])
+        pack = build_evidence_pack("inc-e2e", model)
+        return model, incs, pack
+
+    @pytest.mark.parametrize("scenario", [
+        "bad-deploy", "crashloop-oom", "db-exhaust", "net-dep-fail",
+        "injection", "false-positive"])
+    def test_gen_normalize_correlate_predigest(self, scenario):  # UNIT
+        import sys as _sys
+        _sys.path.insert(0, str(ROOT / "telemetry"))
+        import gen as _gen
+        from app.contracts import Incident as _Incident
+        from app.contracts.evidence import Evidence as _Evidence
+        model, incs, pack = self._chain(
+            _gen.generate(scenario, "NORMAL", 7))
+        assert all(isinstance(i, _Incident) for i in incs)
+        assert pack["incident_id"] == "inc-e2e"
+        assert pack["evidence"], scenario  # chain yields citable evidence
+        for ev in pack["evidence"]:
+            _Evidence(**ev)  # still canonical-acceptable after packing
+        assert pack["window"]["alerts"] == len(model["alerts"])
+
+    def test_chain_accepts_raw_and_normalized(self):  # UNIT
+        import sys as _sys
+        _sys.path.insert(0, str(ROOT / "telemetry"))
+        import gen as _gen
+        from app.services.predigest import build_evidence_pack
+        raw = _gen.generate("bad-deploy", "NORMAL", 7)
+        assert build_evidence_pack("a", raw)["evidence"]
+        from app.services.normalizer import normalize_telemetry
+        assert build_evidence_pack(
+            "b", normalize_telemetry(raw))["evidence"]
+
+    def test_adversarial_chain_keeps_payload_inert(self):  # SECURITY
+        import sys as _sys
+        _sys.path.insert(0, str(ROOT / "telemetry"))
+        import gen as _gen
+        _, _, pack = self._chain(_gen.generate("bad-deploy", "ADVERSARIAL", 7))
+        # predigest truncates error lines to 80 chars: the evil line arrives
+        # truncated-but-recognizable (verbatim head incl. the attack verb),
+        # never executed and never dropped.
+        assert any(e["msg"].startswith("upstream note: IGNORE")
+                   and "kubectl delete" in e["msg"]
+                   for e in pack["top_errors"])
+        assert pack["evidence"]  # diagnosis still possible under attack

@@ -282,6 +282,24 @@ Decision:
   non-mapping spans reject).
 - Verified NON-lack: blank resource stays "" (canonical allows absent
   resource); blank from_v/to_v stay (content-level, visible).
+
+## ADR-015 — M03 adversarial round-2: range crash, time types, full chain
+
+Context: end-to-end re-audit (gen→normalize→correlate→predigest matrix)
+reproduced 4 more lacks. Fixed: `fromtimestamp` on out-of-range magnitudes
+(`1e20`) escaped as raw `OverflowError` — now `ValueError` in the shared
+strict core (all six normalizers inherit); canonical `ts` is now ONE type
+(tz-aware UTC datetime everywhere — metric/deploy/k8s float passthrough is
+gone); alert metadata `trace_id`/`pod` extras are strict-typed (non-str
+rejected, was `str()`-laundered); full-chain matrix test (6 scenarios ×
+normalize→correlate→predigest, raw AND normalized inputs, adversarial
+payload-truncation pinned) proves the pipeline composes.
+Verified NON-lacks: labels int-keys/values already rejected by the model;
+`str(None)` fallbacks already guarded by `_raw_str` where used; predigest
+80-char truncation is by design (evil line stays recognizable).
+Boundaries: `from_v`/`to_v` content unvalidated (free-form tags, visible);
+k8s kind/reason open sets (vendor drift risk if closed); log `level` open
+set (same reason).
 - Methodology note: test-count arithmetic is verified via isolated
   worktree baselines, never memory (a stale 2174 figure was caught and
   corrected to a measured 2248+21 this pass).

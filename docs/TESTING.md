@@ -18,7 +18,7 @@ python scripts/secret_scan.py
 ```
 
 - Baseline (measured 2026-09-16, refreshed by each wave landing — current:
-  FULL suite `2269 passed, 1 skipped` incl. all 4 `*_runtime.py` daemon files,
+  FULL suite `2284 passed, 1 skipped` incl. all 4 `*_runtime.py` daemon files,
   proven on Docker Desktop 29.6.2 with the stack left UP+healthy) ·
   `ruff` pass · `mypy` pass · `secret_scan` PASS · `freeze --check` PASS ·
   `pip-audit` PASS (8 documented exceptions). The 1 skip is
