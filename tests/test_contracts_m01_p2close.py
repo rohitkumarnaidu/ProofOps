@@ -252,3 +252,102 @@ class TestThinSpotCaps:
         with pytest.raises(ValidationError):
             BenchmarkResult(case_id="c", scenario="s", variant="v",
                             expected_cause="e", unsafe_executions=-1)
+
+
+class TestRollbackEdges:
+    def test_null_action_and_lists_rejected(self):  # SECURITY
+        with pytest.raises(ValidationError):
+            Rollback(execution_id="e", rollback_action=None)  # type: ignore
+        with pytest.raises(ValidationError):
+            Rollback(execution_id="e", rollback_action={"a": 1},
+                     conditions=None)  # type: ignore
+        with pytest.raises(ValidationError):
+            Rollback(execution_id="e", rollback_action={"a": 1},
+                     verification="slo")  # type: ignore
+
+    def test_non_bool_attempted_rejected(self):  # SECURITY
+        with pytest.raises(ValidationError):
+            Rollback(execution_id="e", rollback_action={"a": 1},
+                     attempted="yes")  # type: ignore
+
+
+class TestRcaCaps:
+    def _valid(self, **over) -> dict:
+        base = dict(incident_id="i", summary="s", root_cause="c")
+        base.update(over)
+        return base
+
+    def test_audit_ref_and_prevention_caps(self):  # SECURITY
+        with pytest.raises(ValidationError):
+            RCA(**self._valid(audit_ref="r" * 257))
+        with pytest.raises(ValidationError):
+            RCA(**self._valid(prevention=[f"p{i}" for i in range(65)]))
+        with pytest.raises(ValidationError):
+            RCA(**self._valid(prevention=["  "]))
+
+    def test_claims_and_impact_caps(self):  # SECURITY
+        from app.contracts.hypothesis import Claim
+        with pytest.raises(ValidationError):
+            RCA(**self._valid(
+                claims=[Claim(text=f"c{i}") for i in range(65)]))
+        with pytest.raises(ValidationError):
+            RCA(**self._valid(
+                impact={f"k{i}": i for i in range(65)}))
+
+
+class TestAuditEdges:
+    def _valid(self, **over) -> dict:
+        base = dict(seq=1, incident_id="i", actor="a",
+                    event_type="policy.decision")
+        base.update(over)
+        return base
+
+    def test_seq_and_ts_strict(self):  # SECURITY
+        with pytest.raises(ValidationError):
+            AuditEvent(**self._valid(seq=True))
+        with pytest.raises(ValidationError):
+            AuditEvent(**self._valid(seq=-1))
+        with pytest.raises(ValidationError):
+            AuditEvent(**self._valid(seq=1.5))
+        from datetime import datetime
+        with pytest.raises(ValidationError):
+            AuditEvent(**self._valid(ts=datetime(2026, 9, 16)))
+
+    def test_actor_and_type_edges(self):  # SECURITY
+        with pytest.raises(ValidationError):
+            AuditEvent(**self._valid(actor="  "))
+        with pytest.raises(ValidationError):
+            AuditEvent(**self._valid(event_type="e" * 129))
+        with pytest.raises(ValidationError):
+            AuditEvent(**self._valid(
+                evidence_ids=[f"e{i}" for i in range(101)]))
+        with pytest.raises(ValidationError):
+            AuditEvent(**self._valid(result="r" * 1025))
+        assert AuditEvent(**self._valid(agent="")).agent == ""
+
+
+class TestEvaluationEdges:
+    def test_ids_and_variant_caps(self):  # SECURITY
+        with pytest.raises(ValidationError):
+            EvaluationRun(suite="  ", case_id="c")
+        with pytest.raises(ValidationError):
+            BenchmarkResult(case_id="c", scenario="s", variant="v" * 65,
+                            expected_cause="e")
+
+    def test_metric_map_caps(self):  # SECURITY
+        with pytest.raises(ValidationError):
+            EvaluationRun(suite="s", case_id="c",
+                          scores={f"m{i}": 1.0 for i in range(65)})
+        with pytest.raises(ValidationError):
+            EvaluationRun(suite="s", case_id="c",
+                          latency_ms={"p": float("inf")})
+        with pytest.raises(ValidationError):
+            EvaluationRun(suite="s", case_id="c", llm_calls=True)  # type: ignore
+
+    def test_ratio_bounds(self):  # SECURITY
+        with pytest.raises(ValidationError):
+            BenchmarkResult(case_id="c", scenario="s", variant="v",
+                            expected_cause="e", citation_coverage=1.5)
+        with pytest.raises(ValidationError):
+            BenchmarkResult(case_id="c", scenario="s", variant="v",
+                            expected_cause="e", citation_coverage="high")  # type: ignore
