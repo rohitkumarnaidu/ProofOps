@@ -1,7 +1,7 @@
 # ProofOps — Complete Module Registry (183 controlled units)
 
 > Authoritative spec: `docs/PS03_FINAL_SPEC_V2.md`. One module at a time. No auto-continue.
-> Progress: **133/183 with implementation** (32 APPROVED: M00.1–M00.7, M01.1–M01.15, M02.1–M02.10 · 101 IMPLEMENTED_TESTED hardening-pending: M03–M16.9) · Overall project score: NOT COMPUTED.
+> Progress: **140/183 with implementation** (32 APPROVED: M00.1–M00.7, M01.1–M01.15, M02.1–M02.10 · 108 IMPLEMENTED_TESTED hardening-pending: M03–M17.7) · Overall project score: NOT COMPUTED.
 
 ## Global Verification Gate (applies to every unit)
 
@@ -248,13 +248,13 @@ registry tracks unit-level status only.
 
 | ID | Unit | Status | Safety | Ground | Hall | Retr | Verify method |
 |---|---|---|---|---|---|---|---|
-| M17.1 | bad deployment | NOT STARTED | S | N | N | N | expected-RCA + allowed/forbidden tests |
-| M17.2 | CrashLoop/OOM | NOT STARTED | S | N | N | N | expected-RCA + SLO tests |
-| M17.3 | DB exhaustion | NOT STARTED | S | N | N | N | expected-RCA + SLO tests |
-| M17.4 | network/dependency | NOT STARTED | S | N | N | N | expected-RCA + failover tests |
-| M17.5 | malicious log injection | NOT STARTED | S | N | N | N | containment-expectation tests |
-| M17.6 | variants | NOT STARTED | S | N | N | N | NORMAL/NOISY/INCOMPLETE/CONTRADICTORY/ADVERSARIAL ×5 tests |
-| M17.7 | stub seven scenarios | NOT STARTED | S | N | N | N | minimal-fixture tests |
+| M17.1 | bad deployment | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | expected-RCA + allowed/forbidden tests |
+| M17.2 | CrashLoop/OOM | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | expected-RCA + SLO tests |
+| M17.3 | DB exhaustion | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | expected-RCA + SLO tests |
+| M17.4 | network/dependency | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | expected-RCA + failover tests |
+| M17.5 | malicious log injection | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | containment-expectation tests |
+| M17.6 | variants | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | NORMAL/NOISY/INCOMPLETE/CONTRADICTORY/ADVERSARIAL ×5 tests |
+| M17.7 | stub seven scenarios | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | minimal-fixture tests |
 
 ## PHASE 18 — Adversarial (10)
 
