@@ -1,7 +1,7 @@
 # ProofOps — Complete Module Registry (183 controlled units)
 
 > Authoritative spec: `docs/PS03_FINAL_SPEC_V2.md`. One module at a time. No auto-continue.
-> Progress: **124/183 with implementation** (32 APPROVED: M00.1–M00.7, M01.1–M01.15, M02.1–M02.10 · 92 IMPLEMENTED_TESTED hardening-pending: M03–M15.6) · Overall project score: NOT COMPUTED.
+> Progress: **133/183 with implementation** (32 APPROVED: M00.1–M00.7, M01.1–M01.15, M02.1–M02.10 · 101 IMPLEMENTED_TESTED hardening-pending: M03–M16.9) · Overall project score: NOT COMPUTED.
 
 ## Global Verification Gate (applies to every unit)
 
@@ -234,15 +234,15 @@ registry tracks unit-level status only.
 
 | ID | Unit | Status | Safety | Ground | Hall | Retr | Verify method |
 |---|---|---|---|---|---|---|---|
-| M16.1 | runner | NOT STARTED | S | N | N | S | CASE→RUN→TRACE→GRADE→SCORE pipeline tests |
-| M16.2 | dataset loader | NOT STARTED | S | N | N | S | deep-5×5 + stub-7 load tests |
-| M16.3 | graders | NOT STARTED | S | N | N | S | grader-determinism tests |
-| M16.4 | baseline | NOT STARTED | S | N | N | S | baseline-capture tests |
-| M16.5 | optimized | NOT STARTED | S | N | N | S | optimized-capture + delta tests |
-| M16.6 | six checkpoint scoring | NOT STARTED | S | N | N | S | C1–C6 metric tests |
-| M16.7 | rubric scoring | NOT STARTED | S | N | N | S | 30/30/20/20 estimator tests |
-| M16.8 | JSONL | NOT STARTED | S | N | N | S | runs/*.jsonl schema tests |
-| M16.9 | HTML scorecard | NOT STARTED | S | N | N | S | scorecard-link→run tests |
+| M16.1 | runner | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | S | CASE→RUN→TRACE→GRADE→SCORE pipeline tests |
+| M16.2 | dataset loader | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | S | deep-5×5 + stub-7 load tests |
+| M16.3 | graders | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | S | grader-determinism tests |
+| M16.4 | baseline | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | S | baseline-capture tests |
+| M16.5 | optimized | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | S | optimized-capture + delta tests |
+| M16.6 | six checkpoint scoring | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | S | C1–C6 metric tests |
+| M16.7 | rubric scoring | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | S | 30/30/20/20 estimator tests |
+| M16.8 | JSONL | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | S | runs/*.jsonl schema tests |
+| M16.9 | HTML scorecard | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | S | scorecard-link→run tests |
 
 ## PHASE 17 — Benchmarks (7)
 
