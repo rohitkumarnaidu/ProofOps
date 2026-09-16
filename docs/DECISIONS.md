@@ -57,19 +57,31 @@ tracebacks) for registered values plus generic credential patterns; uvicorn
 boot lines keep the stock formatter (secret-free by nature, asserted hygienic
 live). Detail: `docs/LOGGING.md`. Spec: §37 (secret-leak control).
 
-## ADR-006 — M00.6 documentation scope and README reconciliation (this module)
+## ADR-006 — M00.6 documentation scope and README reconciliation (this module,
+hardened to 11-docs in 90+ pass)
 
 Context: `README.md` lists `docs/EVALUATION.md`, `docs/SECURITY.md`,
 `docs/DECISIONS.md`, `docs/DEMO.md` as PLANNED "in M00.6/M22", while spec §44
 additionally names `ARCHITECTURE.md`, `API.md`, `TESTING.md`.
-Decision: the canonical M00.6 8-docs set is the 4 frozen foundation docs
+Decision: the canonical M00.6 set is the 4 frozen foundation docs
 (`CONFIGURATION`, `COMPOSE`, `HEALTH`, `LOGGING`) plus foundation versions of
 the 4 README-planned docs created here (honest status, spec links, owning
-modules for the unbuilt remainder). "M00.6/M22" means: M00.6 creates the
+modules for the unbuilt remainder) plus foundation versions of the 3 spec-§44
+docs (`ARCHITECTURE.md`, `API.md`, `TESTING.md`) added in the 90+ hardening
+pass so spec §44 has no gap. "M00.6/M22" means: M00.6 creates the
 foundation skeleton; M22 owns full demo hardening (`demo.sh --check`,
-rehearsals, evidence package) and M16 owns the eval runner. `ARCHITECTURE.md`,
-`API.md`, `TESTING.md` are NOT created here; owners are assigned when those
-modules are scheduled — no such files are claimed to exist.
+rehearsals, evidence package) and M16 owns the eval runner. No full
+implementation is claimed in foundation docs — every unbuilt remainder is
+marked PLANNED with its owning module.
+
+## ADR-007 — M00 90+ hardening (this pass, owns M00.1–M00.7 lift to ≥90)
+
+Decision: additive hardening only — no frozen-body changes (`/healthz` body
+byte-frozen, `Settings` trust boundary preserved, liveness vs readiness split
+preserved). New tests in new files where the original file is frozen; edits to
+frozen docs/compose/logging are minimal, reviewed, and re-tested. Registry
+status flips only on human APPROVE.
+Spec: §43–§46. Detail: `docs/TESTING.md`, `docs/ARCHITECTURE.md`, `docs/API.md`.
 
 ## PLANNED ADR slots (not taken in M00.6)
 

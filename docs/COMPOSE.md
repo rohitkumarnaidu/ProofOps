@@ -57,6 +57,14 @@ existence. Deep readiness (DB-depth checks) is M00.4 scope.
 daemon/host reboots, respects explicit `stop` (unlike `always`). `on-failure`
 rejected: a config-broken api would loop identically with no benefit.
 
+## Log rotation (M00.3 90+ pass, ADR-007)
+
+Every service sets `logging: json-file max-size 10m max-file 3`: a runaway
+service can never fill the host disk via container logs. Limits are generous
+enough for demo debugging (`compose logs` still shows recent history) and are
+asserted structurally in `tests/test_compose_hardening.py`. Full log shipping
+(SIEM, retention) is FUTURE, post-hackathon.
+
 Observed limit (M00.3, Docker Desktop 29.6.2): a SIGKILLed api stayed
 `Exited (137)` / `RestartCount 0` for 25s+ on a fresh container — daemon
 auto-resurrection was NOT observed on this host (possible Desktop quirk, not

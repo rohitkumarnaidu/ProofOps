@@ -20,7 +20,9 @@ tracebacks (`logger.exception` included) — covering:
   values shorter than 8 chars are skipped as exact matches (they would mangle
   ordinary words) and remain covered by the patterns below;
 - generic patterns: URI credentials (`://user:pass@` → `://<REDACTED>@`),
-  `password/passwd/pwd` assignments, bearer tokens, `sk-` keys, PEM blocks.
+  `password/passwd/pwd` assignments, bearer tokens, API keys, PEM blocks,
+  plus AWS access keys (`AKIA...`), GitHub tokens (`ghp_...`), and Slack
+  tokens (`xoxb-...`) for scanner parity (M00.5 90+ pass, ADR-007).
 
 ## Boundary (deliberate)
 

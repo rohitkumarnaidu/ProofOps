@@ -19,7 +19,10 @@ Config → Sanitized Snapshot`. Nothing reads `os.environ` directly except
 | PROOFOPS_API_KEY | str, required | — (fail-closed) | SECRET | M00.2 |
 | LYZR_API_KEY | str, empty = disabled | "" | SECRET | M00.2 → M13 |
 | LYZR_AGENT_ID | str (CURRENT, verify script) | "" | SENSITIVE | M00.2 |
-| LYZR_AGENT_TRIAGE/DIAGNOSTIC/PLANNER/REPORTER_ID | str (FUTURE, M13) | "" | FUTURE | M13 |
+| LYZR_AGENT_TRIAGE_ID | str (FUTURE, M13) | "" | FUTURE | M13 |
+| LYZR_AGENT_DIAGNOSTIC_ID | str (FUTURE, M13) | "" | FUTURE | M13 |
+| LYZR_AGENT_PLANNER_ID | str (FUTURE, M13) | "" | FUTURE | M13 |
+| LYZR_AGENT_REPORTER_ID | str (FUTURE, M13) | "" | FUTURE | M13 |
 | LYZR_RAI_POLICY | str | PS03-Governed | PUBLIC | M00.2 → M13 |
 | POSTGRES_USER / POSTGRES_DB | str | proofops | PUBLIC | compose + M00.2 |
 | POSTGRES_PASSWORD | str, required | — (fail-closed) | SECRET | compose + M00.2 |

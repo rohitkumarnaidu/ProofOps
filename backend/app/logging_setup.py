@@ -16,7 +16,9 @@ hold process-wide (spec PS03_FINAL_SPEC_V2: "no secrets in prompts/logs"):
      emission paths);
    - generic patterns: URI credentials (``://user:pass@``), password-style
      assignments (``password=...`` / ``passwd: ...`` / ``pwd=...``), bearer
-     tokens, ``sk-`` keys, PEM private-key blocks.
+     tokens, API keys, PEM private-key blocks, plus AWS access keys,
+     GitHub tokens, and Slack tokens (parity with the repo secret scanner,
+     ADR-007 90+ pass).
 
 ``configure_logging`` is idempotent (re-calls replace handlers, never stack
 them) and fail-closed on unknown levels. This module owns stdlib wiring only;
@@ -51,6 +53,12 @@ _GENERIC_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"(?i)bearer\s+[A-Za-z0-9\-._~+/=]{20,}"), "Bearer " + REDACTED),
     # sk- style API keys
     (re.compile(r"sk-[A-Za-z0-9\-_]{8,}"), REDACTED),
+    # Cloud/token shapes (parity with scripts/secret_scan.py live patterns,
+    # ADR-007: runtime redaction is broad on purpose — over-redaction in logs
+    # is safe, while the repo scanner stays precise to avoid false positives).
+    (re.compile(r"AKIA[0-9A-Z]{16}"), REDACTED),
+    (re.compile(r"gh[pousr]_[A-Za-z0-9]{36}"), REDACTED),
+    (re.compile(r"xox[baprs]-[A-Za-z0-9-]{10,}"), REDACTED),
     # PEM private key blocks (multiline: DOTALL so the whole block is one match)
     (re.compile(r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----.*?-----END [A-Z0-9 ]*PRIVATE KEY-----",
                 re.DOTALL), REDACTED),
