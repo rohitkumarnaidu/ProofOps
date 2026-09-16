@@ -254,6 +254,14 @@ class AuditEvent(BaseModel):
         if len(v) > MAX_POLICY_ENTRIES:
             raise ValueError(
                 f"policy must hold at most {MAX_POLICY_ENTRIES} entries")
+        # Spec S32 snapshot shape: version+rule+result are REQUIRED keys
+        # (extra keys allowed for future obligations). A policy block missing
+        # any of them cannot be traced to a bundle decision.
+        missing = {"version", "rule", "result"} - set(v.keys()) if len(v) else set()
+        if missing:
+            raise ValueError(
+                "policy must carry version+rule+result, "
+                f"missing: {sorted(missing)}")
         size = len(canonical_json(v.to_plain()).encode("utf-8"))
         if size > MAX_POLICY_JSON_BYTES:
             raise ValueError(
@@ -304,8 +312,8 @@ class AuditEvent(BaseModel):
             agent=self.agent,
             event_type=self.event_type,
             input_hash=self.input_hash,
-            evidence_ids=list(self.evidence_ids),
-            policy=self.policy.to_plain(),
+            evidence_ids=self.evidence_ids,
+            policy=self.policy,
             action_id=self.action_id,
             approval_id=self.approval_id,
             execution_id=self.execution_id,

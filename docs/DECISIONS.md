@@ -180,9 +180,37 @@ exploitable surface proven by grep; 1 pytest: local-only) — live scan
 evidence from a 3.12-slim run, unknown IDs fail loud. REMAINING (owned,
 next): `--require-hashes` still open (M00.7).
 
-## PLANNED ADR slots (not taken in M00.6)
+## ADR-011 — M01 rival-models closure + freeze-surface assessment (this pass)
 
-- FSM-primary over SuperFlow mirror (owning module: orchestration phase).
+Context: interim-audit P1 — `app/schemas.py` defined 15 weak rival models
+beside the canonical 16 (any future `schemas.*` validation would bypass
+canonical hardening; `contracts/__init__.py` + `test_contracts_m01_1.py`
+already documented the single-source intent the code violated).
+Decision: 15 models are now TRUE aliases (`S.X is C.X`, pinned by
+`tests/test_contracts_m01_rivalry.py`); `schemas.py` defines exactly one
+class (`Alert`, raw-telemetry input shape for the tested `from_legacy`
+migration bridge — different stage, not a rival validator), zero enums;
+any future backend/scripts/telemetry import of `app.schemas` fails CI (AST
+test enforcing the existing contracts-ONLY rule). `to_legacy` methods now
+pass canonical immutable containers (fixes 33 mypy arg-type errors the weak
+shapes had masked); `Hypothesis` bridges are lossless both directions
+(`test_args` truncation removed); `Alert.from_legacy` is strict-typed
+(no `str()` laundering).
+Freeze assessment (CONTRACT_VERSION stays 1.0): JSON wire output is
+byte-identical (tuples/FrozenDicts serialize as JSON arrays/objects, proven
+by round-trip tests); only Python-level container types strengthened, and
+the sole consumers are in-repo tests, all updated with justification in
+`docs/CONTRACTS.md`. No external caller exists (proven: zero non-test
+importers of `app.schemas`, zero non-test `from_legacy`/`to_legacy`
+callers). Any future WIRE change still needs the full 1.0 process (change
+request + impact + human review + bump + migration).
+Bounds closed in the same pass: `test_args` depth<=4 + doc 16→32;
+`Action.rollback_action` caps; RCA timeline ts+actor+hash keys;
+`Rollback` outcome-consistency; `AuditEvent.policy` version+rule+result
+keys. Defect-pinning test updates (15 single-definition, 2 duck-typed
+invalid, 1 list-compare) remove no coverage.
+
+## PLANNED ADR slots (not taken in M00.6)- FSM-primary over SuperFlow mirror (owning module: orchestration phase).
 - 4-agent split plus session_id=incident_id (M13).
 - No-pgvector retrieval freeze: Classic KB plus local pre-digestion (M12/M13).
 - RAI per-agent placement, policy engine as authz boundary (M06/M13).

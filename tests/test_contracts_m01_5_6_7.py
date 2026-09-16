@@ -16,6 +16,7 @@ import json
 import sys
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -479,9 +480,15 @@ class TestLegacyCompat:
         assert back.hypothesis_id == "h-leg" and back.test_tool == "get_logs"
 
     def test_hypothesis_from_legacy_rejects_invalid(self):  # UNIT
+        # P1 closure: the legacy bypass constructor is gone (schemas.Hypothesis
+        # IS the canonical model, whose model_construct raises TypeError), so
+        # invalid legacy-shaped input arrives as a plain duck-typed object —
+        # from_legacy must still reject it with ValidationError.
+        raw = SimpleNamespace(hypothesis_id="h", text="", confidence=99.0,
+                              supporting=[], contradicting=[], test_tool="",
+                              test_result="", status="SUPPORTED")
         with pytest.raises(ValidationError):
-            Hypothesis.from_legacy(S.Hypothesis.model_construct(
-                hypothesis_id="h", text="", confidence=99.0))  # type: ignore
+            Hypothesis.from_legacy(raw)
 
     def test_claim_round_trip(self):  # UNIT
         leg = S.Claim(claim_id="c-leg", text="spike matches deploy",
@@ -570,8 +577,12 @@ class TestIntegrity:
     @pytest.mark.parametrize("name,contract_file", [
         ("Hypothesis", "hypothesis.py"), ("Claim", "hypothesis.py"),
         ("Runbook", "runbook.py"), ("Action", "action.py")])
-    def test_two_definitions_canonical_plus_legacy(
+    def test_single_definition_canonical_only(
             self, name, contract_file):  # UNIT
+        # P1 closure (was: two definitions, canonical + legacy rival). The
+        # rival weak models are gone (schemas.X IS contracts.X); only the
+        # canonical definition may exist. Alert is the documented raw-stage
+        # exception and is pinned separately in test_contracts_m01_rivalry.py.
         found = []
         for d in ("backend", "telemetry", "scripts", "tools", "agents"):
             root = ROOT / d
@@ -582,8 +593,8 @@ class TestIntegrity:
                         if (isinstance(node, ast.ClassDef)
                                 and node.name == name):
                             found.append(p.relative_to(ROOT).as_posix())
-        assert found == [f"backend/app/contracts/{contract_file}",
-                         "backend/app/schemas.py"], f"unexpected {name}: {found}"
+        assert found == [f"backend/app/contracts/{contract_file}"], \
+            f"unexpected {name}: {found}"
 
     def test_annotations_are_canonical_enums(self):  # UNIT
         assert Hypothesis.model_fields["status"].annotation is HypothesisStatus

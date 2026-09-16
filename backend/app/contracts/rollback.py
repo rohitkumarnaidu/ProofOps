@@ -50,7 +50,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, NoReturn, Optional, Self
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.contracts.incident import FrozenDict
 from app.contracts.values import canonical_json
@@ -98,9 +98,7 @@ class Rollback(BaseModel):
     succeeded: Optional[bool] = Field(
         default=None,
         description="None = unknown/not-yet-attempted; else outcome.",
-    )
-
-    # -- Escape 1: bypass containment --------------------------------------
+    )    # -- Escape 1: bypass containment --------------------------------------
     @classmethod
     def model_construct(cls, *args: Any, **kwargs: Any) -> NoReturn:
         """BLOCKED: Pydantic's validation-bypassing constructor."""
@@ -187,6 +185,16 @@ class Rollback(BaseModel):
             return v
         raise ValueError("succeeded must be null or a boolean")
 
+    @model_validator(mode="after")
+    def _outcome_consistency(self) -> "Rollback":
+        # An outcome without an attempt is incoherent (succeeded=True/False
+        # proves the single auto-attempt ran). attempted=True +
+        # succeeded=None stays legal: the attempt ran, the outcome is not
+        # yet recorded.
+        if self.succeeded is not None and not self.attempted:
+            raise ValueError("succeeded outcome requires attempted=True")
+        return self
+
     @classmethod
     def from_legacy(cls, legacy: Any) -> Rollback:
         """Build a canonical Rollback from ``app.schemas`` (1:1 wire)."""
@@ -205,9 +213,9 @@ class Rollback(BaseModel):
 
         return LegacyRollback(
             execution_id=self.execution_id,
-            rollback_action=self.rollback_action.to_plain(),
-            conditions=list(self.conditions),
-            verification=list(self.verification),
+            rollback_action=self.rollback_action,
+            conditions=self.conditions,
+            verification=self.verification,
             attempted=self.attempted,
             succeeded=self.succeeded,
         )

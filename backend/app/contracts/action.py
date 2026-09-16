@@ -57,7 +57,10 @@ Bounds table (explicit maxima; identifier fields reject empty/padded)::
     runbook_id                      1..MAX_ID_LEN   (128)
     runbook_version                 semver x.y.z    (pinned; floating rejected)
     verification_plan               0..MAX_PLAN_STEPS (32 steps, each <=1024)
-    rollback_action                 None or mapping (None = irreversible/none)
+    rollback_action                 None or mapping (None = irreversible/none;
+                                                 bounded like parameters when
+                                                 present: 32 entries, depth
+                                                 <= 5, bytes <= 16384)
 
 Bypass containment (Escape 1, M01.2-M01.6 standard):
 ``model_construct`` is overridden to raise ``TypeError`` and
@@ -87,6 +90,9 @@ MAX_RESID_LEN = 256
 MAX_PARAMS_ENTRIES = 32
 MAX_PARAMS_DEPTH = 5
 MAX_PARAMS_JSON_BYTES = 16384
+MAX_RB_ENTRIES = 32
+MAX_RB_DEPTH = 5
+MAX_RB_JSON_BYTES = 16384
 MAX_TEXT_LEN = 4096
 MAX_EVID_REFS = 100
 MAX_PLAN_STEPS = 32
@@ -329,10 +335,26 @@ class Action(BaseModel):
         if v is None:
             return None
         if isinstance(v, FrozenDict):
-            return v
-        if isinstance(v, Mapping):
-            return FrozenDict(dict(v))
-        raise ValueError("rollback_action must be an object or null")
+            action = v
+        elif isinstance(v, Mapping):
+            action = FrozenDict(dict(v))
+        else:
+            raise ValueError("rollback_action must be an object or null")
+        # Same containment as parameters: an unbounded rollback template is
+        # an unbounded future mutation. None stays the irreversible marker.
+        if len(action) > MAX_RB_ENTRIES:
+            raise ValueError(
+                f"rollback_action must hold at most {MAX_RB_ENTRIES} entries")
+        for k in action:
+            _check_identifier("rollback_action keys", k, MAX_ID_LEN)
+        if _nested_depth(action) > MAX_RB_DEPTH:
+            raise ValueError(
+                f"rollback_action must nest at most {MAX_RB_DEPTH} levels deep")
+        size = len(canonical_json(action.to_plain()).encode("utf-8"))
+        if size > MAX_RB_JSON_BYTES:
+            raise ValueError(
+                f"rollback_action must serialize within {MAX_RB_JSON_BYTES} bytes")
+        return action
 
     @field_validator("verification_plan", mode="before")
     @classmethod
@@ -395,14 +417,13 @@ class Action(BaseModel):
             resource_id=self.resource_id,
             environment=self.environment,
             namespace=self.namespace,
-            parameters=self.parameters.to_plain(),
+            parameters=self.parameters,
             risk_level=self.risk_level,
             reason=self.reason,
-            evidence_ids=list(self.evidence_ids),
+            evidence_ids=self.evidence_ids,
             runbook_id=self.runbook_id,
             runbook_version=self.runbook_version,
             expected_outcome=self.expected_outcome,
-            rollback_action=(None if self.rollback_action is None
-                             else self.rollback_action.to_plain()),
-            verification_plan=list(self.verification_plan),
+            rollback_action=self.rollback_action,
+            verification_plan=self.verification_plan,
         )

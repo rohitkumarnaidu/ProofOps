@@ -13,6 +13,7 @@ import json
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from pydantic import ValidationError
@@ -347,10 +348,12 @@ class TestHashField:
 class TestClaimLinkage:
     def test_legacy_claim_links_evidence_id(self):  # UNIT
         # Future M05 owns the mapping; readiness = plain str linkage works.
+        # P1 closure note: canonical Claim stores evidence_ids as an immutable
+        # tuple (legacy held a list) — compare as list, same linkage semantic.
         ev = Evidence(**valid_kwargs())
         claim = S.Claim(text="error budget burned",
                         evidence_ids=[ev.evidence_id])
-        assert claim.evidence_ids == [ev.evidence_id]
+        assert list(claim.evidence_ids) == [ev.evidence_id]
 
     def test_legacy_claim_multiple_ids(self):  # UNIT
         ids = [Evidence(**valid_kwargs()).evidence_id for _ in range(3)]
@@ -504,12 +507,16 @@ class TestLegacyCompat:
         assert ev.ts.tzinfo is not None
 
     def test_from_legacy_rejects_invalid(self):  # UNIT
-        leg = S.Evidence(incident_id="inc-1", source_type="log",
-                         source_id="s", ref="r", hash="h",
-                         freshness_s=1.0, relevance=0.5)
-        leg.trust = "bogus"  # type: ignore[assignment]
+        # P1 closure: the legacy model IS canonical now (frozen — attribute
+        # injection raises on assignment), so invalid legacy-shaped input
+        # arrives as a plain duck-typed object instead.
+        raw = SimpleNamespace(incident_id="inc-1", source_type="log",
+                              source_id="s", ref="r", hash="h",
+                              freshness_s=1.0, relevance=0.5, trust="bogus",
+                              evidence_id="ev-1",
+                              ts=datetime.now(timezone.utc))
         with pytest.raises(ValidationError):
-            Evidence.from_legacy(leg)
+            Evidence.from_legacy(raw)
 
     def test_legacy_bounds_still_hold(self):  # UNIT
         with pytest.raises(ValidationError):

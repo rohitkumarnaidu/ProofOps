@@ -21,9 +21,9 @@ Legacy wire mapping (field names match legacy ``app.schemas`` EXACTLY)::
 
     Claim:      claim_id / text / evidence_ids / claim_class (identical)
     Hypothesis: hypothesis_id / text / confidence / supporting /
-                contradicting / test_tool / test_result / status (identical)
-                + test_args (NEW, spec S25 ``test{tool,args}``; legacy has no
-                equivalent - see to_legacy truncation note below).
+                contradicting / test_tool / test_args / test_result / status
+                (identical; bridges are lossless both directions since the
+                P1 rival-models closure).
 
 Bounds table (explicit maxima; identifier fields reject empty/padded)::
 
@@ -32,7 +32,8 @@ Bounds table (explicit maxima; identifier fields reject empty/padded)::
     evidence_ids            0..MAX_CLAIM_REFS    (64 ID strings, citation links)
     supporting/contradicting 0..MAX_EVID_REFS   (32 ID strings each)
     test_tool               "" or 1..MAX_TOOL_LEN (128, "" = untested)
-    test_args               0..MAX_ARGS_ENTRIES  (16 entries, depth/bytes capped)
+    test_args               0..MAX_ARGS_ENTRIES  (32 entries, depth <= 4,
+                                                 bytes <= 8192)
     test_result             0..MAX_TEXT_LEN      (4096, verbatim, may be "")
     confidence              0..1 inclusive       (strict JSON number)
 
@@ -80,6 +81,29 @@ MAX_TOOL_LEN = 128
 MAX_ARGS_ENTRIES = 32
 MAX_ARGS_DEPTH = 4
 MAX_ARGS_JSON_BYTES = 8192
+
+
+def _mapping_depth(value: Any) -> int:
+    """Deepest container nesting level (scalars 0). Iterative: no recursion
+    limit risk. Twin of the action/execution depth guards (kept local: this
+    module may import only frozen contracts, never sibling schemas)."""
+    best = 0
+    stack: list[Any] = [value]
+    levels: list[int] = [0]
+    while stack:
+        v = stack.pop()
+        d = levels.pop()
+        if isinstance(v, Mapping):
+            best = max(best, d + 1)
+            for item in v.values():
+                stack.append(item)
+                levels.append(d + 1)
+        elif isinstance(v, (list, tuple)):
+            best = max(best, d + 1)
+            for item in v:
+                stack.append(item)
+                levels.append(d + 1)
+    return best
 
 
 def _check_identifier(name: str, value: str, max_len: int) -> str:
@@ -195,7 +219,7 @@ class Claim(BaseModel):
         return LegacyClaim(
             claim_id=self.claim_id,
             text=self.text,
-            evidence_ids=list(self.evidence_ids),
+            evidence_ids=self.evidence_ids,
             claim_class=self.claim_class,
         )
 
@@ -313,6 +337,9 @@ class Hypothesis(BaseModel):
         if len(v) > MAX_ARGS_ENTRIES:
             raise ValueError(
                 f"test_args must hold at most {MAX_ARGS_ENTRIES} entries")
+        if _mapping_depth(v) > MAX_ARGS_DEPTH:
+            raise ValueError(
+                f"test_args must nest at most {MAX_ARGS_DEPTH} levels deep")
         size = len(canonical_json(v.to_plain()).encode("utf-8"))
         if size > MAX_ARGS_JSON_BYTES:
             raise ValueError(
@@ -332,9 +359,18 @@ class Hypothesis(BaseModel):
     def from_legacy(cls, legacy: Any) -> Hypothesis:
         """Build a canonical Hypothesis from ``app.schemas.Hypothesis``.
 
-        Legacy has no ``test_args`` (spec S25 enrichment is new here), so the
-        bridge carries an empty mapping; every other field maps 1:1.
+        Every field maps 1:1, including ``test_args`` (mapping passthrough;
+        absent on foreign duck objects means untested, hence empty). The old
+        documented truncation is gone with the P1 closure: audit data must
+        never be silently dropped in either direction.
         """
+        raw_args = getattr(legacy, "test_args", None)
+        if isinstance(raw_args, FrozenDict):
+            test_args = raw_args
+        elif isinstance(raw_args, Mapping):
+            test_args = FrozenDict(dict(raw_args))
+        else:
+            test_args = FrozenDict()
         return cls(
             hypothesis_id=str(legacy.hypothesis_id),
             text=str(legacy.text),
@@ -342,7 +378,7 @@ class Hypothesis(BaseModel):
             supporting=tuple(legacy.supporting),
             contradicting=tuple(legacy.contradicting),
             test_tool=str(legacy.test_tool),
-            test_args=FrozenDict(),
+            test_args=test_args,
             test_result=str(legacy.test_result),
             status=legacy.status,
         )
@@ -350,9 +386,10 @@ class Hypothesis(BaseModel):
     def to_legacy(self) -> Any:
         """Convert back to the legacy ``app.schemas.Hypothesis`` shape.
 
-        TRUNCATION (documented): legacy has no ``test_args`` field, so
-        non-empty ``test_args`` do not survive this direction. Forward
-        (from_legacy) is lossless; use the canonical model past M01.5.
+        P1 closure: the legacy shape IS canonical now, so ``test_args``
+        round-trips losslessly (the old documented truncation is gone — there
+        is no field to truncate into anymore, and silent audit-data loss is
+        never acceptable).
         """
         from app.schemas import Hypothesis as LegacyHypothesis  # noqa: E402
 
@@ -360,9 +397,10 @@ class Hypothesis(BaseModel):
             hypothesis_id=self.hypothesis_id,
             text=self.text,
             confidence=self.confidence,
-            supporting=list(self.supporting),
-            contradicting=list(self.contradicting),
+            supporting=self.supporting,
+            contradicting=self.contradicting,
             test_tool=self.test_tool,
+            test_args=self.test_args,
             test_result=self.test_result,
             status=self.status,
         )

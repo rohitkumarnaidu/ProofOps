@@ -123,6 +123,7 @@ class RCA(BaseModel):
         default=(),
         description="Chronological rows (ts+actor+hash per row).",
     )
+
     root_cause: str = Field(
         min_length=1,
         max_length=MAX_PROSE,
@@ -181,7 +182,18 @@ class RCA(BaseModel):
     @field_validator("timeline", "remediation_log", mode="before")
     @classmethod
     def _rows(cls, v: Any, info: Any) -> Any:
-        return _check_rows(str(info.field_name), v)
+        rows = _check_rows(str(info.field_name), v)
+        # Timeline rows carry the documented ts+actor+hash contract (field
+        # description); a row missing any of them is malformed, never
+        # "sparse". Remediation rows stay untyped record rows by design.
+        if str(info.field_name) == "timeline":
+            for row in rows:
+                missing = {"ts", "actor", "hash"} - set(row.keys())
+                if missing:
+                    raise ValueError(
+                        "timeline rows must carry ts+actor+hash, "
+                        f"missing: {sorted(missing)}")
+        return rows
 
     @field_validator("impact")
     @classmethod
@@ -260,11 +272,11 @@ class RCA(BaseModel):
         return LegacyRCA(
             incident_id=self.incident_id,
             summary=self.summary,
-            timeline=[r.to_plain() for r in self.timeline],
+            timeline=self.timeline,
             root_cause=self.root_cause,
-            impact=self.impact.to_plain(),
-            remediation_log=[r.to_plain() for r in self.remediation_log],
-            prevention=list(self.prevention),
-            claims=[c.to_legacy() for c in self.claims],
+            impact=self.impact,
+            remediation_log=self.remediation_log,
+            prevention=self.prevention,
+            claims=tuple(c.to_legacy() for c in self.claims),
             audit_ref=self.audit_ref,
         )

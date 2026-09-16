@@ -738,8 +738,12 @@ class TestIntegrity:
         ("AuditEvent", "audit.py"),
         ("EvaluationRun", "evaluation.py"),
         ("BenchmarkResult", "evaluation.py")])
-    def test_two_definitions_canonical_plus_legacy(
+    def test_single_definition_canonical_only(
             self, name, contract_file):  # UNIT
+        # P1 closure (was: two definitions, canonical + legacy rival). The
+        # rival weak models are gone (schemas.X IS contracts.X); only the
+        # canonical definition may exist. Alert is the documented raw-stage
+        # exception and is pinned separately in test_contracts_m01_rivalry.py.
         found = []
         for d in ("backend", "telemetry", "scripts", "tools", "agents"):
             root = ROOT / d
@@ -750,8 +754,8 @@ class TestIntegrity:
                         if (isinstance(node, ast.ClassDef)
                                 and node.name == name):
                             found.append(p.relative_to(ROOT).as_posix())
-        assert found == [f"backend/app/contracts/{contract_file}",
-                         "backend/app/schemas.py"], f"unexpected {name}: {found}"
+        assert found == [f"backend/app/contracts/{contract_file}"], \
+            f"unexpected {name}: {found}"
 
     def test_annotations_are_canonical_enums(self):  # UNIT
         assert PolicyDecision.model_fields["decision"].annotation is Decision

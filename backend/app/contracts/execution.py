@@ -212,7 +212,7 @@ class Execution(BaseModel):
             action_id=self.action_id,
             incident_id=self.incident_id,
             tier=self.tier,
-            state_diff=self.state_diff.to_plain(),
-            logs=list(self.logs),
+            state_diff=self.state_diff,
+            logs=self.logs,
             idempotency_key=self.idempotency_key,
         )

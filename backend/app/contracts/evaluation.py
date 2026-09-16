@@ -223,11 +223,11 @@ class EvaluationRun(BaseModel):
             suite=self.suite,
             case_id=self.case_id,
             passed=self.passed,
-            scores=self.scores.to_plain(),
+            scores=self.scores,
             tokens_in=self.tokens_in,
             tokens_out=self.tokens_out,
             llm_calls=self.llm_calls,
-            latency_ms=self.latency_ms.to_plain(),
+            latency_ms=self.latency_ms,
         )
 
 
