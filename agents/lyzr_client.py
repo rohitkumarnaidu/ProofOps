@@ -19,9 +19,8 @@ import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
-from enum import StrEnum
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Literal, Mapping
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 
@@ -36,10 +35,11 @@ MAX_MESSAGE_CHARS = 12000
 MAX_SSE_BYTES = 8000
 
 
-class Mode(StrEnum):
-    DISABLED = "DISABLED"
-    FALLBACK = "FALLBACK"
-    CONNECTED = "CONNECTED"
+# Connectivity vocabulary as Literals, not enums: the hardened
+# no-enum-outside-contracts rule (M00) keeps Enum definitions in
+# contracts/enums.py (frozen M01.1 surface), so agent-platform states are
+# constrained strings here instead.
+Mode = Literal["DISABLED", "FALLBACK", "CONNECTED"]
 
 
 @dataclass(frozen=True)
@@ -117,10 +117,10 @@ class LyzrClient:
         if agent not in AGENTS:
             raise OutputRejected(f"unknown agent: {agent!r}")
         if not self._config.api_key.strip():
-            return Mode.DISABLED
+            return "DISABLED"
         if not self._config.agent_ids.get(agent, "").strip():
-            return Mode.DISABLED
-        return Mode.CONNECTED
+            return "DISABLED"
+        return "CONNECTED"
 
     def _check_call(self, agent: str, session_id: str,
                     message: str) -> str | None:
@@ -140,7 +140,7 @@ class LyzrClient:
         return None
 
     def _disabled(self, agent: str, session_id: str, reason: str) -> ClientResult:
-        return ClientResult(Mode.DISABLED, agent, session_id, None, reason, 0,
+        return ClientResult("DISABLED", agent, session_id, None, reason, 0,
                             self._config.rai_policy)
 
     def chat(self, agent: str, session_id: str, message: str) -> ClientResult:
@@ -156,15 +156,15 @@ class LyzrClient:
         latency = int((time.monotonic() - start) * 1000)
         if status != 200:
             tag = f"http-{status}" if status is not None else (body or "network-error")
-            return ClientResult(Mode.FALLBACK, agent, session_id, None, tag,
+            return ClientResult("FALLBACK", agent, session_id, None, tag,
                                 latency, self._config.rai_policy)
         try:
             payload = _extract_json(body)
         except OutputRejected as exc:
-            return ClientResult(Mode.FALLBACK, agent, session_id, None,
+            return ClientResult("FALLBACK", agent, session_id, None,
                                 f"non-json-response: {exc}", latency,
                                 self._config.rai_policy)
-        return ClientResult(Mode.CONNECTED, agent, session_id, payload, "",
+        return ClientResult("CONNECTED", agent, session_id, payload, "",
                             latency, self._config.rai_policy)
 
     def stream_chat(self, agent: str, session_id: str,
@@ -181,8 +181,8 @@ class LyzrClient:
         latency = int((time.monotonic() - start) * 1000)
         if status != 200:
             tag = f"http-{status}" if status is not None else (body or "network-error")
-            return ClientResult(Mode.FALLBACK, agent, session_id, None, tag,
+            return ClientResult("FALLBACK", agent, session_id, None, tag,
                                 latency, self._config.rai_policy)
-        return ClientResult(Mode.CONNECTED, agent, session_id,
+        return ClientResult("CONNECTED", agent, session_id,
                             {"sse_text": body[:MAX_SSE_BYTES]}, "",
                             latency, self._config.rai_policy)

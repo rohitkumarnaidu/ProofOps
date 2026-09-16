@@ -93,7 +93,7 @@ class TriageResult(BaseModel):
 
     incident_id: str = Field(min_length=1, max_length=128)
     severity: Literal["P1", "P2", "P3", "P4"]
-    fingerprint: str = Field(min_length=64, max_length=64)
+    fingerprint: str = Field(min_length=16, max_length=16)
     owner: str = Field(min_length=1, max_length=128)
     signals: list[str] = Field(default_factory=list, max_length=16)
     evidence_ids: list[str] = Field(default_factory=list, max_length=64)
@@ -109,9 +109,12 @@ class TriageResult(BaseModel):
     @field_validator("fingerprint")
     @classmethod
     def _fp(cls, v: str) -> str:
+        # Parity with M04 correlator.fingerprint (sha256 truncated to 16).
+        # Spec S24 implies full sha256; the 64-vs-16 delta is flagged for
+        # the M04 hardening owner -- agents must match pipeline truth.
         import re as _re
-        if not _re.fullmatch(r"[0-9a-f]{64}", v):
-            raise ValueError("fingerprint must be 64-char lowercase hex")
+        if not _re.fullmatch(r"[0-9a-f]{16}", v):
+            raise ValueError("fingerprint must be 16-char lowercase hex (M04)")
         return v
 
 
@@ -181,7 +184,7 @@ class RCAReport(BaseModel):
         return _identifier("incident_id", v)
 
     @model_validator(mode="after")
-    def _gate_reason(cls, values: RCAReport) -> RCAReport:
-        if values.gated and not values.gate_reason.strip():
+    def _gate_reason(self) -> RCAReport:
+        if self.gated and not self.gate_reason.strip():
             raise ValueError("gated reports must state gate_reason")
-        return values
+        return self

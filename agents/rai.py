@@ -15,9 +15,8 @@ from __future__ import annotations
 import re
 import sys
 from dataclasses import dataclass
-from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 
@@ -45,10 +44,9 @@ REDACTED = "[REDACTED]"
 MAX_FINDING_CHARS = 200
 
 
-class Verdict(StrEnum):
-    ALLOW = "ALLOW"
-    REDACT = "REDACT"
-    BLOCK = "BLOCK"
+# Guard verdicts as Literals (same no-enum-outside-contracts rationale as
+# lyzr_client.Mode): constrained strings, no new Enum vocabulary.
+Verdict = Literal["ALLOW", "REDACT", "BLOCK"]
 
 
 @dataclass(frozen=True)
@@ -99,8 +97,8 @@ def check_input(agent: str, text: str) -> tuple[Verdict, str, list[Finding]]:
         raise ValueError("text must be str")
     findings, redacted = _scan(text)
     if any(f.kind == "secret" for f in findings):
-        return Verdict.REDACT, redacted, findings
-    return Verdict.ALLOW, redacted, findings
+        return "REDACT", redacted, findings
+    return "ALLOW", redacted, findings
 
 
 def check_output(agent: str, text: str) -> tuple[Verdict, str, list[Finding]]:
@@ -110,5 +108,5 @@ def check_output(agent: str, text: str) -> tuple[Verdict, str, list[Finding]]:
         raise ValueError("text must be str")
     findings, redacted = _scan(text)
     if any(f.kind == "secret" for f in findings):
-        return Verdict.BLOCK, redacted, findings
-    return Verdict.ALLOW, redacted, findings
+        return "BLOCK", redacted, findings
+    return "ALLOW", redacted, findings

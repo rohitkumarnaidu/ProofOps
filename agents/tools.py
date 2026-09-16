@@ -21,7 +21,7 @@ from typing import Any, Callable, Mapping
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 
 from agents import AGENTS  # noqa: E402 (M13 workforce map)
-from agents.schemas import MAX_TOOLS_PER_AGENT, ToolDenied, ToolUnavailable  # noqa: E402
+from agents.schemas import ToolDenied, ToolUnavailable  # noqa: E402
 from app.services.runbooks import load_runbook  # noqa: E402 (M11 loader)
 
 
