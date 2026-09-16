@@ -35,14 +35,18 @@ later does NOT change the live DB password (postgres semantics, verified live:
 ambient mismatch discovered by M00.3 testing). After a password change either
 `ALTER USER proofops WITH PASSWORD '...'` inside db, or `down -v` + fresh
 `up` (data loss). The compose `:?` guard ensures fresh setups fail fast instead
-of silently diverging.
+of silently diverging. Passwords must avoid raw `$`: compose interpolates
+`${VAR}` (use `$$` for a literal dollar) — a `$` password silently becomes a
+different password at interpolate time (same drift class as above).
 
 ## Startup order
 
 `db (healthy via pg_isready) → api (healthy via /healthz) → ui (healthy via
 wget /)`, enforced with `service_healthy` conditions (runtime-verified creation
 order db ≤ api ≤ ui). "Started" ≠ "ready": dependents wait for health, not
-existence. Deep readiness (DB-depth checks) is M00.4 scope.
+existence. Deep readiness (DB-depth checks) is M00.4 scope. Compose declares
+its own `healthcheck` blocks mirroring the image HEALTHCHECKs (90+ pass):
+`service_healthy` must never depend on an implicit image contract.
 
 ## Health semantics (wiring only — M00.4 owns depth)
 
@@ -56,6 +60,14 @@ existence. Deep readiness (DB-depth checks) is M00.4 scope.
 `restart: unless-stopped` on all three (deliberate): recovers from crashes and
 daemon/host reboots, respects explicit `stop` (unlike `always`). `on-failure`
 rejected: a config-broken api would loop identically with no benefit.
+
+## Log rotation (M00.3 90+ pass, ADR-007)
+
+Every service sets `logging: json-file max-size 10m max-file 3`: a runaway
+service can never fill the host disk via container logs. Limits are generous
+enough for demo debugging (`compose logs` still shows recent history) and are
+asserted structurally in `tests/test_compose_hardening.py`. Full log shipping
+(SIEM, retention) is FUTURE, post-hackathon.
 
 Observed limit (M00.3, Docker Desktop 29.6.2): a SIGKILLed api stayed
 `Exited (137)` / `RestartCount 0` for 25s+ on a fresh container — daemon

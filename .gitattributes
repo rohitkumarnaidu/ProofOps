@@ -1,0 +1,5 @@
+# Line-ending + diff hygiene (M00.1 structure).
+# LACK-14: scripts/ci.sh shipped CRLF on Windows checkouts (autocrlf), which
+# breaks the `#!/usr/bin/env bash` shebang and `set -euo pipefail` under Git
+# Bash. Shell entrypoints must always check out LF.
+*.sh text eol=lf

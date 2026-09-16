@@ -6,6 +6,11 @@ services:
   db:
     image: postgres:16-alpine
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-proofops}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env (see .env.example)}
@@ -25,6 +30,11 @@ services:
       context: .
       dockerfile: Dockerfile
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     env_file: .env
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-proofops}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/${POSTGRES_DB:-proofops}
@@ -33,6 +43,15 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    # Explicit compose-level healthcheck mirroring the image HEALTHCHECK
+    # (LACK-13 fix): `service_healthy` must not depend on an implicit image
+    # contract. Same stdlib /healthz probe, same budgets as Dockerfile.
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz', timeout=2)\""]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 15s
     cap_drop:
       - ALL
     security_opt:
@@ -41,8 +60,21 @@ services:
   ui:
     build: ./frontend
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     ports:
       - "5173:80"
+    # Explicit compose-level healthcheck mirroring frontend/Dockerfile
+    # (same wget / probe) for the same reason as api above.
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost/ || exit 1"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
     depends_on:
       api:
         condition: service_healthy

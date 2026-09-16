@@ -57,19 +57,114 @@ tracebacks) for registered values plus generic credential patterns; uvicorn
 boot lines keep the stock formatter (secret-free by nature, asserted hygienic
 live). Detail: `docs/LOGGING.md`. Spec: §37 (secret-leak control).
 
-## ADR-006 — M00.6 documentation scope and README reconciliation (this module)
+## ADR-006 — M00.6 documentation scope and README reconciliation (this module,
+hardened to 11-docs in 90+ pass)
 
 Context: `README.md` lists `docs/EVALUATION.md`, `docs/SECURITY.md`,
 `docs/DECISIONS.md`, `docs/DEMO.md` as PLANNED "in M00.6/M22", while spec §44
 additionally names `ARCHITECTURE.md`, `API.md`, `TESTING.md`.
-Decision: the canonical M00.6 8-docs set is the 4 frozen foundation docs
+Decision: the canonical M00.6 set is the 4 frozen foundation docs
 (`CONFIGURATION`, `COMPOSE`, `HEALTH`, `LOGGING`) plus foundation versions of
 the 4 README-planned docs created here (honest status, spec links, owning
-modules for the unbuilt remainder). "M00.6/M22" means: M00.6 creates the
+modules for the unbuilt remainder) plus foundation versions of the 3 spec-§44
+docs (`ARCHITECTURE.md`, `API.md`, `TESTING.md`) added in the 90+ hardening
+pass so spec §44 has no gap. "M00.6/M22" means: M00.6 creates the
 foundation skeleton; M22 owns full demo hardening (`demo.sh --check`,
-rehearsals, evidence package) and M16 owns the eval runner. `ARCHITECTURE.md`,
-`API.md`, `TESTING.md` are NOT created here; owners are assigned when those
-modules are scheduled — no such files are claimed to exist.
+rehearsals, evidence package) and M16 owns the eval runner. No full
+implementation is claimed in foundation docs — every unbuilt remainder is
+marked PLANNED with its owning module.
+
+## ADR-007 — M00 90+ hardening (this pass, owns M00.1–M00.7 lift to ≥90)
+
+Decision: additive hardening only — no frozen-body changes (`/healthz` body
+byte-frozen, `Settings` trust boundary preserved, liveness vs readiness split
+preserved). New tests in new files where the original file is frozen; edits to
+frozen docs/compose/logging are minimal, reviewed, and re-tested. Registry
+status flips only on human APPROVE.
+
+## ADR-008 — Adversarial re-audit lacks + boundaries (this pass)
+
+Context: adversarial re-audit after the 90+ pass reproduced 13 concrete lacks
+with file:line proof. Fixed now (each with tests): UTC-vs-localtime lie
+(`logging_setup.py`, converter pinned to `gmtime`); DSN corruption on
+`+psycopg` passwords (`health.py`, scheme-prefix replace); stale TESTING
+baseline (refreshed + refresh rule); scanner PGP/`github_pat_`/`xoxe-` gaps;
+logging quoted-space passwords + PGP + `github_pat_` + extended Slack;
+implicit compose healthchecks (now explicit, mirroring images); vacuous
+canonical-set test (now governs the real tree); weak CI echo assert
+(tightened). Recorded boundaries (P2, owned, non-blocking): `SEED_SCENARIO`
+accepts empty (frozen `config.py`; validation owned by a future contracts
+pass); DB passwords must be URL-safe (no raw `@/:?#% ` — derived and compose
+URLs interpolate without quoting; quoting owned by M00.2 future work);
+`/readyz` carries no timestamp and no auth (M00.4 scope is liveness/readiness
+split only; freshness/auth owned by API phase); bearer tokens <20 chars and
+exact values <8 chars rely on URI/assignment paths (documented in
+`docs/LOGGING.md`); CI has no daemon build/smoke or vuln scan yet
+(`docs/TESTING.md` PLANNED, owners M16/M20/M22).
+
+## ADR-009 — Submodule re-audit lacks + boundaries (this pass)
+
+Context: submodule-level re-audit (every M00 sub from zero) reproduced 8 more
+lacks. Fixed now (each with tests): `scripts/ci.sh` CRLF on Windows checkouts
+broke the bash shebang — new `.gitattributes` (`*.sh text eol=lf`) + LF
+conversion + LF/shebang test; workflow had no `permissions:`/`concurrency:`
+(added least-privilege + cancel-duplicates); template `POSTGRES_PASSWORD`
+emptiness unpinned (now asserted — no silent shared default); README
+fabrication hygiene untested (now gated like the 11 docs); `os.getenv("X")`
+form missed by BOTH parity detectors (regex needs `os.environ`, AST missed
+attribute-getenv — prospective fail-loud test added, zero hits today).
+Recorded boundaries (P2, owned, non-blocking with evidence): `python-dotenv`
+is in `backend/requirements.txt` but imported nowhere (`grep dotenv` over
+backend/scripts/telemetry hits requirements only) — removal changes the image
+and needs a container rebuild proof (owner M00.1, needs daemon); compose `$`
+in passwords collides with `${VAR}` interpolation (passwords must avoid raw
+`$` — noted in `docs/COMPOSE.md` stickiness); `Settings(env_file=".env")`
+resolves relative to CWD (works by convention: repo root locally, `/app` in
+image where no `.env` ships and process env wins — anchoring owned by M00.2
+future work); action majors (`checkout@v4`, `setup-python@v5`) and
+`ubuntu-latest` float instead of SHA/image pins (needs verified SHAs from a
+connected run — never fabricate); `pyproject.toml` lint scope is narrow
+(E4/E7/E9/F) so some `noqa` markers are inert decorations (widening owned by
+M00.7 with a full-violation triage).
+Spec: §43–§46. Detail: `docs/TESTING.md`, `docs/ARCHITECTURE.md`, `docs/API.md`.
+
+## ADR-010 — No lockfile yet (recorded gap, not a decision)
+
+Context: `backend/requirements.txt:9` promises "M00.7 CI foundation adds pip
+freeze / hash check" — that piece never landed. Today there is no
+`requirements.lock`, freeze gate, or `--require-hashes`; only narrow bounded
+ranges + `pip check` (consistency, not CVEs, not drift) + the
+`python:3.12-slim` container convention. Two fresh installs weeks apart can
+resolve different versions inside the ranges (the starlette v1.x breakage was
+fixed reactively with an upper bound — a lockfile prevents the class, not one
+instance). "Reproducible" currently means constrained-float, not locked; docs
+must not claim more.
+Decision: resolve + freeze on the source of truth (`python:3.12-slim`, never
+the drifted 3.13/3.14 host) → commit `backend/requirements.lock` → CI
+installs from the lock + a stale-lock check job. A hand-written lock with
+unresolved versions is forbidden (false precision is worse than honest
+ranges). Interim guard (this pass): every requirements line must carry BOTH a
+lower and an upper bound, pinned by test — nobody silently adds a floating
+dep while the lock is missing. Owner: M00.7 (needs a daemon/container run +
+human review of the resolved set).
+
+## ADR-010b — Lock LANDED (this pass, closes ADR-010)
+
+Resolution: live `pip install --dry-run --report` against PyPI with
+`--python-version 3.12 --implementation cp --abi cp312
+--platform manylinux_2_17_x86_64 --only-binary=:all:` → 36 resolved, minus
+win32-only `colorama`/`tzdata` (false on linux per resolver `requires_dist`
+markers) → committed `backend/requirements.lock` (34 exact pins,
+name-sorted, every pin inside its declared range — proven by
+`scripts/freeze.py --check` + `tests/test_freeze.py`, including a real-files
+pass and a win32-exclusion pin). Enforcer: `scripts/freeze.py` (stdlib-only;
+strict `--check` for CI, `--generate` that REFUSES non-3.12 interpreters so a
+drifted host can never bake the lock). CI now installs from the lock and runs
+a 5th `lockfile` job (`needs: [security]`); the Windows-local runner keeps
+portable ranges with the split documented + tested (manylinux wheels cannot
+install on Windows). REMAINING (owned, next): Dockerfiles still install from
+`requirements.txt` — switching them needs a daemon `--no-cache` build proof
+(M00.1/M00.3, needs daemon); `pip-audit`/hashes still open (M00.7).
 
 ## PLANNED ADR slots (not taken in M00.6)
 

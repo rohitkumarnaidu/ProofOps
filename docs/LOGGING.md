@@ -20,7 +20,19 @@ tracebacks (`logger.exception` included) — covering:
   values shorter than 8 chars are skipped as exact matches (they would mangle
   ordinary words) and remain covered by the patterns below;
 - generic patterns: URI credentials (`://user:pass@` → `://<REDACTED>@`),
-  `password/passwd/pwd` assignments, bearer tokens, `sk-` keys, PEM blocks.
+  `password/passwd/pwd` assignments (quoted values may contain spaces — redact
+  runs to the matching quote), bearer tokens (20+ chars), API keys, PEM/PGP
+  blocks, plus AWS access keys (`AKIA...`), GitHub tokens (`ghp_...`,
+  `github_pat_...`), and Slack tokens (`xoxb-...`, `xoxe-...`, etc.) for
+  scanner parity (M00.5 90+ pass, ADR-007).
+
+## Boundaries (deliberate, do not weaken without an ADR)
+
+- Bearer tokens shorter than 20 chars are NOT redacted by pattern (would mangle
+  ordinary words); short secrets remain covered only via exact-value scrubbing
+  (≥8 chars) and their URI/assignment emission paths.
+- `ts=` is UTC ISO-8601 (`RedactingFormatter.converter = time.gmtime`; stdlib
+  defaults to localtime, which this module overrides and pins by test).
 
 ## Boundary (deliberate)
 

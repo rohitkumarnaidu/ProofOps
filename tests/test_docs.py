@@ -1,13 +1,21 @@
 """M00.6 documentation foundation (host-safe STATIC + UNIT + SECURITY).
 
-Canonical 8-docs set (ADR-006 in docs/DECISIONS.md): the 4 frozen foundation
-docs (M00.2-M00.5) plus the 4 README-planned foundation docs created in M00.6.
+Canonical 11-docs set (ADR-006 in docs/DECISIONS.md, updated by ADR-007 90+
+pass): the 4 frozen foundation docs (M00.2-M00.5) plus 7 foundation docs
+(4 README-planned + 3 spec-§44) created in M00.6.
 Pure file-text checks: no Docker daemon, no fastapi import, any host Python.
 
 EVIDENCE RULE: helpers are pure functions over text so negative tests feed
 mutated strings directly (proof the detectors fire); positive tests read the
 real tree. File-level tmp_path tests prove presence/link detection end to
 end without touching the repo.
+
+UPDATE JUSTIFICATION (AGENTS.md §12: root docs stay minimal, pin update needs
+justification): spec §44 names ARCHITECTURE.md + API.md + TESTING.md alongside
+the README-planned 4; leaving them absent kept M00.6 at 66/100 (spec-coverage
+gap). ADR-007 records the additive fix: 3 honest foundation docs (status +
+spec links + owning modules + PLANNED, no implementation claimed). No doc
+removed; all 8 originals still pinned below.
 """
 
 from __future__ import annotations
@@ -20,18 +28,22 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 DOCS = ROOT / "docs"
 
-# Canonical 8-docs set: 4 frozen (M00.2-M00.5) + 4 foundation (M00.6).
+# Canonical 11-docs set: 4 frozen (M00.2-M00.5) + 7 foundation (M00.6).
 CANONICAL_8 = [
     "CONFIGURATION.md",  # M00.2 frozen
-    "COMPOSE.md",  # M00.3 frozen (+1 authorized M00.6 line edit)
+    "COMPOSE.md",  # M00.3 frozen (+ authorized M00.6 line edits, see ADR-007)
     "HEALTH.md",  # M00.4 frozen
-    "LOGGING.md",  # M00.5 frozen
+    "LOGGING.md",  # M00.5 frozen (+ 90+ pattern list update, see ADR-007)
     "EVALUATION.md",  # M00.6 new (runner owned by M16)
     "SECURITY.md",  # M00.6 new (full coverage by later modules)
     "DECISIONS.md",  # M00.6 new (ADR log)
     "DEMO.md",  # M00.6 new (full demo owned by M22)
+    "ARCHITECTURE.md",  # M00.6 90+ new (system owned by later phases)
+    "API.md",  # M00.6 90+ new (full surface owned by later phases)
+    "TESTING.md",  # M00.6 90+ new (suites owned by later phases)
 ]
 NEW_4 = ["EVALUATION.md", "SECURITY.md", "DECISIONS.md", "DEMO.md"]
+NEW_90PLUS = ["ARCHITECTURE.md", "API.md", "TESTING.md"]
 
 SPEC_REF = "PS03_FINAL_SPEC_V2"
 
@@ -107,8 +119,27 @@ class TestPresence:
         present = {"a.md", "b.md"}
         required = {"a.md", "b.md", "c.md"}
         assert required - present == {"c.md"}
-        assert len(CANONICAL_8) == 8
-        assert len(set(CANONICAL_8)) == 8
+        assert len(CANONICAL_8) == 11  # 4 frozen + 7 foundation (ADR-007)
+        assert len(set(CANONICAL_8)) == 11
+
+    def test_tree_has_no_ungoverned_docs(self):  # STATIC
+        # LACK-6 fix: the canonical pin used to cover only the list constant,
+        # never the real tree — CONTRACTS.md etc. drifted ungoverned. Every
+        # top-level doc must be canonical or explicitly known-extra.
+        known_extra = {
+            "CONTRACTS.md",  # M01 freeze surface (owned by contracts phase)
+            "MODULE_REGISTRY.md",  # naming/status authority (registry)
+            "PS03_FINAL_SPEC_V2.md",  # authoritative spec (source of truth)
+            "BUILD_FIRST_MASTER_PLAN.md",  # wave plan (M21 owned)
+            "ProofOps_PS03_Master_Winning_Implementation_Trust_Submission_Checklist.md",  # UNVERIFIED companion
+            "README.md",  # repo entrypoint (tested in test_repo_structure.py)
+            "ZERO_TRUST_AUDIT_M00-M11.md",  # dated historical report (do not rewrite)
+        }
+        actual = {p.name for p in DOCS.glob("*.md")}
+        assert set(CANONICAL_8) <= actual, \
+            f"canonical missing: {sorted(set(CANONICAL_8) - actual)}"
+        ungoverned = actual - set(CANONICAL_8) - known_extra
+        assert not ungoverned, f"ungoverned docs: {sorted(ungoverned)}"
 
     def test_presence_detector_fires_on_fixture_gap(self, tmp_path):  # UNIT
         (tmp_path / "A.md").write_text("x" * 400, encoding="utf-8")
@@ -117,9 +148,9 @@ class TestPresence:
 
 
 class TestSpecLinks:
-    @pytest.mark.parametrize("name", NEW_4)
+    @pytest.mark.parametrize("name", NEW_4 + NEW_90PLUS)
     def test_new_docs_link_authoritative_spec(self, name):  # STATIC
-        # M00.6 controls these four: direct spec reference is mandatory.
+        # M00.6 controls these seven: direct spec reference is mandatory.
         assert _has_spec_ref(_read(name)), (
             f"{name} must reference the authoritative spec {SPEC_REF}"
         )
@@ -164,7 +195,7 @@ class TestNoFabrication:
         denial = "Nothing here claims production readiness or certification."
         assert _forbidden_claims(denial) == []
 
-    @pytest.mark.parametrize("name", NEW_4)
+    @pytest.mark.parametrize("name", NEW_4 + NEW_90PLUS)
     def test_future_marked_planned_with_owner(self, name):  # STATIC
         body = _read(name)
         assert "PLANNED" in body, f"{name} must mark unbuilt work PLANNED"
@@ -187,7 +218,7 @@ class TestComposeReconciliation:
 
 
 class TestDocSecrets:
-    @pytest.mark.parametrize("name", NEW_4)
+    @pytest.mark.parametrize("name", NEW_4 + NEW_90PLUS)
     def test_no_secret_markers_in_new_docs(self, name):  # SECURITY
         hits = _secret_markers(_read(name))
         assert not hits, f"{name} leaks secret markers: {hits}"
@@ -196,3 +227,8 @@ class TestDocSecrets:
         assert _secret_markers("key=sk-abc123") == ["sk-"]
         assert _secret_markers("pw hunter2 hunter2") == ["hunter2"]
         assert _secret_markers("clean prose, nothing here") == []
+
+    def test_readme_has_no_fabrication_claims(self):  # STATIC
+        # The 11-doc gate never covered the root entrypoint (most-read file).
+        body = (ROOT / "README.md").read_text(encoding="utf-8")
+        assert _forbidden_claims(body) == []

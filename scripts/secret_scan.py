@@ -5,14 +5,18 @@ workflow/secret hygiene. NEVER prints secret values — findings report
 file:line + pattern name only (redacted).
 
 Clean-tree allowlist (explicit, narrow):
-- `sk-FAKE-*` / `sk-fake*` fixtures in tests + `sk-` mentions in docs/LOGGING.md
-  and the redaction REGEX in backend/app/logging_setup.py are documentation or
-  test fixtures, not live keys. Only `sk-live-*` / `sk-proj-*` shapes fail.
+- `sk-FAKE-*` / `sk-fake*` fixtures in tests + pattern mentions in
+  docs/LOGGING.md and the redaction REGEX in backend/app/logging_setup.py are
+  documentation or test fixtures, not live keys. Live shapes that fail are
+  listed in LIVE_PATTERNS below (clean tree contains ZERO of them, asserted by
+  tests/test_secret_scan.py).
 - The PEM regex pattern in logging_setup.py (contains `re.compile`) and the
   `MIIFake*hunter2-fake` fixture block in tests/test_logging.py are not keys.
   A PEM block fails only when it looks like real key material.
-- Research docs contain URLs with `skadden.com` etc.; scanner matches
-  `sk-live-`/`sk-proj-` only, never bare `sk-`, so prose never trips it.
+- Research docs contain prose like `task-with-...` and URLs with `skadden.com`
+  etc.; the generic live-key pattern requires 20+ alphanumerics with no
+  hyphens (`sk-[A-Za-z0-9]{20,}`), so hyphenated prose never trips it while a
+  real leaked key (48 alphanumerics, no hyphens) always does.
 
 Usage: python scripts/secret_scan.py [--root DIR]
 Exit 0 = clean, 1 = findings (redacted list).
@@ -32,14 +36,20 @@ LIVE_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("aws-access-key", re.compile(r"AKIA[0-9A-Z]{16}")),
     ("openai-live-key", re.compile(r"sk-live-[A-Za-z0-9_-]{8,}")),
     ("openai-proj-key", re.compile(r"sk-proj-[A-Za-z0-9_-]{8,}")),
+    # Generic leaked key: 20+ alphanumerics, no hyphens (real keys are 48
+    # alphanumerics; hyphenated prose like `task-with-...` never matches;
+    # hyphenated fixtures like `sk-FAKE-...` never match either).
+    ("openai-generic-key", re.compile(r"sk-[A-Za-z0-9]{20,}")),
     ("github-token", re.compile(r"gh[pousr]_[A-Za-z0-9]{36}")),
-    ("slack-token", re.compile(r"xox[baprs]-[A-Za-z0-9-]{10,}")),
+    # Fine-grained PATs (different prefix, longer body).
+    ("github-fine-grained-pat", re.compile(r"github_pat_[A-Za-z0-9_]{22,}")),
+    ("slack-token", re.compile(r"xox[beoaprsxd]-[A-Za-z0-9-]{10,}")),
 ]
 
 PEM_BEGIN_RE = re.compile(
-    r"-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----")
+    r"-----BEGIN (?:[A-Z0-9 ]* )?PRIVATE KEY(?: BLOCK)?-----")
 PEM_END_RE = re.compile(
-    r"-----END (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----")
+    r"-----END (?:[A-Z0-9 ]* )?PRIVATE KEY(?: BLOCK)?-----")
 # Fixture markers that prove a PEM block is a test/redaction fixture, not a key.
 PEM_FIXTURE_MARKERS = ("Fake", "fake", "EXAMPLE", "hunter2", "MIIFake")
 
