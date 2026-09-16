@@ -52,6 +52,11 @@ FUTURE (reserved, empty). `DATABASE_URL` is never snapshotted (embeds password).
 
 1. constructor/runtime override 2. environment variable 3. `.env` file
 4. safe default. Unknown vars are ignored (`extra=ignore`, tested, no effect).
+The `.env` file resolves relative to the process working directory: a missing
+file is NOT an error (the chain simply falls through to env/defaults, and a
+bare process with no secrets fails closed naming the key — pinned by
+`test_process_fails_closed_actionable` from a foreign CWD). Run servers and
+tests from the repo root, or export the variables, so the intended file loads.
 
 ### Typo policy (M00.2 closure decision: A. ignore, documented)
 

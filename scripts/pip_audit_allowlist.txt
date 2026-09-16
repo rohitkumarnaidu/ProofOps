@@ -1,0 +1,29 @@
+# ProofOps pip-audit exception allowlist (M00.7 CI foundation).
+#
+# FORMAT (enforced by tests/test_freeze.py): `PYSEC-<id> # <reason>` — every
+# line MUST carry a reason (no bare IDs). A line without ` # ` fails the gate.
+# Each entry MUST state (a) why no in-bounds fix exists or applies and
+# (b) why it is not exploitable in THIS app, plus (c) the revisit owner.
+# Anything pip-audit reports that is NOT listed here FAILS the gate loudly.
+# Re-verify on every lock regeneration (`scripts/freeze.py --generate` flow).
+#
+# --- starlette 0.46.2 (7 IDs): NO IN-BOUNDS FIX. fastapi<0.120 pins
+# starlette<0.47 (ABI-compat bound, see backend/requirements.txt header);
+# every fix needs >=0.47.2. NOT EXPLOITABLE here: the API exposes exactly two
+# routes — GET /healthz (static dict) and GET /readyz (SELECT 1) — with zero
+# uses of FileResponse/StaticFiles/form parsing/request.url/HTTPEndpoint
+# (proven: grep over backend/app returns zero hits). Windows-only IDs are
+# additionally N/A (container + CI are linux). Revisit owner: dependency pass
+# that lifts the fastapi bound (M21 wave).
+PYSEC-2026-1941 # starlette multipart spool block; no in-bounds fix (>=0.47.2); no file-upload surface; revisit on fastapi-bound lift
+PYSEC-2026-1942 # starlette Range-header quadratic DoS; no in-bounds fix (>=0.49.1); no FileResponse/StaticFiles surface; revisit on fastapi-bound lift
+PYSEC-2026-161 # starlette Host-header URL auth bypass; no in-bounds fix (>=1.0.1); request.url never read; revisit on fastapi-bound lift
+PYSEC-2026-2281 # starlette Windows StaticFiles SMB SSRF; no in-bounds fix (>=1.1.0); no static serving + linux-only deploy; revisit on fastapi-bound lift
+PYSEC-2026-2280 # starlette HTTPEndpoint getattr dispatch; no in-bounds fix (>=1.1.0); no HTTPEndpoint subclasses exist; revisit on fastapi-bound lift
+PYSEC-2026-249 # starlette urlencoded form-limits bypass; no in-bounds fix (>=1.3.1); request.form never called; revisit on fastapi-bound lift
+PYSEC-2026-248 # starlette request-path authority confusion; no in-bounds fix (>=1.3.0); request.url never read; revisit on fastapi-bound lift
+# --- pytest 8.4.2 (1 ID): LOCAL-ONLY. /tmp/pytest-of-{user} squatting needs a
+# malicious LOCAL user on a shared UNIX host. CI runners are ephemeral and
+# single-tenant; dev hosts are single-user. Fix (9.0.3) is a major bump needing
+# its own compat pass. Revisit owner: pytest-9 compat pass (M20 wave).
+PYSEC-2026-1845 # pytest /tmp local DoS; local-attackers only; ephemeral CI + single-user dev; revisit at pytest-9 compat pass

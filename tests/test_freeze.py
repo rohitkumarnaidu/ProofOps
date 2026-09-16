@@ -124,3 +124,84 @@ class TestGenerateGuard:
             cwd=str(ROOT))
         assert proc.returncode == 0, proc.stdout + proc.stderr
         assert "LOCK CHECK PASS" in proc.stdout
+
+
+class TestAuditAllowlist:
+    def test_real_allowlist_parses_to_eight(self):  # STATIC
+        ids = freeze.parse_allowlist(
+            (ROOT / "scripts" / "pip_audit_allowlist.txt").read_text(
+                encoding="utf-8"))
+        assert len(ids) == 8 and len(set(ids)) == 8
+        assert all(i.startswith("PYSEC-") for i in ids)
+
+    def test_bare_id_fails(self):  # UNIT (negative)
+        try:
+            freeze.parse_allowlist("PYSEC-2026-1\n")
+        except ValueError as exc:
+            assert "reason" in str(exc)
+        else:
+            raise AssertionError("bare ID must fail (no silent exceptions)")
+
+    def test_short_reason_and_duplicate_fail(self):  # UNIT (negative)
+        for bad in ("PYSEC-2026-1 # x\n",
+                    "PYSEC-2026-1 # documented reason here\n"
+                    "PYSEC-2026-1 # documented reason here\n"):
+            try:
+                freeze.parse_allowlist(bad)
+            except ValueError:
+                pass
+            else:
+                raise AssertionError(f"must fail: {bad!r}")
+
+    def test_command_ignores_each_exception(self):  # UNIT
+        cmd = freeze.audit_command(Path("requirements.lock"),
+                                   ["PYSEC-1", "PYSEC-2"])
+        assert cmd.count("--ignore-vuln") == 2
+        assert "-r" in cmd and "requirements.lock" in cmd
+
+    def test_missing_pip_audit_fails_closed(self, tmp_path, monkeypatch):  # UNIT
+        # Fail-closed branch: when the `import pip_audit` probe fails, --audit
+        # must report failure with install instructions, never green.
+        class Probe:
+            returncode = 1
+            stdout = ""
+            stderr = ""
+
+        monkeypatch.setattr(freeze.subprocess, "run",
+                            lambda *a, **k: Probe())
+        lock = tmp_path / "t.lock"
+        lock.write_text("a==1.0\n", encoding="utf-8")
+        allow = tmp_path / "allow.txt"
+        allow.write_text("PYSEC-2026-1 # documented reason here\n",
+                         encoding="utf-8")
+        assert freeze.cmd_audit(lock, allow) == 1
+
+    def test_audit_passthrough(self, tmp_path, monkeypatch, capsys):  # UNIT
+        # Wiring: allowlist IDs become --ignore-vuln flags and a clean scan
+        # reports PASS with the exception count.
+        seen: dict = {}
+
+        class Probe:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+
+        class Scan:
+            returncode = 0
+            stdout = "No known vulnerabilities found"
+
+        def fake(cmd, **kwargs):
+            if cmd[:3] == [sys.executable, "-c", "import pip_audit"]:
+                return Probe()
+            seen["cmd"] = cmd
+            return Scan()
+
+        monkeypatch.setattr(freeze.subprocess, "run", fake)
+        lock = tmp_path / "t.lock"
+        lock.write_text("a==1.0\n", encoding="utf-8")
+        allow = tmp_path / "allow.txt"
+        allow.write_text("PYSEC-2026-1 # documented reason here\n",
+                         encoding="utf-8")
+        assert freeze.cmd_audit(lock, allow) == 0
+        assert seen["cmd"].count("--ignore-vuln") == 1
+        assert "1 documented" in capsys.readouterr().out

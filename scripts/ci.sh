@@ -42,4 +42,11 @@ echo "==> [4/5] security (secret scan; redacted output, never prints values)"
 echo "==> [5/5] lockfile (freeze check; host-safe text compare, ADR-010)"
 "$PYBIN" scripts/freeze.py --check
 
+echo "==> [5/5] audit (pip-audit; CI runs it, local runs it only if installed)"
+if "$PYBIN" -c "import pip_audit" 2>/dev/null; then
+  "$PYBIN" scripts/freeze.py --audit
+else
+  echo "SKIP: pip-audit not installed locally (CI enforces it; \`pip install \"pip-audit>=2.10,<2.11\"\` to run here) — reported SKIP, never PASS"
+fi
+
 echo "CI LOCAL GREEN: ruff + mypy + unit(host-safe) + security + lockfile all passed"

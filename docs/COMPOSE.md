@@ -69,12 +69,15 @@ enough for demo debugging (`compose logs` still shows recent history) and are
 asserted structurally in `tests/test_compose_hardening.py`. Full log shipping
 (SIEM, retention) is FUTURE, post-hackathon.
 
-Observed limit (M00.3, Docker Desktop 29.6.2): a SIGKILLed api stayed
-`Exited (137)` / `RestartCount 0` for 25s+ on a fresh container — daemon
-auto-resurrection was NOT observed on this host (possible Desktop quirk, not
-a config defect: the daemon reports the policy correctly). Manual
-restart/stop/start and full down/up recovery are proven by the runtime matrix.
-M00.7 must re-confirm auto-resurrection on Linux dockerd.
+Observed limit (M00.3, Docker Desktop 29.6.2 — RE-CONFIRMED 2026-09-16 with
+the daemon UP, so this is live evidence, not a down-daemon artifact): a
+SIGKILLed api stayed `Exited` / `RestartCount 0` 30s+ (`docker kill -s KILL`
++ `docker inspect` proof) — daemon auto-resurrection was NOT observed on this
+host (possible Desktop quirk, not a config defect: the daemon reports the
+policy correctly, and manual `up -d` recovers to healthy). Manual
+restart/stop/start and full down/up recovery are proven by the runtime matrix
+(`tests/test_compose_runtime.py`, green 2 consecutive runs 2026-09-16).
+M00.7 must still re-confirm auto-resurrection on Linux dockerd.
 
 ## Safe vs unsafe commands
 

@@ -18,9 +18,10 @@ python scripts/secret_scan.py
 ```
 
 - Baseline (measured 2026-09-16, refreshed by each wave landing — current:
-  `1666 passed, 1 skipped` host-safe after the M00 lockfile pass) ·
-  `ruff` pass · `mypy` pass · `secret_scan` PASS · `freeze --check` PASS.
-  The 1 skip is
+  FULL suite `1731 passed, 1 skipped` incl. all 4 `*_runtime.py` daemon files,
+  proven on Docker Desktop 29.6.2 with the stack left UP+healthy) ·
+  `ruff` pass · `mypy` pass · `secret_scan` PASS · `freeze --check` PASS ·
+  `pip-audit` PASS (8 documented exceptions). The 1 skip is
   `test_healthz_runtime_parity` on drifted hosts (reported SKIP, never PASS;
   container `python:3.12-slim` is source of truth).
 - `*_runtime.py` (4 files) need a live Docker daemon and are excluded host-safe;

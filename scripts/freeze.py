@@ -31,7 +31,7 @@ Scope notes (deliberate, tested):
   it needs resolver metadata. The generator's resolve report is the evidence;
   the checker pins coverage + range-satisfaction + shape.
 
-Usage: python scripts/freeze.py (--check | --generate) [--requirements F] [--lock F]
+Usage: python scripts/freeze.py (--check | --generate | --audit) [--requirements F] [--lock F] [--allowlist F]
 Exit 0 = ok, 1 = findings, 2 = wrong-interpreter refusal (--generate only).
 """
 from __future__ import annotations
@@ -45,8 +45,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_REQUIREMENTS = ROOT / "backend" / "requirements.txt"
 DEFAULT_LOCK = ROOT / "backend" / "requirements.lock"
+DEFAULT_ALLOWLIST = ROOT / "scripts" / "pip_audit_allowlist.txt"
 
 LOCKED_PYTHON = (3, 12)
+
+AUDIT_ID_RE = re.compile(r"PYSEC-\d+-\d+")
 
 PIN_RE = re.compile(r"([A-Za-z0-9_.\-]+)==([^=\s;]+)")
 RANGE_SPLIT_RE = re.compile(r"\s*,\s*")
@@ -152,6 +155,70 @@ def check_lock(req_text: str, lock_text: str) -> list[str]:
     return findings
 
 
+def parse_allowlist(text: str) -> list[str]:
+    """Allowlist text -> exception IDs. EVERY line needs `ID # reason`;
+    bare IDs fail (accountability: an exception without a written reason is
+    theater). Duplicates fail (copy-paste drift)."""
+    ids: list[str] = []
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if " # " not in line:
+            raise ValueError(f"allowlist entry without a reason: {raw!r}")
+        vuln, reason = line.split(" # ", 1)
+        vuln, reason = vuln.strip(), reason.strip()
+        if not AUDIT_ID_RE.fullmatch(vuln):
+            raise ValueError(f"allowlist entry is not a PYSEC id: {raw!r}")
+        if len(reason) < 10:
+            raise ValueError(f"allowlist reason too short: {raw!r}")
+        if vuln in ids:
+            raise ValueError(f"duplicate allowlist entry: {vuln}")
+        ids.append(vuln)
+    return ids
+
+
+def audit_command(lock: Path, allowlist_ids: list[str]) -> list[str]:
+    """Build the pip-audit invocation. Pure (no subprocess) for testability."""
+    cmd = [sys.executable, "-m", "pip_audit", "-r", str(lock),
+           "--desc", "--local"]
+    for vuln in allowlist_ids:
+        cmd += ["--ignore-vuln", vuln]
+    return cmd
+
+
+def cmd_audit(lock: Path, allowlist: Path) -> int:
+    if not lock.is_file():
+        print(f"AUDIT FAIL: missing {lock} — nothing to audit (redacted)")
+        return 1
+    if not allowlist.is_file():
+        print(f"AUDIT FAIL: missing {allowlist} — exceptions need written "
+              f"reasons (redacted)")
+        return 1
+    try:
+        ids = parse_allowlist(allowlist.read_text(encoding="utf-8"))
+    except ValueError as exc:
+        print(f"AUDIT FAIL: {exc}")
+        return 1
+    cmd = [sys.executable, "-c", "import pip_audit"]
+    probe = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+    if probe.returncode != 0:
+        print("AUDIT FAIL: pip-audit is not installed — install it "
+              "(CI does: pip install \"pip-audit>=2.10,<2.11\"), then re-run. "
+              "Refusing to report green without scanning.")
+        return 1
+    proc = subprocess.run(audit_command(lock, ids), capture_output=True,
+                          text=True, timeout=300)
+    print(proc.stdout[-3000:])
+    if proc.returncode != 0:
+        print("AUDIT FAIL: pip-audit reports un-allowlisted vulnerabilities "
+              "above — triage them (fix or document per-ID) and re-run")
+        return 1
+    print(f"AUDIT PASS: {lock.name} clean except {len(ids)} documented "
+          f"exceptions (see {allowlist.name})")
+    return 0
+
+
 def cmd_check(requirements: Path, lock: Path) -> int:
     if not requirements.is_file():
         print(f"LOCK CHECK FAIL: missing {requirements} (redacted)")
@@ -210,9 +277,13 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="ProofOps lock enforcer")
     parser.add_argument("--check", action="store_true")
     parser.add_argument("--generate", action="store_true")
+    parser.add_argument("--audit", action="store_true")
     parser.add_argument("--requirements", default=str(DEFAULT_REQUIREMENTS))
     parser.add_argument("--lock", default=str(DEFAULT_LOCK))
+    parser.add_argument("--allowlist", default=str(DEFAULT_ALLOWLIST))
     args = parser.parse_args()
+    if args.audit and not (args.generate or args.check):
+        return cmd_audit(Path(args.lock), Path(args.allowlist))
     if args.generate and not args.check:
         return cmd_generate(Path(args.lock))
     if args.check and not args.generate:
