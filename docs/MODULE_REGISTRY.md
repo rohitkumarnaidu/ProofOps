@@ -1,7 +1,7 @@
 # ProofOps — Complete Module Registry (183 controlled units)
 
 > Authoritative spec: `docs/PS03_FINAL_SPEC_V2.md`. One module at a time. No auto-continue.
-> Progress: **133/183 with implementation** (32 APPROVED: M00.1–M00.7, M01.1–M01.15, M02.1–M02.10 · 101 IMPLEMENTED_TESTED hardening-pending: M03–M16.9) · Overall project score: NOT COMPUTED.
+> Progress: **133/183 with implementation** (38 APPROVED: M00.1–M00.7, M01.1–M01.15, M02.1–M02.10, M03.1–M03.6 · 95 IMPLEMENTED_TESTED hardening-pending: M04–M16.9) · Overall project score: NOT COMPUTED.
 
 ## Global Verification Gate (applies to every unit)
 
@@ -77,12 +77,12 @@ registry tracks unit-level status only.
 
 | ID | Unit | Status | Safety | Ground | Hall | Retr | Verify method |
 |---|---|---|---|---|---|---|---|
-| M03.1 | alert normalization | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | malformed-input + missing-field tests |
-| M03.2 | log normalization | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | DATA-not-instructions + delimit tests |
-| M03.3 | metrics normalization | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | window/delta tests |
-| M03.4 | trace normalization | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | ref-integrity tests |
-| M03.5 | deployment normalization | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | diff-shape tests |
-| M03.6 | canonical telemetry model | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | cross-source join + index tests |
+| M03.1 | alert normalization | HUMAN_APPROVED (92/100, re-audit 2026-09-16: env fail-closed + ts parity) | S | N | N | N | malformed-input + missing-field + env/ts tests |
+| M03.2 | log normalization | HUMAN_APPROVED (92/100, re-audit 2026-09-16: ts parity + None-sweep) | S | N | N | N | DATA-not-instructions + delimit + ts tests |
+| M03.3 | metrics normalization | HUMAN_APPROVED (92/100, re-audit 2026-09-16: required+finite+bool ts rule) | S | N | N | N | window/delta + ts tests |
+| M03.4 | trace normalization | HUMAN_APPROVED (92/100, re-audit 2026-09-16: span preservation + ref integrity) | S | N | N | N | ref-integrity + span tests |
+| M03.5 | deployment normalization | HUMAN_APPROVED (91/100, re-audit 2026-09-16: ts rule + None-sweep) | S | N | N | N | diff-shape + ts tests |
+| M03.6 | canonical telemetry model | HUMAN_APPROVED (92/100, re-audit 2026-09-16: full-chain matrix raw+normalized) | S | N | N | N | cross-source join + index + chain tests |
 
 ## PHASE 04 — Correlation (6)
 
