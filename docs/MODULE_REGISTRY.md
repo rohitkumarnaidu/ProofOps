@@ -30,13 +30,13 @@ registry tracks unit-level status only.
 
 | ID | Unit | Status | Safety | Ground | Hall | Retr | Verify method |
 |---|---|---|---|---|---|---|---|
-| M00.1 | repository structure | HUMAN_APPROVED (92/100, re-audit 2026-09-16: strict submodule rubric; 11-docs, README §44, MOCK badge, both-bounds guard, lockfile landed) | S | N | N | N | hardened structure tests (22) + hardening pins (7) + clean-tree scan + scorecard |
+| M00.1 | repository structure | HUMAN_APPROVED (93/100, closeout 2026-09-16: + daemon --no-cache build proof + container smoke + Dockerfiles on lock) | S | N | N | N | hardened structure tests (22) + hardening pins (7) + clean-tree scan + scorecard |
 | M00.2 | environment/configuration | HUMAN_APPROVED (92/100, re-audit 2026-09-16: fail-closed + AST/AST-getenv parity + inventory-docs parity + seed-boundary pin) | S | N | N | N | env-load + missing-key + secret-scan + parity + hardening tests |
-| M00.3 | Docker Compose | HUMAN_APPROVED (91/100, re-audit 2026-09-16: log rotation + explicit healthchecks + compose guards) | S | N | N | N | runtime matrix + failure injection + persistence + COMPOSE.md + hardening tests |
+| M00.3 | Docker Compose | HUMAN_APPROVED (92/100, closeout 2026-09-16: + runtime matrix green 2x + resurrection re-proof with daemon up + 3x healthy) | S | N | N | N | runtime matrix + failure injection + persistence + COMPOSE.md + hardening tests |
 | M00.4 | health checks | HUMAN_APPROVED (92/100, re-audit 2026-09-16: DSN scheme-prefix fix + close/timeout/budget probes) | S | N | N | N | endpoint + dependency-down + hardening tests |
 | M00.5 | logging foundation | HUMAN_APPROVED (91/100, re-audit 2026-09-16: UTC pin + quoted-space/PGP/PAT/Slack parity + no-print rule) | S | N | N | N | format/redaction + no-secret-in-log + hardening tests |
 | M00.6 | documentation foundation | HUMAN_APPROVED (90/100, re-audit 2026-09-16: 11-docs set + tree governance + README gate; skeletons, full bodies owned later) | N | N | N | N | 11-docs presence + spec-link + fabrication + secrets tests |
-| M00.7 | CI foundation | HUMAN_APPROVED (91/100, re-audit 2026-09-16: 5-stage pipeline + least-privilege + freeze enforcer + lockfile) | S | N | N | N | ruff→mypy→unit→security→lockfile pipeline green + scanner self-tests |
+| M00.7 | CI foundation | HUMAN_APPROVED (92/100, closeout 2026-09-16: + SHA-pinned actions + ubuntu-24.04 + pip-audit gate live) | S | N | N | N | ruff→mypy→unit→security→lockfile pipeline green + scanner self-tests |
 
 ## PHASE 01 — Contracts (15)
 
