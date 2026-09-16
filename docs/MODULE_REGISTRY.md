@@ -1,7 +1,7 @@
 # ProofOps — Complete Module Registry (183 controlled units)
 
 > Authoritative spec: `docs/PS03_FINAL_SPEC_V2.md`. One module at a time. No auto-continue.
-> Progress: **100/183 with implementation** (11 APPROVED: M00.1–M00.7, M01.1–M01.4 · 89 IMPLEMENTED_TESTED hardening-pending: M01.5–M12.7) · Overall project score: NOT COMPUTED.
+> Progress: **110/183 with implementation** (11 APPROVED: M00.1–M00.7, M01.1–M01.4 · 99 IMPLEMENTED_TESTED hardening-pending: M01.5–M13.10) · Overall project score: NOT COMPUTED.
 
 ## Global Verification Gate (applies to every unit)
 
@@ -195,16 +195,16 @@ registry tracks unit-level status only.
 
 | ID | Unit | Status | Safety | Ground | Hall | Retr | Verify method |
 |---|---|---|---|---|---|---|---|
-| M13.1 | Lyzr client | NOT STARTED | R | R | R | S | chat/session/stream + fallback-classification tests |
-| M13.2 | Triage Agent | NOT STARTED | R | R | R | S | mocked-LLM severity/fingerprint contract tests |
-| M13.3 | Diagnostic Agent | NOT STARTED | R | R | R | S | hypotheses + INSUFFICIENT_EVIDENCE tests |
-| M13.4 | Remediation Planner | NOT STARTED | R | R | R | S | Action-struct + no-shell-vocab tests |
-| M13.5 | RCA Reporter | NOT STARTED | R | R | R | S | gated-publish + blameless-lint tests |
-| M13.6 | structured output | NOT STARTED | R | R | R | S | schema-conformance + Pydantic re-validation tests |
-| M13.7 | sessions | NOT STARTED | R | R | R | S | session_id=incident_id + resume tests |
-| M13.8 | RAI | NOT STARTED | R | R | R | S | per-agent guard attachment + verdict tests |
-| M13.9 | KB | NOT STARTED | R | R | R | S | runbook/history link + threshold tests |
-| M13.10 | memory | NOT STARTED | R | R | R | S | Cognis + Global-Context + 10-msg-window tests |
+| M13.1 | Lyzr client | IMPLEMENTED_TESTED (build-first; hardening pending) | R | R | R | S | chat/session/stream + fallback-classification tests |
+| M13.2 | Triage Agent | IMPLEMENTED_TESTED (build-first; hardening pending) | R | R | R | S | mocked-LLM severity/fingerprint contract tests |
+| M13.3 | Diagnostic Agent | IMPLEMENTED_TESTED (build-first; hardening pending) | R | R | R | S | hypotheses + INSUFFICIENT_EVIDENCE tests |
+| M13.4 | Remediation Planner | IMPLEMENTED_TESTED (build-first; hardening pending) | R | R | R | S | Action-struct + no-shell-vocab tests |
+| M13.5 | RCA Reporter | IMPLEMENTED_TESTED (build-first; hardening pending) | R | R | R | S | gated-publish + blameless-lint tests |
+| M13.6 | structured output | IMPLEMENTED_TESTED (build-first; hardening pending) | R | R | R | S | schema-conformance + Pydantic re-validation tests |
+| M13.7 | sessions | IMPLEMENTED_TESTED (build-first; hardening pending) | R | R | R | S | session_id=incident_id + resume tests |
+| M13.8 | RAI | IMPLEMENTED_TESTED (build-first; hardening pending) | R | R | R | S | per-agent guard attachment + verdict tests |
+| M13.9 | KB | IMPLEMENTED_TESTED (build-first; hardening pending) | R | R | R | S | runbook/history link + threshold tests |
+| M13.10 | memory | IMPLEMENTED_TESTED (build-first; hardening pending) | R | R | R | S | Cognis + Global-Context + 10-msg-window tests |
 
 ## PHASE 14 — Orchestration (8)
 
