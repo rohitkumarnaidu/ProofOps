@@ -210,6 +210,28 @@ Bounds closed in the same pass: `test_args` depth<=4 + doc 16→32;
 keys. Defect-pinning test updates (15 single-definition, 2 duck-typed
 invalid, 1 list-compare) remove no coverage.
 
+## ADR-012 — M01 adversarial round-2: nesting crash, row caps, fast-paths
+
+Context: submodule re-audit reproduced 7 more lacks with file:line proof.
+Fixed: adversarial nesting (2000-deep mappings crashed with
+`RecursionError` past the trust boundary in hypothesis/rca-impact/audit-
+policy — proven) now fails closed as `ValidationError` via a net in
+`FrozenDict._validate_full` (per-field depth caps still apply after it);
+`_check_rows` coercion wrapped the same way; `RCA.impact` enforces its
+declared `MAX_IMPACT_DEPTH=5` (constant existed, check did not); timeline/
+remediation rows get `MAX_ROW_JSON_BYTES=16384` each (family-consistent with
+params/impact/policy caps); `confidence_bucket` rejects bool/str;
+`from_legacy` fast-paths (`type(legacy) is cls` → exact return) on all 15
+bridges so the only real input skips coercion entirely.
+Verified NON-lacks (evidence overrules suspicion, recorded so nobody
+"fixes" them): `ttl_seconds` bool already rejected (strict validator);
+`utcnow` tz-aware; `params_hash` order-stable; shipped runbooks name only
+allowlisted actions (17/17 ⊆ ACTION_TYPES, now pinned by test).
+Boundaries: `from_legacy` foreign-duck input (untested shapes beyond
+scalars) may raise `TypeError` on exotic coercions — never silently
+accepted; constructors remain THE trust boundary. `Alert.from_legacy`
+takes legacy-shaped OBJECTS, not raw dicts (raw dicts → normalizer, M02).
+
 ## PLANNED ADR slots (not taken in M00.6)- FSM-primary over SuperFlow mirror (owning module: orchestration phase).
 - 4-agent split plus session_id=incident_id (M13).
 - No-pgvector retrieval freeze: Classic KB plus local pre-digestion (M12/M13).

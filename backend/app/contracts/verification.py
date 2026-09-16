@@ -150,6 +150,8 @@ class VerificationResult(BaseModel):
     @classmethod
     def from_legacy(cls, legacy: Any) -> VerificationResult:
         """Build a canonical result from ``app.schemas`` (1:1 wire)."""
+        if type(legacy) is cls:
+            return legacy  # already canonical: exact, no coercion
         return cls(
             execution_id=str(legacy.execution_id),
             verdict=legacy.verdict,

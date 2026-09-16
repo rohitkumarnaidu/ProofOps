@@ -198,6 +198,8 @@ class Rollback(BaseModel):
     @classmethod
     def from_legacy(cls, legacy: Any) -> Rollback:
         """Build a canonical Rollback from ``app.schemas`` (1:1 wire)."""
+        if type(legacy) is cls:
+            return legacy  # already canonical: exact, no coercion
         return cls(
             execution_id=str(legacy.execution_id),
             rollback_action=FrozenDict(dict(legacy.rollback_action)),

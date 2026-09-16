@@ -205,6 +205,8 @@ class Claim(BaseModel):
         module scope (schemas is the compat layer that imports contracts -
         a top-level import here would cycle).
         """
+        if type(legacy) is cls:
+            return legacy  # already canonical: exact, no coercion
         return cls(
             claim_id=str(legacy.claim_id),
             text=str(legacy.text),
@@ -364,6 +366,8 @@ class Hypothesis(BaseModel):
         documented truncation is gone with the P1 closure: audit data must
         never be silently dropped in either direction.
         """
+        if type(legacy) is cls:
+            return legacy  # already canonical: exact, test_args preserved
         raw_args = getattr(legacy, "test_args", None)
         if isinstance(raw_args, FrozenDict):
             test_args = raw_args

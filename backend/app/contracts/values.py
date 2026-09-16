@@ -50,6 +50,9 @@ def params_hash(params: dict) -> str:
 def confidence_bucket(confidence: float) -> ConfidenceLevel:
     """Map a 0..1 confidence to its bucket. M01.1 thresholds: <0.4 low,
     <0.7 medium, else high. Change only via contract change request."""
+    if isinstance(confidence, bool) or not isinstance(confidence, (int, float)):
+        raise ValueError(
+            "confidence must be a JSON number (bool/str rejected)")
     if not 0.0 <= confidence <= 1.0:
         raise ValueError(f"confidence must be within 0..1, got: {confidence}")
     if confidence < 0.4:

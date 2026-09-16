@@ -383,6 +383,8 @@ class Action(BaseModel):
     @classmethod
     def from_legacy(cls, legacy: Any) -> Action:
         """Build a canonical Action from ``app.schemas.Action`` (1:1 wire)."""
+        if type(legacy) is cls:
+            return legacy  # already canonical: exact, no coercion
         return cls(
             action_id=str(legacy.action_id),
             incident_id=str(legacy.incident_id),

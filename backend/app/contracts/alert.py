@@ -443,6 +443,8 @@ class Alert(BaseModel):
         and non-str input is REJECTED (never ``str()``-coerced — coercion
         launders injected attribute values into trusted fields).
         """
+        if type(legacy) is cls:
+            return legacy  # already canonical: exact, no mapping
         legacy_alert_id = legacy.alert_id
         if not isinstance(legacy_alert_id, str):
             raise ValueError("legacy alert_id must be a string")

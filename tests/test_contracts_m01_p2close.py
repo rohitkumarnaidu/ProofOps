@@ -351,3 +351,83 @@ class TestEvaluationEdges:
         with pytest.raises(ValidationError):
             BenchmarkResult(case_id="c", scenario="s", variant="v",
                             expected_cause="e", citation_coverage="high")  # type: ignore
+
+
+class TestNestingCrashBecomesValidationError:
+    def test_deep_mappings_rejected_cleanly(self):  # SECURITY
+        # Adversarial nesting (thousands deep) must fail as ValidationError,
+        # never propagate RecursionError past the trust boundary.
+        with pytest.raises(ValidationError):
+            Hypothesis(text="t", confidence=0.5, test_args=_deep(2000))  # type: ignore
+        with pytest.raises(ValidationError):
+            RCA(incident_id="i", summary="s", root_cause="c",
+                impact=_deep(2000))  # type: ignore
+        with pytest.raises(ValidationError):
+            AuditEvent(seq=1, incident_id="i", actor="a", event_type="e",
+                       policy=_deep(2000))  # type: ignore
+        with pytest.raises(ValidationError):
+            RCA(incident_id="i", summary="s", root_cause="c",
+                timeline=[_deep(50)])  # type: ignore
+
+    def test_no_recursion_error_escapes(self):  # SECURITY
+        # Strong form: RecursionError must not escape ANY of these paths.
+        import pytest as _pytest
+        with _pytest.raises(ValidationError):
+            Hypothesis(text="t", confidence=0.5, test_args=_deep(5000))  # type: ignore
+
+
+class TestImpactDepthAndRowBytes:
+    def test_impact_depth_enforced(self):  # SECURITY
+        with pytest.raises(ValidationError):
+            RCA(incident_id="i", summary="s", root_cause="c",
+                impact={"a": {"b": {"c": {"d": {"e": {"f": 1}}}}}})  # type: ignore
+        r = RCA(incident_id="i", summary="s", root_cause="c",
+                impact={"a": {"b": {"c": {"d": {"e": 1}}}}})  # type: ignore
+        assert r.impact["a"]["b"]["c"]["d"]["e"] == 1  # depth 5 boundary ok
+
+    def test_row_bytes_capped(self):  # SECURITY
+        with pytest.raises(ValidationError):
+            RCA(incident_id="i", summary="s", root_cause="c",
+                timeline=[{"ts": "t", "actor": "a", "hash": "h",
+                           "blob": "x" * 20000}])  # type: ignore
+
+
+class TestConfidenceBucketStrict:
+    def test_bool_and_str_rejected(self):  # SECURITY
+        from app.contracts.values import confidence_bucket
+        with pytest.raises(ValueError):
+            confidence_bucket(True)  # type: ignore
+        with pytest.raises(ValueError):
+            confidence_bucket("0.9")  # type: ignore
+        assert confidence_bucket(0.7).value == "high"
+
+
+class TestFromLegacyFastPath:
+    def test_canonical_input_returns_exact(self):  # UNIT
+        # Post-P1-closure the only real bridge input is canonical instances:
+        # they must pass through EXACTLY (no coercion, no re-validation cost
+        # semantic change, identical object).
+        h = Hypothesis(text="t", confidence=0.5)
+        assert Hypothesis.from_legacy(h) is h
+        r = RCA(incident_id="i", summary="s", root_cause="c")
+        assert RCA.from_legacy(r) is r
+        a = AuditEvent(seq=1, incident_id="i", actor="a",
+                       event_type="policy.decision")
+        assert AuditEvent.from_legacy(a) is a
+
+
+class TestCrossFileActionSets:
+    def test_shipped_runbooks_name_only_known_actions(self):  # INTEGRATION
+        # M01.6/M01.1 boundary: every allowed/forbidden action in the five
+        # shipped runbooks must be an ACTION_TYPES member (proves the
+        # allowlist and the seeds cannot drift apart silently).
+        import yaml
+        from app.contracts.enums import ACTION_TYPES
+        allowed: set[str] = set()
+        for path in sorted((ROOT / "runbooks").glob("*.yaml")):
+            data = yaml.safe_load(path.read_text(encoding="utf-8"))
+            allowed.update(data.get("allowed_actions", []))
+            allowed.update(data.get("forbidden_actions", []))
+        assert allowed, "no runbook actions found"
+        assert allowed <= set(ACTION_TYPES), \
+            f"outside allowlist: {sorted(allowed - set(ACTION_TYPES))}"

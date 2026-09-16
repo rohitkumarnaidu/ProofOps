@@ -280,6 +280,8 @@ class AuditEvent(BaseModel):
     @classmethod
     def from_legacy(cls, legacy: Any) -> AuditEvent:
         """Build a canonical AuditEvent from ``app.schemas`` (1:1 wire)."""
+        if type(legacy) is cls:
+            return legacy  # already canonical: exact, no coercion
         return cls(
             event_id=str(legacy.event_id),
             seq=int(legacy.seq),

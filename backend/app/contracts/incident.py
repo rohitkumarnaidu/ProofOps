@@ -251,7 +251,16 @@ class FrozenDict(Mapping):
             for k in data:
                 if not isinstance(k, str):
                     raise ValueError(f"{info.field_name} keys must be strings")
-            return cls(data)
+            try:
+                return cls(data)
+            except RecursionError as exc:
+                # Adversarial nesting (thousands deep) exhausts the C stack
+                # inside recursive freezing. Fail closed as a validation
+                # error — never propagate a crash past the trust boundary.
+                # Per-field depth caps (all <=5) still apply after this net.
+                raise ValueError(
+                    f"{info.field_name} is nested too deeply to freeze "
+                    f"safely") from exc
         raise ValueError(f"{info.field_name} must be an object, not {type(v).__name__}")
 
     @classmethod

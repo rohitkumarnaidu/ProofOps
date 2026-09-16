@@ -345,6 +345,8 @@ class Runbook(BaseModel):
         ``scope`` plain strings coerce to ``Environment``; action-name strings
         coerce to ``ActionType`` (unknown names are rejected, never guessed).
         """
+        if type(legacy) is cls:
+            return legacy  # already canonical: exact, no coercion
         return cls(
             runbook_id=str(legacy.runbook_id),
             version=str(legacy.version),

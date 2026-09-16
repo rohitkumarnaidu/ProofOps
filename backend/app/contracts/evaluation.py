@@ -200,6 +200,8 @@ class EvaluationRun(BaseModel):
     @classmethod
     def from_legacy(cls, legacy: Any) -> EvaluationRun:
         """Build a canonical run from ``app.schemas`` (1:1 wire)."""
+        if type(legacy) is cls:
+            return legacy  # already canonical: exact, no coercion
         return cls(
             run_id=str(legacy.run_id),
             suite=str(legacy.suite),
@@ -331,6 +333,8 @@ class BenchmarkResult(BaseModel):
     @classmethod
     def from_legacy(cls, legacy: Any) -> BenchmarkResult:
         """Build a canonical result from ``app.schemas`` (1:1 wire)."""
+        if type(legacy) is cls:
+            return legacy  # already canonical: exact, no coercion
         return cls(
             case_id=str(legacy.case_id),
             scenario=str(legacy.scenario),
