@@ -1,7 +1,7 @@
 # ProofOps — Complete Module Registry (183 controlled units)
 
 > Authoritative spec: `docs/PS03_FINAL_SPEC_V2.md`. One module at a time. No auto-continue.
-> Progress: **87/183 with implementation** (10 APPROVED: M00.1, M00.3–M00.7, M01.1–M01.4 · 1 IMPLEMENTED awaiting verdict: M00.2 · 76 IMPLEMENTED_TESTED hardening-pending: M01.5–M10.5) · Overall project score: NOT COMPUTED.
+> Progress: **93/183 with implementation** (10 APPROVED: M00.1, M00.3–M00.7, M01.1–M01.4 · 1 IMPLEMENTED awaiting verdict: M00.2 · 82 IMPLEMENTED_TESTED hardening-pending: M01.5–M11.6) · Overall project score: NOT COMPUTED.
 
 ## Global Verification Gate (applies to every unit)
 
@@ -172,12 +172,12 @@ registry tracks unit-level status only.
 
 | ID | Unit | Status | Safety | Ground | Hall | Retr | Verify method |
 |---|---|---|---|---|---|---|---|
-| M11.1 | runbook schema | NOT STARTED | R | N | N | N | field + forbidden-action tests |
-| M11.2 | runbook loader | NOT STARTED | R | N | N | N | load + parse-error tests |
-| M11.3 | hash validation | NOT STARTED | R | N | N | N | tampered-hash reject tests |
-| M11.4 | version pinning | NOT STARTED | R | N | N | N | floating-version reject tests |
-| M11.5 | parameter validation | NOT STARTED | R | N | N | N | JSON-schema + regex/range tests |
-| M11.6 | five deep runbooks | NOT STARTED | R | N | N | N | poisoned-runbook rejection + content tests |
+| M11.1 | runbook schema | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | field + forbidden-action tests |
+| M11.2 | runbook loader | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | load + parse-error tests |
+| M11.3 | hash validation | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | tampered-hash reject tests |
+| M11.4 | version pinning | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | floating-version reject tests |
+| M11.5 | parameter validation | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | JSON-schema + regex/range tests |
+| M11.6 | five deep runbooks | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | poisoned-runbook rejection + content tests |
 
 ## PHASE 12 — Retrieval (7)
 
