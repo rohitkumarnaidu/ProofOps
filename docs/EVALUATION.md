@@ -3,9 +3,10 @@
 Authoritative spec: `docs/PS03_FINAL_SPEC_V2.md` §33 (evaluation engine),
 §36 (six quality gates), §34 (golden benchmarks), §45–§46 (testing/CI).
 
-Status: no evaluation runner exists today. No `runs/*.jsonl`, no
-`scorecard.html`, no measured P50/P95, token, or cost numbers exist — this doc
-states the spec contract and what is reserved so far.
+Status: M16 implements the runner (`backend/app/services/eval.py`,
+IMPLEMENTED_TESTED). Measured numbers land in `runs/*.jsonl` (gitignored
+run artifacts) + scorecard HTML, never as committed claims — this doc keeps
+the spec contract; `tests/test_eval_m16.py` proves the machinery.
 Nothing here claims production readiness or certification.
 
 ## Reserved today (M00.2 only, tested)
@@ -23,8 +24,9 @@ Nothing here claims production readiness or certification.
 - Runner pipeline: CASE → RUN → TRACE → GRADE → SCORE → COMPARE → REPORT,
   storing run JSONL plus an HTML scorecard with metrics JSON (spec §33).
 - Split with Lyzr (spec §04-G14): Lyzr Agent Eval covers agent-level
-  (hallucination/faithfulness/tool-args); the custom runner covers
-  pipeline-level (policy/adversarial/SLO/regression). Neither exists today.
+  (hallucination/faithfulness/tool-args) via `export_cases_csv()` rows; the
+  custom runner covers pipeline-level
+  (policy/adversarial/SLO/regression).
 - Six quality gates C1–C6 (spec §36) are all `[PROVISIONAL]` and revise after
   20 baseline runs: hallucination, groundedness (MUST-CITE coverage 1.0),
   retrieval (p@5/r@5/MRR/nDCG), cost (raw tokens primary, dollars via
@@ -36,7 +38,8 @@ Nothing here claims production readiness or certification.
 
 ## PLANNED (owning modules, not implemented)
 
-- Eval runner, graders, suites, rubric estimator, scorecard (M16).
+- Eval runner, graders, rubric estimator, scorecard, JSONL (M16
+  IMPLEMENTED_TESTED: `backend/app/services/eval.py`).
 - Benchmark fixtures incl. adversarial-10 attack files (M17/M18).
 - Token/latency/cost ledgers per incident (M20 measurement modules).
 - `scripts/eval.sh` and `scripts/demo.sh --check` entry points (M16/M22).
@@ -55,5 +58,5 @@ Nothing here claims production readiness or certification.
 python -m pytest tests/test_config.py -q   # seed-trio + reproducibility only
 ```
 
-Eval-gate tests arrive with M16; this module asserts the absence honestly
-instead of simulating it.
+Eval-gate tests live in `tests/test_eval_m16.py`; this module keeps
+asserting honesty rules instead of simulating results.
