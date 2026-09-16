@@ -174,6 +174,8 @@ class PolicyDecision(BaseModel):
     @classmethod
     def from_legacy(cls, legacy: Any) -> PolicyDecision:
         """Build a canonical PolicyDecision from ``app.schemas`` (1:1 wire)."""
+        if type(legacy) is cls:
+            return legacy  # already canonical: exact, no coercion
         return cls(
             decision=legacy.decision,
             rule_id=str(legacy.rule_id),
@@ -193,7 +195,7 @@ class PolicyDecision(BaseModel):
             rule_id=self.rule_id,
             policy_version=self.policy_version,
             effective_risk=self.effective_risk,
-            obligations=list(self.obligations),
+            obligations=self.obligations,
             ttl_seconds=self.ttl_seconds,
             message=self.message,
         )

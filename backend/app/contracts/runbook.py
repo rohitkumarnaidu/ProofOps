@@ -345,6 +345,8 @@ class Runbook(BaseModel):
         ``scope`` plain strings coerce to ``Environment``; action-name strings
         coerce to ``ActionType`` (unknown names are rejected, never guessed).
         """
+        if type(legacy) is cls:
+            return legacy  # already canonical: exact, no coercion
         return cls(
             runbook_id=str(legacy.runbook_id),
             version=str(legacy.version),
@@ -365,23 +367,28 @@ class Runbook(BaseModel):
         )
 
     def to_legacy(self) -> Any:
-        """Convert back to the legacy ``app.schemas.Runbook`` shape."""
+        """Convert back to the legacy ``app.schemas.Runbook`` shape.
+
+        P1 closure: the legacy shape IS canonical now, so enum members and
+        immutable containers pass straight through (sharing them is safe);
+        the method stays so old call sites keep working.
+        """
         from app.schemas import Runbook as LegacyRunbook  # noqa: E402
 
         return LegacyRunbook(
             runbook_id=self.runbook_id,
             version=self.version,
             title=self.title,
-            trigger=self.trigger.to_plain(),
-            scope=[str(e) for e in self.scope],
-            preconditions=list(self.preconditions),
-            diagnostic_steps=list(self.diagnostic_steps),
-            allowed_actions=[str(a) for a in self.allowed_actions],
-            forbidden_actions=[str(a) for a in self.forbidden_actions],
-            parameters_schema=self.parameters_schema.to_plain(),
-            approval=self.approval.to_plain(),
-            verification=list(self.verification),
-            rollback=self.rollback.to_plain(),
+            trigger=self.trigger,
+            scope=self.scope,
+            preconditions=self.preconditions,
+            diagnostic_steps=self.diagnostic_steps,
+            allowed_actions=self.allowed_actions,
+            forbidden_actions=self.forbidden_actions,
+            parameters_schema=self.parameters_schema,
+            approval=self.approval,
+            verification=self.verification,
+            rollback=self.rollback,
             owner=self.owner,
             reviewed_at=self.reviewed_at,
             hash=self.hash,

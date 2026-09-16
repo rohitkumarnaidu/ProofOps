@@ -42,6 +42,44 @@ All 15 legacy models keep their names, fields, and defaults; string inputs
 coerce to Enums, so pre-M01.1 callers and `tests/test_schemas.py` (28 tests,
 unmodified) keep passing byte-for-byte, except decision 3 above.
 
+## M01 90+ pass — rival-models closure (P1) + bound hardening
+
+**Rival models killed.** `backend/app/schemas.py` held 15 weak rival models
+beside the canonical 16 (same names, weaker validation — any future
+`schemas.*` validation would have bypassed canonical hardening). All 15 are
+now TRUE aliases (`S.X is C.X`, proven by
+`tests/test_contracts_m01_rivalry.py`); `schemas.py` defines exactly one
+class. The single retained definition is `Alert` in its historical
+RAW-telemetry input shape (`severity_raw`/`signature`/flat labels) — a
+different pipeline stage (raw ingest) consumed exclusively by the
+`Alert.from_legacy` migration bridge, never a trust validator. Containment:
+zero production importers (proven by grep) + a pinned AST test failing ANY
+future backend/scripts/telemetry import of `app.schemas` + function-local
+`to_legacy` imports only. Live code normalizes raw dicts directly
+(`services/normalizer.py`, zero `schemas` references).
+
+**Bridges hardened as a side effect.** `to_legacy` methods used to rebuild
+weak shapes (plain dicts/lists, enum→str) — masked type errors that mypy now
+catches (33 errors found and fixed: all pass canonical immutable containers
+straight through). `Hypothesis` bridges are lossless both directions now
+(`test_args` no longer truncated — silent audit-data loss removed).
+`Alert.from_legacy` is strict-typed (non-str injections raise `ValueError`
+instead of `str()`-laundering).
+
+**Bounds closed.** `test_args` depth<=4 enforced (was declared, never
+checked) + doc 16→32 entries corrected; `Action.rollback_action` bounded
+like parameters (was unbounded); RCA timeline rows require ts+actor+hash
+(docstring promise, was unchecked); `Rollback` outcome-requires-attempt
+consistency; `AuditEvent.policy` requires version+rule+result keys (empty =
+absent context, partial = malformed).
+
+**Defect-pinning tests updated (justified, human-approved with this pass).**
+15× `test_two_definitions_canonical_plus_legacy` now assert a single
+definition; 2× bypass-construction tests feed duck-typed invalid input
+(the bypass constructors they used no longer exist); 1× tuple-vs-list
+assertion compares as list. No coverage removed — every behavior still
+asserts, against the single validation path.
+
 ## M01.2 Incident hardening (zero-trust pass)
 
 `Incident` (`backend/app/contracts/incident.py`, re-exported via

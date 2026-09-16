@@ -30,7 +30,8 @@ Bounds table::
 
     incident_id        1..MAX_ID_LEN  (128, identifier)
     summary/root_cause 1..MAX_PROSE   (8192 each, verbatim, non-blank)
-    timeline/remediation_log 0..MAX_ROWS (256 mapping rows each)
+    timeline/remediation_log 0..MAX_ROWS (256 mapping rows each, 16 KiB
+                             per row; timeline rows require ts+actor+hash)
     impact             0..MAX_IMPACT_ENTRIES (64; depth/bytes capped)
     prevention         0..MAX_PREV    (64 non-blank strings <=1024)
     claims             0..MAX_CLAIMS  (64 canonical Claim)
@@ -66,6 +67,7 @@ MAX_PREV = 64
 MAX_PREV_LEN = 1024
 MAX_CLAIMS = 64
 MAX_REF_LEN = 256
+MAX_ROW_JSON_BYTES = 16384
 
 
 def _check_identifier(name: str, value: str, max_len: int) -> str:
@@ -88,8 +90,31 @@ def _check_prose(name: str, value: str) -> str:
     return value
 
 
+def _mapping_depth(value: Any) -> int:
+    """Deepest container nesting level (scalars 0). Iterative: no recursion
+    limit risk. Twin of the hypothesis/action guards (kept local: this module
+    may import only frozen contracts plus Claim, never sibling schemas)."""
+    best = 0
+    stack: list[Any] = [value]
+    levels: list[int] = [0]
+    while stack:
+        v = stack.pop()
+        d = levels.pop()
+        if isinstance(v, Mapping):
+            best = max(best, d + 1)
+            for item in v.values():
+                stack.append(item)
+                levels.append(d + 1)
+        elif isinstance(v, (list, tuple)):
+            best = max(best, d + 1)
+            for item in v:
+                stack.append(item)
+                levels.append(d + 1)
+    return best
+
+
 def _check_rows(name: str, value: Any) -> list[FrozenDict]:
-    """Row-list rule: strict list of string-keyed mappings."""
+    """Row-list rule: strict list of string-keyed mappings, bytes-capped."""
     if value is None:
         raise ValueError(f"{name} must be a list, not null")
     if isinstance(value, (str, bytes)) or not isinstance(value, (list, tuple)):
@@ -102,9 +127,19 @@ def _check_rows(name: str, value: Any) -> list[FrozenDict]:
         if isinstance(row, FrozenDict):
             rows.append(row)
         elif isinstance(row, Mapping):
-            rows.append(FrozenDict(dict(row)))
+            try:
+                rows.append(FrozenDict(dict(row)))
+            except RecursionError as exc:
+                raise ValueError(
+                    f"{name} rows nest too deeply to freeze safely") from exc
         else:
             raise ValueError(f"{name} rows must be objects")
+    for row in rows:
+        size = len(canonical_json(row.to_plain()).encode("utf-8"))
+        if size > MAX_ROW_JSON_BYTES:
+            raise ValueError(
+                f"{name} rows must serialize within "
+                f"{MAX_ROW_JSON_BYTES} bytes each")
     return rows
 
 
@@ -123,6 +158,7 @@ class RCA(BaseModel):
         default=(),
         description="Chronological rows (ts+actor+hash per row).",
     )
+
     root_cause: str = Field(
         min_length=1,
         max_length=MAX_PROSE,
@@ -181,7 +217,18 @@ class RCA(BaseModel):
     @field_validator("timeline", "remediation_log", mode="before")
     @classmethod
     def _rows(cls, v: Any, info: Any) -> Any:
-        return _check_rows(str(info.field_name), v)
+        rows = _check_rows(str(info.field_name), v)
+        # Timeline rows carry the documented ts+actor+hash contract (field
+        # description); a row missing any of them is malformed, never
+        # "sparse". Remediation rows stay untyped record rows by design.
+        if str(info.field_name) == "timeline":
+            for row in rows:
+                missing = {"ts", "actor", "hash"} - set(row.keys())
+                if missing:
+                    raise ValueError(
+                        "timeline rows must carry ts+actor+hash, "
+                        f"missing: {sorted(missing)}")
+        return rows
 
     @field_validator("impact")
     @classmethod
@@ -189,6 +236,9 @@ class RCA(BaseModel):
         if len(v) > MAX_IMPACT_ENTRIES:
             raise ValueError(
                 f"impact must hold at most {MAX_IMPACT_ENTRIES} entries")
+        if _mapping_depth(v) > MAX_IMPACT_DEPTH:
+            raise ValueError(
+                f"impact must nest at most {MAX_IMPACT_DEPTH} levels deep")
         size = len(canonical_json(v.to_plain()).encode("utf-8"))
         if size > MAX_IMPACT_JSON_BYTES:
             raise ValueError(
@@ -241,6 +291,8 @@ class RCA(BaseModel):
         Legacy claims (``S.Claim``) upgrade via ``Claim.from_legacy``;
         timeline/remediation rows coerce to ``FrozenDict``.
         """
+        if type(legacy) is cls:
+            return legacy  # already canonical: exact, no coercion
         return cls(
             incident_id=str(legacy.incident_id),
             summary=str(legacy.summary),
@@ -260,11 +312,11 @@ class RCA(BaseModel):
         return LegacyRCA(
             incident_id=self.incident_id,
             summary=self.summary,
-            timeline=[r.to_plain() for r in self.timeline],
+            timeline=self.timeline,
             root_cause=self.root_cause,
-            impact=self.impact.to_plain(),
-            remediation_log=[r.to_plain() for r in self.remediation_log],
-            prevention=list(self.prevention),
-            claims=[c.to_legacy() for c in self.claims],
+            impact=self.impact,
+            remediation_log=self.remediation_log,
+            prevention=self.prevention,
+            claims=tuple(c.to_legacy() for c in self.claims),
             audit_ref=self.audit_ref,
         )

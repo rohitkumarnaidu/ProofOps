@@ -170,6 +170,8 @@ class ApprovalRequest(BaseModel):
     @classmethod
     def from_legacy(cls, legacy: Any) -> ApprovalRequest:
         """Build a canonical ApprovalRequest from ``app.schemas`` (1:1 wire)."""
+        if type(legacy) is cls:
+            return legacy  # already canonical: exact, no coercion
         return cls(
             approval_id=str(legacy.approval_id),
             incident_id=str(legacy.incident_id),
@@ -259,6 +261,8 @@ class ApprovalToken(BaseModel):
     @classmethod
     def from_legacy(cls, legacy: Any) -> ApprovalToken:
         """Build a canonical ApprovalToken from ``app.schemas`` (1:1 wire)."""
+        if type(legacy) is cls:
+            return legacy  # already canonical: exact, no coercion
         return cls(
             token=str(legacy.token),
             approval_id=str(legacy.approval_id),

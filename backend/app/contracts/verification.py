@@ -150,6 +150,8 @@ class VerificationResult(BaseModel):
     @classmethod
     def from_legacy(cls, legacy: Any) -> VerificationResult:
         """Build a canonical result from ``app.schemas`` (1:1 wire)."""
+        if type(legacy) is cls:
+            return legacy  # already canonical: exact, no coercion
         return cls(
             execution_id=str(legacy.execution_id),
             verdict=legacy.verdict,
@@ -158,7 +160,12 @@ class VerificationResult(BaseModel):
         )
 
     def to_legacy(self) -> Any:
-        """Convert back to the legacy ``app.schemas`` shape."""
+        """Convert back to the legacy ``app.schemas`` shape.
+
+        P1 closure: the legacy shape IS canonical now, so this passes the
+        canonical immutable containers straight through (sharing them is
+        safe); the method stays so old call sites keep working.
+        """
         from app.schemas import (  # noqa: E402
             VerificationResult as LegacyResult,
         )
@@ -166,6 +173,6 @@ class VerificationResult(BaseModel):
         return LegacyResult(
             execution_id=self.execution_id,
             verdict=self.verdict,
-            checks=self.checks.to_plain(),
+            checks=self.checks,
             detail=self.detail,
         )

@@ -437,31 +437,66 @@ class Alert(BaseModel):
         this module must not import app.schemas at module scope (schemas is
         the compat layer that imports contracts — a top-level import here
         would cycle).
+
+        Strict-typing (M01 90+ pass): the legacy shape is mutable and
+        validation-bypassable, so every consumed field is type-checked here
+        and non-str input is REJECTED (never ``str()``-coerced — coercion
+        launders injected attribute values into trusted fields).
         """
-        raw_sev = str(legacy.severity_raw).strip().upper()
+        if type(legacy) is cls:
+            return legacy  # already canonical: exact, no mapping
+        legacy_alert_id = legacy.alert_id
+        if not isinstance(legacy_alert_id, str):
+            raise ValueError("legacy alert_id must be a string")
+        legacy_service = legacy.service
+        if not isinstance(legacy_service, str):
+            raise ValueError("legacy service must be a string")
+        legacy_signature = legacy.signature
+        if not isinstance(legacy_signature, str):
+            raise ValueError("legacy signature must be a string")
+        if not isinstance(legacy.severity_raw, str):
+            raise ValueError("legacy severity_raw must be a string")
+        raw_sev = legacy.severity_raw.strip().upper()
         severity = _LEGACY_SEVERITY_MAP.get(raw_sev)
         if severity is None:
             raise ValueError(
                 f"cannot map legacy severity_raw {legacy.severity_raw!r} "
                 "to P1..P4"
             )
-        raw_labels = dict(legacy.labels or {})
-        resource = str(raw_labels.pop("resource", "") or "")
-        message = str(raw_labels.pop("message", "") or legacy.signature)
-        flat_labels = {str(k): str(v) for k, v in raw_labels.items()}
+        raw_labels = legacy.labels or {}
+        if not isinstance(raw_labels, Mapping):
+            raise ValueError("legacy labels must be a mapping")
+        raw_labels = dict(raw_labels)
+        resource_raw = raw_labels.pop("resource", "")
+        if not isinstance(resource_raw, str):
+            raise ValueError("legacy labels['resource'] must be a string")
+        resource = resource_raw
+        message_raw = raw_labels.pop("message", "")
+        if not isinstance(message_raw, str):
+            raise ValueError("legacy labels['message'] must be a string")
+        message = message_raw or legacy_signature
+        flat_labels: dict[str, str] = {}
+        for k, val in raw_labels.items():
+            if not isinstance(k, str) or not isinstance(val, str):
+                raise ValueError(
+                    "legacy labels must be flat string pairs")
+            flat_labels[k] = val
         metadata: dict[str, Any] = {}
-        if getattr(legacy, "hash", ""):
-            metadata["legacy_hash"] = str(legacy.hash)
+        legacy_hash = getattr(legacy, "hash", "")
+        if legacy_hash:
+            if not isinstance(legacy_hash, str):
+                raise ValueError("legacy hash must be a string")
+            metadata["legacy_hash"] = legacy_hash
         return cls(
-            alert_id=str(legacy.alert_id),
+            alert_id=legacy_alert_id,
             source=source,
             timestamp=legacy.ts,
-            service=str(legacy.service),
+            service=legacy_service,
             resource=resource,
             severity=severity,
             message=message,
             labels=flat_labels,  # type: ignore[arg-type]
-            fingerprint=str(legacy.signature),
+            fingerprint=legacy_signature,
             environment=legacy.environment,
             status=DEFAULT_STATUS,
             metadata=metadata,  # type: ignore[arg-type]

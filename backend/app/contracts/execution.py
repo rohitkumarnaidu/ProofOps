@@ -193,6 +193,8 @@ class Execution(BaseModel):
     @classmethod
     def from_legacy(cls, legacy: Any) -> Execution:
         """Build a canonical Execution from ``app.schemas`` (1:1 wire)."""
+        if type(legacy) is cls:
+            return legacy  # already canonical: exact, no coercion
         return cls(
             execution_id=str(legacy.execution_id),
             action_id=str(legacy.action_id),
@@ -212,7 +214,7 @@ class Execution(BaseModel):
             action_id=self.action_id,
             incident_id=self.incident_id,
             tier=self.tier,
-            state_diff=self.state_diff.to_plain(),
-            logs=list(self.logs),
+            state_diff=self.state_diff,
+            logs=self.logs,
             idempotency_key=self.idempotency_key,
         )

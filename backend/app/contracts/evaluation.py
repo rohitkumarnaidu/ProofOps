@@ -200,6 +200,8 @@ class EvaluationRun(BaseModel):
     @classmethod
     def from_legacy(cls, legacy: Any) -> EvaluationRun:
         """Build a canonical run from ``app.schemas`` (1:1 wire)."""
+        if type(legacy) is cls:
+            return legacy  # already canonical: exact, no coercion
         return cls(
             run_id=str(legacy.run_id),
             suite=str(legacy.suite),
@@ -223,11 +225,11 @@ class EvaluationRun(BaseModel):
             suite=self.suite,
             case_id=self.case_id,
             passed=self.passed,
-            scores=self.scores.to_plain(),
+            scores=self.scores,
             tokens_in=self.tokens_in,
             tokens_out=self.tokens_out,
             llm_calls=self.llm_calls,
-            latency_ms=self.latency_ms.to_plain(),
+            latency_ms=self.latency_ms,
         )
 
 
@@ -331,6 +333,8 @@ class BenchmarkResult(BaseModel):
     @classmethod
     def from_legacy(cls, legacy: Any) -> BenchmarkResult:
         """Build a canonical result from ``app.schemas`` (1:1 wire)."""
+        if type(legacy) is cls:
+            return legacy  # already canonical: exact, no coercion
         return cls(
             case_id=str(legacy.case_id),
             scenario=str(legacy.scenario),
