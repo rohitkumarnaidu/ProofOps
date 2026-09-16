@@ -1,7 +1,7 @@
 # ProofOps — Complete Module Registry (183 controlled units)
 
 > Authoritative spec: `docs/PS03_FINAL_SPEC_V2.md`. One module at a time. No auto-continue.
-> Progress: **124/183 with implementation** (22 APPROVED: M00.1–M00.7, M01.1–M01.15 · 102 IMPLEMENTED_TESTED hardening-pending: M02–M15.6) · Overall project score: NOT COMPUTED.
+> Progress: **124/183 with implementation** (32 APPROVED: M00.1–M00.7, M01.1–M01.15, M02.1–M02.10 · 92 IMPLEMENTED_TESTED hardening-pending: M03–M15.6) · Overall project score: NOT COMPUTED.
 
 ## Global Verification Gate (applies to every unit)
 
@@ -62,16 +62,16 @@ registry tracks unit-level status only.
 
 | ID | Unit | Status | Safety | Ground | Hall | Retr | Verify method |
 |---|---|---|---|---|---|---|---|
-| M02.1 | telemetry generator | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | determinism: same-seed→same-sha tests |
-| M02.2 | deterministic seeding | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | seed-log + replay-identical tests |
-| M02.3 | alert generation | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | count/shape per (scenario,variant,seed) tests |
-| M02.4 | log generation | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | injection-neutral content tests |
-| M02.5 | metrics generation | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | pre/post-delta shape tests |
-| M02.6 | traces | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | exemplar + span-ref tests |
-| M02.7 | Kubernetes events | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | event-shape + ts-index tests |
-| M02.8 | deployment events | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | from→to+author ±15m tests |
-| M02.9 | service topology | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | neighbor-edge tests |
-| M02.10 | telemetry hashing | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | sha-log completeness tests |
+| M02.1 | telemetry generator | HUMAN_APPROVED (91/100, re-audit 2026-09-16: 60-combo + cross-process determinism) | S | N | N | N | determinism: same-seed→same-sha tests |
+| M02.2 | deterministic seeding | HUMAN_APPROVED (91/100, re-audit 2026-09-16: seed-key identity + replay matrix) | S | N | N | N | seed-log + replay-identical tests |
+| M02.3 | alert generation | HUMAN_APPROVED (91/100, re-audit 2026-09-16: full count/shape matrix) | S | N | N | N | count/shape per (scenario,variant,seed) tests |
+| M02.4 | log generation | HUMAN_APPROVED (92/100, re-audit 2026-09-16: payload present-once/absent-clean matrix) | S | N | N | N | injection-neutral content tests |
+| M02.5 | metrics generation | HUMAN_APPROVED (91/100, re-audit 2026-09-16: pre/post shapes + ratio clamp) | S | N | N | N | pre/post-delta shape tests |
+| M02.6 | traces | HUMAN_APPROVED (91/100, re-audit 2026-09-16: span shapes + ref integrity) | S | N | N | N | exemplar + span-ref tests |
+| M02.7 | Kubernetes events | HUMAN_APPROVED (91/100, re-audit 2026-09-16: shape + ts-index helper) | S | N | N | N | event-shape + ts-index tests |
+| M02.8 | deployment events | HUMAN_APPROVED (91/100, re-audit 2026-09-16: ±15m window matrix) | S | N | N | N | from→to+author ±15m tests |
+| M02.9 | service topology | HUMAN_APPROVED (91/100, re-audit 2026-09-16: edge helper + story match) | S | N | N | N | neighbor-edge tests |
+| M02.10 | telemetry hashing | HUMAN_APPROVED (92/100, re-audit 2026-09-16: per-section tamper + GT strip) | S | N | N | N | sha-log completeness tests |
 
 ## PHASE 03 — Normalization (6)
 
