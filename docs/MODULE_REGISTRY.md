@@ -1,7 +1,7 @@
 # ProofOps — Complete Module Registry (183 controlled units)
 
 > Authoritative spec: `docs/PS03_FINAL_SPEC_V2.md`. One module at a time. No auto-continue.
-> Progress: **118/183 with implementation** (22 APPROVED: M00.1–M00.7, M01.1–M01.15 · 96 IMPLEMENTED_TESTED hardening-pending: M02–M14.8) · Overall project score: NOT COMPUTED.
+> Progress: **124/183 with implementation** (22 APPROVED: M00.1–M00.7, M01.1–M01.15 · 102 IMPLEMENTED_TESTED hardening-pending: M02–M15.6) · Overall project score: NOT COMPUTED.
 
 ## Global Verification Gate (applies to every unit)
 
@@ -223,12 +223,12 @@ registry tracks unit-level status only.
 
 | ID | Unit | Status | Safety | Ground | Hall | Retr | Verify method |
 |---|---|---|---|---|---|---|---|
-| M15.1 | audit events | NOT STARTED | S | N | N | N | completeness + ordering tests |
-| M15.2 | hash chain | NOT STARTED | S | N | N | N | prev/curr SHA256-link tests |
-| M15.3 | audit verification | NOT STARTED | S | N | N | N | verify-endpoint + tamper-detect tests |
-| M15.4 | AIMS trace | NOT STARTED | S | N | N | N | trace-link (labelled non-custom) tests |
-| M15.5 | audit export | NOT STARTED | S | N | N | N | export-format + valid-bool tests |
-| M15.6 | evidence linkage | NOT STARTED | S | N | N | N | action/approval/execution linkage tests |
+| M15.1 | audit events | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | completeness + ordering tests |
+| M15.2 | hash chain | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | prev/curr SHA256-link tests |
+| M15.3 | audit verification | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | verify-endpoint + tamper-detect tests |
+| M15.4 | AIMS trace | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | trace-link (labelled non-custom) tests |
+| M15.5 | audit export | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | export-format + valid-bool tests |
+| M15.6 | evidence linkage | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | action/approval/execution linkage tests |
 
 ## PHASE 16 — Evaluation Engine (9)
 
