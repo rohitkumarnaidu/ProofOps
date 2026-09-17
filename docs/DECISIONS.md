@@ -284,7 +284,6 @@ Decision:
   resource); blank from_v/to_v stay (content-level, visible).
 
 ## ADR-015 — M03 adversarial round-2: range crash, time types, full chain
-
 Context: end-to-end re-audit (gen→normalize→correlate→predigest matrix)
 reproduced 4 more lacks. Fixed: `fromtimestamp` on out-of-range magnitudes
 (`1e20`) escaped as raw `OverflowError` — now `ValueError` in the shared
@@ -303,6 +302,19 @@ set (same reason).
 - Methodology note: test-count arithmetic is verified via isolated
   worktree baselines, never memory (a stale 2174 figure was caught and
   corrected to a measured 2248+21 this pass).
+
+## ADR-016 — CI caught a Windows-only assumption (ts ceiling)
+
+Context: the M03 push went red on ubuntu with exactly 1 failure in 2337 —
+`test_out_of_range_rejected_everywhere[99999999999]`: year 5138 raises on
+Windows but is VALID under Linux 64-bit time_t. A platform-delegated range
+check can never be uniform.
+Decision: explicit admissible range 1970..2100 (`MAX_TS`/`MAX_TS_YEAR`) —
+numeric compare before conversion (no conversion to overflow), year compare
+for ISO/datetime shapes (no `timestamp()` round-trip to overflow). The
+conversion guard (`OverflowError`/`OSError` → `ValueError`) stays as the
+second net. Boundary tests pin both sides on every platform. Lesson recorded:
+range edges must be asserted constants, never delegated to the CRT.
 
 ## PLANNED ADR slots (not taken in M00.6)
 
