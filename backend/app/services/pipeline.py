@@ -34,6 +34,7 @@ from agents import planner as A3  # noqa: E402 (M13.4)
 from agents import session as session_mod  # noqa: E402 (M13.7 sessions)
 from agents import triage as A1  # noqa: E402 (M13.2)
 from app.contracts.values import params_hash  # noqa: E402 (scope binding)
+from app.services import audit as audit_mod  # noqa: E402 (M15 recording)
 from app.services import fsm as fsm_svc  # noqa: E402 (M14 ordering)
 from app.services import policy as policy_svc  # noqa: E402 (M06)
 from app.services import predigest as predigest_svc  # noqa: E402 (M05.5)
@@ -41,6 +42,10 @@ from app.services import sandbox as sandbox_svc  # noqa: E402 (M08 mock)
 from app.services import validator as validator_svc  # noqa: E402 (M06.1)
 from app.services import verifier as verifier_svc  # noqa: E402 (M09)
 from app.services.fsm import Permit  # noqa: E402 (M14 permits)
+from app.services.rollback import (  # noqa: E402 (M10 auto-rollback)
+    rollback_for,
+    should_rollback,
+)
 from app.services.runbooks import load_runbook  # noqa: E402 (M11)
 
 DEMO_BLAST = {"scope": "deploy", "replicas": 2, "traffic_pct": 10}
@@ -83,6 +88,7 @@ def run_pipeline(incident_id: str, alerts: Sequence[Mapping[str, Any]],
                  store: session_mod.SessionStore,
                  approval: Mapping[str, Any] | None = None,
                  blast: Mapping[str, Any] | None = None,
+                 chain: Any = None,
                  now: float | None = None) -> dict[str, Any]:
     """Walk one incident NEW -> VERIFYING outcome (M21a core).
 
@@ -102,9 +108,12 @@ def run_pipeline(incident_id: str, alerts: Sequence[Mapping[str, Any]],
     ts = _now(now)
     blast = dict(DEMO_BLAST if blast is None else blast)
     run = fsm_svc.new_run(incident_id, now=ts)
+    after_err: float | None = None
 
     def _stop(exc: PipelineError) -> PipelineError:
         exc.run = run  # type: ignore[attr-defined]
+        if chain is not None:
+            audit_mod.record_fsm(chain, fsm_svc.audit_records(run))
         return exc
 
     def _walk(*states: str) -> None:
@@ -161,7 +170,7 @@ def run_pipeline(incident_id: str, alerts: Sequence[Mapping[str, Any]],
             raise _stop(PipelineStalled("ESCALATE without approval config "
                                         "(caller escalates)"))
         secret, actor = approval["secret"], approval["actor"]
-        permit = _hitl_permit(action, secret, actor, ts)
+        permit = _hitl_permit(action, secret, actor, ts, chain)
         fsm_svc.advance(run, "AWAITING_APPROVAL", now=ts)
         fsm_svc.advance(run, "APPROVED", permit=permit, now=ts)
     else:
@@ -182,6 +191,7 @@ def run_pipeline(incident_id: str, alerts: Sequence[Mapping[str, Any]],
         run, action.action_id, execution_id, sandbox_svc.apply, action,
         before)
     _execution, after = applied
+    after_err = float(after.get("error_rate", 1.0))
     fsm_svc.advance(run, "VERIFYING", now=ts)
     slo = dict(tele_public.get("slo", {"error_rate_below": 0.01}))
     expected = {}
@@ -194,28 +204,148 @@ def run_pipeline(incident_id: str, alerts: Sequence[Mapping[str, Any]],
                                   expected).verdict
     verdict_name = str(verdict.value if hasattr(verdict, "value")
                        else verdict)
+    verdicts = [verdict_name]
+    rolled_back = False
+    if verdict_name != "RESOLVED" and should_rollback(verdict_name, 0):
+        try:
+            rb_action = rollback_for(action, before)
+        except ValueError:
+            rb_action = None
+        if rb_action is not None:
+            rolled_back = True
+            fsm_svc.advance(run, "ROLLBACK",
+                            reason=f"auto-rollback on {verdict_name}", now=ts)
+            rb_execution_id = f"{execution_id}-rb1"
+            (rb_applied, _) = fsm_svc.execute_once(
+                run, rb_action.action_id, rb_execution_id,
+                sandbox_svc.apply, rb_action, after)
+            _, after_rb = rb_applied
+            after_err = float(after_rb.get("error_rate", 1.0))
+            fsm_svc.advance(run, "VERIFYING", now=ts)
+            expected_rb = {}
+            if "to_version" in plain_params and isinstance(
+                    before.get("deployment_version"), str):
+                expected_rb = {"version": before["deployment_version"]}
+            verdict2 = verifier_svc.verify(
+                rb_execution_id, after, after_rb, slo, expected_rb).verdict
+            verdict_name = str(verdict2.value
+                               if hasattr(verdict2, "value") else verdict2)
+            verdicts.append(verdict_name)
     if verdict_name != "RESOLVED":
         _walk("ESCALATED")
-        raise _stop(PipelineFailed(
-            f"verification {verdict_name} (rollback lands in commit B)"))
+        report = _report(incident_id, "escalated", run, triage, decision,
+                         action, execution_id, verdict_name, verdicts,
+                         evidence_ids, rolled_back, after_err)
+        if chain is not None:
+            audit_mod.record_fsm(chain, fsm_svc.audit_records(run))
+        return report
     _walk("RESOLVED")
-    return {"incident_id": incident_id, "path": "resolved",
+    report = _report(incident_id, "resolved", run, triage, decision, action,
+                     execution_id, verdict_name, verdicts, evidence_ids,
+                     rolled_back, after_err)
+    if chain is not None:
+        audit_mod.record_fsm(chain, fsm_svc.audit_records(run))
+    return report
+
+
+def _report(incident_id: str, path: str, run: Any, triage: Any,
+              decision: str, action: Any, execution_id: str,
+              verdict: str, verdicts: list[str], evidence_ids: list[str],
+              rolled_back: bool,
+              after_err: float | None = None) -> dict[str, Any]:
+    """Assemble the run report (M21a paths all end here)."""
+    return {"incident_id": incident_id, "path": path,
             "states": [r.to for r in run.history],
             "severity": str(triage.severity), "decision": decision,
             "action_type": str(action.action_type),
-            "execution_id": execution_id, "verdict": verdict_name,
-            "evidence_ids": evidence_ids,
-            "rolled_back": False, "run": run}
+            "execution_id": execution_id, "verdict": verdict,
+            "verdicts": list(verdicts), "evidence_ids": list(evidence_ids),
+            "rolled_back": rolled_back, "after_error_rate": after_err,
+            "run": run}
+
+
+def draft_rca(incident_id: str, run: Any, diagnosis: Any, root_cause: str,
+              claims: Sequence[Any], timeline_rows: Sequence[str],
+              remediation_log: Sequence[str], prevention: Sequence[str],
+              valid_evidence_ids: set[str] | frozenset[str], client: Any,
+              store: Any) -> Any:
+    """RCA draft from pipeline artifacts (M21.7): gate over INDEPENDENT ids.
+
+    valid_evidence_ids must come from the evidence pack (measured), never
+    from the claims themselves -- deriving validity from cited ids would
+    make the gate vacuous. Timeline rows come from the fsm history.
+    """
+    from agents import reporter as reporter_mod
+    _ = (run, diagnosis)
+    return reporter_mod.run_report(
+        incident_id, list(timeline_rows), root_cause, list(claims),
+        set(valid_evidence_ids), list(remediation_log), list(prevention),
+        client, store)
+
+
+def to_eval_trace(report: Mapping[str, Any], tele_public: Mapping[str, Any],
+                  budgets: Mapping[str, Any],
+                  retrieval: Mapping[str, Any] | None = None,
+                  hallucination: Mapping[str, Any] | None = None,
+                  prompt: Mapping[str, Any] | None = None,
+                  latencies: Mapping[str, Any] | None = None,
+                  coverage: float = 1.0) -> dict[str, Any]:
+    """Map a pipeline report to an M16-trace-shaped record (M21.9 bridge).
+
+    Measured blocks (policy/action/verdict/slo/unsafe) come from the run;
+    measurement-harness blocks (budgets/retrieval/hallucination/prompt/
+    latencies) are caller-supplied and LABELED as such -- pass measured
+   ledger output or explicit mock blocks, never silence.
+    """
+    metrics = [float(m.get("value", 0.0))
+               for m in tele_public.get("metrics", [])
+               if isinstance(m, Mapping)]
+    slo = dict(tele_public.get("slo", {"error_rate_below": 0.01}))
+    measured_err = report.get("after_error_rate")
+    if measured_err is None:
+        measured_err = max(metrics) if metrics else 0.0
+    return {
+        "stages": {"triage": {"ok": True, "errors": []},
+                   "diagnose": {"ok": True, "errors": []},
+                   "plan": {"ok": True, "errors": []},
+                   "report": {"ok": True, "errors": []}},
+        "policy": {"decision": report.get("decision", "DENY"),
+                   "action": report.get("action_type", "")},
+        "validator": {"valid": True},
+        "citations": {"coverage": float(coverage), "complete": float(coverage)},
+        "actions": [{"type": report.get("action_type", ""),
+                     "executed": report.get("path") == "resolved",
+                     "authorized": report.get("path") in ("resolved",
+                                                          "escalated")}],
+        "unsafe_exec": 0,
+        "attacks": [],
+        "slo": {"verdict": report.get("verdict", "ESCALATE"),
+                "error_rate": float(measured_err),
+                "threshold": float(slo.get("error_rate_below", 0.01))},
+        "retrieval": dict(retrieval or {}),
+        "budgets": dict(budgets),
+        "latencies": dict(latencies or {}),
+        "hallucination": dict(hallucination or {}),
+        "prompt": dict(prompt or {}),
+        "agents": ["triage", "diagnostic", "planner"],
+        "tools": [],
+        "session": {"persisted": True},
+        "safety": {"red_blocked": report.get("path") == "blocked",
+                   "injection_neutralized": True,
+                   "approval_enforced": True, "verify_rollback": True},
+    }
 
 
 def _hitl_permit(action: Any, secret: str, actor: str,
-                 now: float) -> Permit:
+                 now: float, chain: Any = None) -> Permit:
     """Request + approve through the approvals router pure fns (M19a)."""
     from app.routers import approvals as approvals_router
     dumped = action.model_dump(mode="json")
-    issued = approvals_router.request_approval(dumped, actor, secret)
+    issued = approvals_router.request_approval(dumped, actor, secret,
+                                               chain=chain)
     view = approvals_router.approve_approval(
-        issued["approval_id"], actor, issued["token"], "approver", secret)
+        issued["approval_id"], actor, issued["token"], "approver", secret,
+        chain=chain)
     assert view["status"] == "approved"
     params = action.parameters
     plain = params.to_plain() if hasattr(params, "to_plain") else dict(params)

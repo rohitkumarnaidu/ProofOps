@@ -25,14 +25,19 @@ from pydantic import BaseModel, Field
 
 try:  # pragma: no cover - container path (pinned deps); host drift noted below
     from fastapi import APIRouter as _APIRouter
+    from fastapi import Header as _Header
     from fastapi import HTTPException as _HTTPException
     _APIRouter(prefix="/__probe__")  # host starlette v1.x breaks construction
     router = _APIRouter(prefix="/runs", tags=["runs"])
     HTTPException = _HTTPException
+    Header = _Header
 except Exception:  # host-only drift: starlette v1.x vs pinned container deps
     # (AGENTS.md S13.2 -- host runs unit/structure tests only). Pure
     # functions below stay fully testable; routes register in the container.
     router = None  # type: ignore[assignment]
+
+    def Header(default: object = None, **kwargs: object) -> object:  # type: ignore[no-redef]
+        return default
 
     class HTTPException(Exception):  # type: ignore[no-redef]
         def __init__(self, status_code: int = 500, detail: str = "") -> None:
@@ -287,7 +292,13 @@ def http_list() -> list[dict[str, Any]]:
     return _guarded(list_runs)
 
 
-def http_advance(incident_id: str, body: AdvanceBody) -> dict[str, Any]:
+def http_advance(incident_id: str, body: AdvanceBody,
+                 x_api_key: str | None = Header(default=None)
+                 ) -> dict[str, Any]:
+    from app.config import get_settings  # noqa: E402 (request-time only)
+    from app.routers import auth as auth_mod
+    auth_mod.guard_http(
+        x_api_key, lambda: get_settings().PROOFOPS_API_KEY, HTTPException)
     return _guarded(advance_run, incident_id, body.to, reason=body.reason,
                     refs=body.refs, permit=body.permit,
                     idempotency_key=body.idempotency_key)

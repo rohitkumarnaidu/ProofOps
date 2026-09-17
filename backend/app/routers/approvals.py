@@ -30,12 +30,17 @@ from app.services.validator import validate_action  # noqa: E402 (M06.1)
 
 try:  # pragma: no cover - container path (pinned deps)
     from fastapi import APIRouter as _APIRouter
+    from fastapi import Header as _Header
     from fastapi import HTTPException as _HTTPException
     _APIRouter(prefix="/__probe__")
     router = _APIRouter(tags=["approvals"])
     HTTPException = _HTTPException
+    Header = _Header
 except Exception:  # host-only drift (AGENTS.md S13.2)
     router = None  # type: ignore[assignment]
+
+    def Header(default: object = None, **kwargs: object) -> object:  # type: ignore[no-redef]
+        return default
 
     class HTTPException(Exception):  # type: ignore[no-redef]
         def __init__(self, status_code: int = 500, detail: str = "") -> None:
@@ -275,12 +280,25 @@ def http_view(approval_id: str) -> dict[str, Any]:
     return _guarded(approval_view, approval_id)
 
 
-def http_approve(approval_id: str, body: DecideBody) -> dict[str, Any]:
+def _require_key(x_api_key: str | None) -> None:
+    from app.config import get_settings  # noqa: E402 (request-time only)
+    from app.routers import auth as auth_mod
+    auth_mod.guard_http(
+        x_api_key, lambda: get_settings().PROOFOPS_API_KEY, HTTPException)
+
+
+def http_approve(approval_id: str, body: DecideBody,
+                 x_api_key: str | None = Header(default=None)
+                 ) -> dict[str, Any]:
+    _require_key(x_api_key)
     return _guarded(approve_approval, approval_id, body.actor, body.token,
                     body.role, _settings_secret(), body.idempotency_key)
 
 
-def http_reject(approval_id: str, body: DecideBody) -> dict[str, Any]:
+def http_reject(approval_id: str, body: DecideBody,
+                x_api_key: str | None = Header(default=None)
+                ) -> dict[str, Any]:
+    _require_key(x_api_key)
     return _guarded(reject_approval, approval_id, body.actor, body.role,
                     body.reason, body.idempotency_key)
 
