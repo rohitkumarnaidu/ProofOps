@@ -184,6 +184,33 @@ def _coerce_alerts(alerts: Any) -> list[Alert]:
     return coerced
 
 
+def _service_max_err(metrics: list, service: str) -> float:
+    """Worst error_rate reading ATTRIBUTED to one service (M04 90+ pass).
+
+    A web outage must not page an unrelated search blip to P1 (proven bleed:
+    global max over every reading). Readings tagged with another service are
+    skipped; untagged readings (no service key) count as bundle-global
+    evidence (conservative: an unattributed error signal still pages).
+    Non-finite and boolean readings are skipped (garbage in, no signal out).
+    """
+    best = 0.0
+    for m in metrics:
+        if not isinstance(m, Mapping):
+            continue
+        if m.get("name") != ERROR_RATE_METRIC:
+            continue
+        svc = m.get("service", "")
+        if svc is not None and svc != "" and svc != service:
+            continue  # another service's reading, not this group's
+        value = m.get("value", 0)
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            continue
+        if value != value or abs(value) == float("inf"):
+            continue
+        best = max(best, float(value))
+    return best
+
+
 def correlate(alerts: list[dict] | list[Alert],
               deploys: list[dict] | None = None,
               metrics: list[dict] | None = None,
@@ -205,21 +232,6 @@ def correlate(alerts: list[dict] | list[Alert],
     deploys = list(deploys)
     metrics = list(metrics)
     edges = _topology_edges(topology)
-    # Error gate reads the error_rate family ONLY: max() over every value
-    # let an unrelated cpu_percent=95 page P1. Non-finite and boolean
-    # readings are skipped (garbage in, no signal out).
-    max_err = 0.0
-    for m in metrics:
-        if not isinstance(m, Mapping):
-            continue
-        if m.get("name") != ERROR_RATE_METRIC:
-            continue
-        value = m.get("value", 0)
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            continue
-        if value != value or abs(value) == float("inf"):
-            continue
-        max_err = max(max_err, float(value))
 
     ordered = sorted(canon, key=_alert_ts)
     unique, _suppressed_total, suppressed_by_key = deduplicate(ordered)
@@ -264,7 +276,7 @@ def correlate(alerts: list[dict] | list[Alert],
         capped = len(ids) > MAX_STORED_IDS
         incidents.append(Incident(
             fingerprint=g["fp"],
-            severity=_severity(g, max_err),
+            severity=_severity(g, _service_max_err(metrics, g["service"])),
             status="CORRELATED",
             service=g["service"],
             environment=g["env"],

@@ -317,7 +317,6 @@ second net. Boundary tests pin both sides on every platform. Lesson recorded:
 range edges must be asserted constants, never delegated to the CRT.
 
 ## ADR-017 — M04 correlation hardening (this pass)
-
 Context: M04 scored 54.7 with two P1s, both reproduced live before fixing.
 Decision:
 - P1 #21 (flat-membership merge): cross-service merge is now PAIRWISE — the
@@ -346,6 +345,25 @@ Decision:
 - Non-goals recorded: agents/triage.py owns a PROPOSAL-grade severity copy
   with known edge divergences (security-always-P1, slo_breach arm) — M13
   lane's file, not touched; M04 remains the deciding authority.
+
+## ADR-018 — M04 round-2: per-service severity + end-to-end matrix
+
+Context: end-to-end re-audit (full bundles through correlate) reproduced one
+high-value lack the unit tests couldn't see: the error gate was computed
+GLOBALLY, so a web spike at 0.18 paged an unrelated search blip (own
+error_rate 0.001) to P1 — and NOISY junk groups (cpu_blip) paged P1/P2
+beside real spikes, defeating the FP gate they were designed for.
+Decision: `_service_max_err` attributes readings per service (tagged
+readings count for their service; untagged-but-named count globally as
+bundle evidence; nameless/non-finite/bool readings skip). Post-fix matrix
+(12 scenarios × NORMAL/NOISY/INCOMPLETE/CONTRADICTORY/ADVERSARIAL, pinned):
+junk is P4 everywhere, FP scenario P4, staging P3, prod spikes/security P1,
+INCOMPLETE/CONTRADICTORY/ADVERSARIAL hold severity. Storm perf smoke (<2s
+for 200 alerts). Same-id-different-content keeps first-wins (id-uniqueness
+invariant, documented in code).
+Boundaries: agents/triage.py keeps a proposal-grade severity copy (M13
+lane's file, untouched); M04 decides. Topology stays single-service-context
+(multi-service callers merge per-context maps first).
 
 ## PLANNED ADR slots (not taken in M00.6)
 

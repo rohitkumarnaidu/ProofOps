@@ -262,3 +262,87 @@ class TestSimilarityGuard:
         from app.services.correlator import _sig_sim
         assert _sig_sim("http_5xx_spike", "http_5xx_spike") == 1.0
         assert _sig_sim("aaa_bbb", "ccc_ddd") == 0.0
+
+
+class TestPerServiceAttribution:
+    def test_spike_does_not_bleed_across_services(self):  # SECURITY
+        # Web spikes at 0.18 while search idles at 0.001: search must stay
+        # P2 (own readings), never inherit web's P1.
+        incs = correlate(
+            [_raw(1, service="web", signature="http_5xx_spike"),
+             _raw(2, service="search", signature="upstream_5xx")],
+            metrics=[{"name": "error_rate", "service": "web", "value": 0.18},
+                     {"name": "error_rate", "service": "search",
+                      "value": 0.001}])
+        by_service = {i.service: str(i.severity) for i in incs}
+        assert by_service == {"web": "P1", "search": "P2"}
+
+    def test_untagged_readings_count_globally(self):  # UNIT
+        # Readings without a service tag are bundle-global evidence
+        # (conservative): an untagged 0.06 error_rate still pages.
+        # Nameless readings are a different story (see below): without a
+        # name nothing proves error-signal, so they are skipped.
+        (inc,) = correlate(
+            [_raw(1, severity_raw="warning", signature="cpu_high")],
+            metrics=[{"name": "error_rate", "value": 0.06}])
+        assert inc.severity == "P1"
+
+    def test_nameless_readings_skipped(self):  # UNIT
+        (inc,) = correlate(
+            [_raw(1, severity_raw="warning", signature="cpu_high")],
+            metrics=[{"value": 0.06}])
+        assert inc.severity == "P2"
+
+
+class TestEndToEndScenarioMatrix:
+    P1_SCENARIOS = {"bad-deploy", "crashloop-oom", "db-exhaust",
+                    "net-dep-fail", "injection"}
+    P4_SCENARIOS = {"false-positive"}
+
+    def _gen(self, scenario, variant):
+        import sys as _sys
+        _sys.path.insert(0, str(ROOT / "telemetry"))
+        import gen as _gen
+        return _gen.generate(scenario, variant, 7)
+
+    @pytest.mark.parametrize("scenario", [
+        "bad-deploy", "crashloop-oom", "db-exhaust", "net-dep-fail",
+        "injection", "mem-leak", "config-err", "cpu-sat", "disk-pressure",
+        "deadlock", "dep-outage", "false-positive"])
+    def test_normal_outcomes(self, scenario):  # UNIT
+        t = self._gen(scenario, "NORMAL")
+        incs = correlate(t["alerts"], t["deploys"], t["metrics"],
+                         t["topology"])
+        assert len(incs) == 1 and len(incs[0].source_alert_ids) == 4
+        if scenario in self.P4_SCENARIOS:
+            assert incs[0].severity == "P4"
+        elif scenario in self.P1_SCENARIOS:
+            assert incs[0].severity == "P1"
+        else:
+            assert incs[0].severity == "P3"
+
+    def test_noisy_junk_always_p4(self):  # SECURITY
+        # Junk (unrelated-svc, cpu_blip) must NEVER page above P4 — even
+        # beside a real P1 spike in the same bundle (per-service max_err).
+        for scenario in ("bad-deploy", "injection", "config-err"):
+            t = self._gen(scenario, "NOISY")
+            incs = correlate(t["alerts"], t["deploys"], t["metrics"],
+                             t["topology"])
+            assert len(incs) == 2
+            junk = [i for i in incs if i.service == "unrelated-svc"]
+            assert len(junk) == 1 and junk[0].severity == "P4"
+            assert len(junk[0].source_alert_ids) == 6
+
+    def test_incomplete_and_adversarial_hold_severity(self):  # UNIT
+        for variant in ("INCOMPLETE", "CONTRADICTORY", "ADVERSARIAL"):
+            t = self._gen("bad-deploy", variant)
+            (inc,) = correlate(t["alerts"], t["deploys"], t["metrics"],
+                               t["topology"])
+            assert inc.severity == "P1", variant
+
+    def test_storm_correlates_fast(self):  # UNIT
+        import time
+        t0 = time.monotonic()
+        incs = correlate([_raw(i, ts=100 + i * 10) for i in range(200)])
+        assert time.monotonic() - t0 < 2.0
+        assert len(incs) == 1
