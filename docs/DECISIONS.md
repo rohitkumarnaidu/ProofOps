@@ -316,6 +316,37 @@ conversion guard (`OverflowError`/`OSError` → `ValueError`) stays as the
 second net. Boundary tests pin both sides on every platform. Lesson recorded:
 range edges must be asserted constants, never delegated to the CRT.
 
+## ADR-017 — M04 correlation hardening (this pass)
+
+Context: M04 scored 54.7 with two P1s, both reproduced live before fixing.
+Decision:
+- P1 #21 (flat-membership merge): cross-service merge is now PAIRWISE — the
+  pair must equal {topology.service, dep} in either direction (proven: a
+  payments+unrelated pair with identical signatures merged under the old
+  rule). `topology["service"]` is read again (was ignored); malformed
+  topology (non-object, non-list deps, non-str entries, deps without a
+  service) fails closed — the old code applied substring semantics to
+  strings and TypeError'd on non-lists.
+- P1 #22 (any-metric P1 gate): max is over `error_rate` readings only
+  (proven: cpu_percent=95 paged P1); non-finite and boolean readings skip
+  (garbage in, no signal out). Same family as predigest uses; documented.
+- Suppression attribution: `deduplicate` returns (unique, total, by_key) and
+  each incident stamps its OWN count (the global total on every incident was
+  a data-integrity bug); the 4 unpack sites updated, no coverage lost.
+- Storm survival: 200-alert storms yield one incident (first 100 ids, full
+  count in `alert_count`, `source_alert_ids_capped` flag) instead of
+  ValidationError'ing the whole correlation (proven crash).
+- Fingerprint: `[:16]` rationale + deploy-window encoding documented (in-
+  window id vs "none" splits groups; pinned behaviorally); width frozen
+  (agents pin 16-hex independently — signature and output unchanged).
+- Keyword arms kept deliberately (fail-closed heuristic: data gaps
+  escalate; removing them downgrades real spikes on missing metrics) and
+  pinned; FP set pinned (2 members + non-member control); `_sig_sim` empty
+  guard; `_deploy_in_window` bool-ts skip.
+- Non-goals recorded: agents/triage.py owns a PROPOSAL-grade severity copy
+  with known edge divergences (security-always-P1, slo_breach arm) — M13
+  lane's file, not touched; M04 remains the deciding authority.
+
 ## PLANNED ADR slots (not taken in M00.6)
 
 - FSM-primary over SuperFlow mirror (owning module: orchestration phase).
