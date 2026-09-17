@@ -134,6 +134,8 @@ class TestPresence:
             "ProofOps_PS03_Master_Winning_Implementation_Trust_Submission_Checklist.md",  # UNVERIFIED companion
             "README.md",  # repo entrypoint (tested in test_repo_structure.py)
             "ZERO_TRUST_AUDIT_M00-M11.md",  # dated historical report (do not rewrite)
+            "SAFETY_CROSSING_PLAN.md",  # M00-M06 safety campaign plan (owned by
+            # the crossing campaign; SUPERSEDED, never deleted, on completion)
         }
         actual = {p.name for p in DOCS.glob("*.md")}
         assert set(CANONICAL_8) <= actual, \

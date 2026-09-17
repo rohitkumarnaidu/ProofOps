@@ -19,5 +19,8 @@ runs/
 *.jsonl
 !**/suites/*.jsonl
 .DS_Store
-# NOTE: frontend/ builds from ./frontend (static stub, no secrets in context);
-# it needs no ignore file. Revisit if the M19 scaffold adds one.
+# NOTE: frontend/ builds from ./frontend (Vite app since M19; verified
+# secret-free context: no .env/.pem/key files — re-check if it ever gains
+# server-side code or secrets-adjacent files, then it needs its own ignore).
+# `!**/suites/*.jsonl` lets benchmark suites ship: the in-image eval runner
+# reads them at runtime (M16/M17); everything else jsonl stays out.

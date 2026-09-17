@@ -33,9 +33,13 @@ class TestReadmeSpec44:
         assert "no " in body.lower() and "jsonl" in body.lower()
 
     def test_roadmap_present(self):  # STATIC
+        # Round-4: wave names go stale (M12-M22 named when unstarted, then
+        # landed). Pin structure (done/next split + registry pointer),
+        # not wave numbers.
         body = _readme()
         assert "Roadmap" in body
-        assert "M12" in body and "M22" in body
+        assert "M22" in body and "MODULE_REGISTRY" in body
+        assert "IMPLEMENTED_TESTED" in body or "IMPLEMENTED" in body
 
     def test_no_stale_foundation_only_claim(self):  # STATIC
         assert "M00.1 is foundation only" not in _readme()

@@ -71,8 +71,9 @@ M22 (demo harden) — no demo script claimed yet.
 `pytest` (policy/sandbox/verifier/audit 100%), `python scripts/verify_lyzr.py`.
 Docs: `docs/EVALUATION.md`, `docs/SECURITY.md`, `docs/DECISIONS.md`,
 `docs/DEMO.md`, `docs/ARCHITECTURE.md`, `docs/API.md`, `docs/TESTING.md`.
-PLANNED (not yet present, owned by future modules): eval runner + demo checker
-(`scripts/eval.sh`, `scripts/demo.sh --check` in M16/M22).
+PLANNED (not yet present, owned by future modules): eval + demo checker
+entry-point scripts (`scripts/eval.sh`, `scripts/demo.sh --check` in
+M16/M22; the backend eval runner itself landed in M16).
 
 ## Budget table (M00.6 foundation; `[PROVISIONAL]` targets, no measured numbers yet)
 
@@ -82,26 +83,27 @@ keeps deltas attributable. Targets revise after 20 baseline runs (spec §36).
 
 | Gate | Target (provisional) | Measured today |
 |---|---|---|
-| e2e latency P50 mock | <90s | PLANNED (M20 measurement, M16 runner) |
+| e2e latency P50 mock | <90s | PLANNED (M20 measurement; M16 runner landed IMPLEMENTED_TESTED, unmeasured) |
 | Cost | raw tokens first, $ second | PLANNED (M20 ledgers) |
-| Groundedness | MUST-CITE coverage 1.0 | PLANNED (M05 gate + M16 grading) |
-| Safety | unsafe_exec 0, bypass 0 | Partial: policy/sandbox/verifier gates green host-safe; full adversarial PLANNED (M18) |
+| Groundedness | MUST-CITE coverage 1.0 | M05 gate + M16 grading (both landed; no published numbers yet) |
+| Safety | unsafe_exec 0, bypass 0 | Gates green host-safe + M18 adversarial suite landed; no measured campaign numbers published |
 
 ## Benchmark shot (M00.6 foundation; no numbers claimed)
 
 No `runs/*.jsonl`, no `scorecard.html`, no P50/P95/token/cost numbers exist
 today — every future number links to its run JSONL (honesty rule in
 `docs/EVALUATION.md`). Datasets: deep-5 × 5 variants + stub-7 minimal
-(PLANNED, M17). Runner: CASE → RUN → TRACE → GRADE → SCORE → COMPARE → REPORT
-(PLANNED, M16).
+(M17 IMPLEMENTED_TESTED). Runner: CASE → RUN → TRACE → GRADE → SCORE →
+COMPARE → REPORT (M16 IMPLEMENTED_TESTED).
 
-## Roadmap (M00.6 foundation)
+## Roadmap (status: registry truth, refreshed post Wave-6)
 
-- Done: M00 foundation (7 units) + M01 contracts + M02–M11 pipeline
-  (IMPLEMENTED_TESTED; see `docs/MODULE_REGISTRY.md`).
-- Next: M12 retrieval → M13 Lyzr agents → M14 FSM (Wave 4); M15 audit/AIMS →
-  M16 eval → M17 benchmarks → M18 adversarial (Wave 5); M19 UI → M20 perf
-  (Wave 6); M21 integration → M22 demo (Wave 7). Full wave plan:
+- Done APPROVED: M00 foundation + M01 contracts + M02 telemetry + M03
+  normalization + M04 correlation + M05 evidence + M06 policy/safety (see
+  `docs/MODULE_REGISTRY.md` per-row truth).
+- Landed IMPLEMENTED_TESTED (hardening pending): M07 HITL → M19 UI
+  (per-row truth in registry; not claimed approved).
+- Next: M20 perf → M21 integration → M22 demo. Full wave plan:
   `docs/BUILD_FIRST_MASTER_PLAN.md`.
 
 ## Limitations

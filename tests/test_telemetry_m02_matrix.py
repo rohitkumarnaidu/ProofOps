@@ -8,6 +8,7 @@ k8s ts-index, metrics pre/post shapes, span-trace integrity.
 from __future__ import annotations
 
 import os
+import random
 import subprocess
 import sys
 from pathlib import Path
@@ -93,6 +94,30 @@ class TestDeterminismMatrix:
             gen.generate("nope", "NORMAL", 1)
         with pytest.raises(ValueError):
             gen.generate("bad-deploy", "CHAOS", 1)
+        with pytest.raises(ValueError):
+            gen.generate("bad-deploy", "normal", 1)  # case-sensitive
+
+    def test_seed_edges_deterministic(self):  # UNIT
+        # Zero/negative/huge seeds: Python modulo + str-seeded RNG keep every
+        # seed valid and replay-identical (no silent seed collapse).
+        for seed in (0, -5, 10 ** 18):
+            a = gen.generate("bad-deploy", "NORMAL", seed)
+            b = gen.generate("bad-deploy", "NORMAL", seed)
+            assert a == b and gen.verify_bundle(a)
+            assert len(a["alerts"]) == 4
+
+    def test_fuzz_matrix_deterministic(self):  # UNIT
+        # Fixed diverse sample (seeded RNG for the sample itself, so the test
+        # is deterministic): every combo replay-identical and sealed.
+        rng = random.Random(99)
+        combos = [(rng.choice(sorted(gen.SCENARIOS)),
+                   rng.choice(list(gen.VARIANTS)),
+                   rng.randint(0, 10 ** 6)) for _ in range(12)]
+        assert len(set(combos)) > 6  # genuinely diverse sample
+        for scenario, variant, seed in combos:
+            a = gen.generate(scenario, variant, seed)
+            b = gen.generate(scenario, variant, seed)
+            assert a == b and gen.verify_bundle(a), (scenario, variant, seed)
 
     def test_seed_key_identity(self):  # UNIT
         assert gen.seed_key("a", "b", 1) == "proofops:a:b:1"

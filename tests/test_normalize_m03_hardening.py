@@ -158,6 +158,11 @@ class TestSpanPreservation:
         with pytest.raises(ValueError):
             normalize_trace({"trace_id": "t", "spans": ["s-1"]})
 
+    def test_null_spans_means_no_spans(self):  # UNIT
+        # Explicit null is absent data, not malformed data (matches the
+        # logs/traces rule-a leniency for missing context).
+        assert normalize_trace({"trace_id": "t", "spans": None})["spans"] == []
+
     def test_span_ref_joinable_after_normalization(self):  # UNIT
         import sys as _sys
         _sys.path.insert(0, str(ROOT / "telemetry"))
@@ -176,6 +181,24 @@ class TestAlertFallbacks:
 
     def test_resource_absent_stays_empty(self):  # UNIT
         assert normalize_alert(_raw_alert()).resource == ""
+
+
+class TestK8sAndModelEdges:
+    def test_bool_count_rejected(self):  # SECURITY
+        # True == 1 numerically; without the explicit bool guard it would
+        # pass as count 1. Probed during campaign re-audit.
+        with pytest.raises(ValueError):
+            normalize_k8s_event({"service": "w", "ts": 1, "count": True})
+
+    def test_storm_model_builds_with_counts(self):  # UNIT
+        import sys as _sys
+        _sys.path.insert(0, str(ROOT / "telemetry"))
+        import gen as _gen
+        from app.services.normalizer import normalize_telemetry
+        t = _gen.generate("bad-deploy", "NORMAL", 7)
+        model = normalize_telemetry(dict(t, alerts=t["alerts"] * 50))
+        assert len(model["alerts"]) == 200
+        assert model["by_service"]["web"]["alerts"] == 200
 
 
 class TestTwoLevelSeverity:
