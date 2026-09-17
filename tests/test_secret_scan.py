@@ -72,6 +72,22 @@ class TestLivePatterns:
         findings = scanner._scan_live_patterns(Path("x.py"), leaked)
         assert findings and leaked not in " ".join(findings)
 
+    def test_web_asset_types_are_scanned(self):  # STATIC
+        # The scanner was blind to frontend files (.ts/.tsx/.js/.css/.json).
+        # A live-shaped key inside any of them must fail, whatever the suffix.
+        for suffix in (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs",
+                       ".css", ".scss", ".json", ".conf"):
+            assert scanner._is_text_target(Path("src/app" + suffix)), suffix
+        leaked = "sk-" + "C" * 48
+        assert scanner._scan_live_patterns(
+            Path("src/secret" + ".tsx"), "key=" + leaked) != []
+
+    def test_lockfile_hash_noise_passes(self):  # STATIC
+        # package-lock integrity hashes (sha512-...) are noise, not secrets.
+        assert scanner._scan_live_patterns(
+            Path("package-lock.json"),
+            '"integrity": "sha512-abcdef0123456789"') == []
+
 
 class TestPemBlocks:
     def test_real_block_fails(self):  # SECURITY

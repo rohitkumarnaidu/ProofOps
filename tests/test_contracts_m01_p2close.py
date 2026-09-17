@@ -415,6 +415,14 @@ class TestFromLegacyFastPath:
                        event_type="policy.decision")
         assert AuditEvent.from_legacy(a) is a
 
+    def test_evidence_fast_path_identical(self):  # UNIT
+        # Round-3 hunt: Evidence was the one bridge missing the fast-path
+        # (all other 15 had it). Canonical in, identical object out.
+        from app.contracts.evidence import Evidence
+        ev = Evidence(incident_id="i", source_type="log", source_id="s",
+                      ref="r", hash="h", freshness_s=1.0, relevance=0.5)
+        assert Evidence.from_legacy(ev) is ev
+
 
 class TestCrossFileActionSets:
     def test_shipped_runbooks_name_only_known_actions(self):  # INTEGRATION

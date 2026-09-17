@@ -239,6 +239,8 @@ class Evidence(BaseModel):
         must not import app.schemas at module scope (schemas is the compat
         layer that imports contracts - a top-level import here would cycle).
         """
+        if type(legacy) is cls:
+            return legacy  # already canonical: exact, no coercion
         return cls(
             evidence_id=str(legacy.evidence_id),
             incident_id=str(legacy.incident_id),

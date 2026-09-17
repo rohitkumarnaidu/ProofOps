@@ -365,6 +365,23 @@ Boundaries: agents/triage.py keeps a proposal-grade severity copy (M13
 lane's file, untouched); M04 decides. Topology stays single-service-context
 (multi-service callers merge per-context maps first).
 
+## ADR-019 — Zero-trust re-audit round-3 (M00–M04): hunt, don't confirm
+
+Context: a re-audit that holds every prior score is indistinguishable from
+trusting old reports. This round assumed guilt: 16/16 fast-paths probed
+(found Evidence missing its own — fixed), bool-typed ints probed
+(`APPROVAL_TTL_SECONDS=True` coerced to a 1-second window — fixed with a
+before-validator + string-numeral regression test), scanner suffixes
+audited (blind to .ts/.tsx/.js/.css/.json/.conf despite the M19 frontend —
+widened, clean tree still PASS), README wave-status audited (claimed
+"M12–M22 NOT STARTED" after M12–M19 landed — refreshed + pinned),
+spec §15 counted (says "14", enumerates 18 — code follows the enumerated
+list; the label is spec's own inconsistency, not a code defect).
+Process lesson (repeat offense, now enforced): never batch two edits to the
+SAME file in one parallel block (results misreport; caught twice by
+diff-verify), and never hand-write oldString from memory (phantom anchors
+fail — read first). Diff-verify every edit before committing.
+
 ## PLANNED ADR slots (not taken in M00.6)
 
 - FSM-primary over SuperFlow mirror (owning module: orchestration phase).
