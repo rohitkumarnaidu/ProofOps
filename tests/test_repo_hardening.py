@@ -48,12 +48,17 @@ class TestElevenDocsSet:
 
 
 class TestFrontendBadge:
-    def test_stub_declares_mock_and_links_both_probes(self):  # STATIC
-        body = (ROOT / "frontend" / "public" / "index.html").read_text(
+    def test_app_declares_modes_and_links_probes(self):  # STATIC
+        # M19: honesty markers moved from the stub page into the app source
+        # (badge component + API layer); same intent, new location.
+        badges = (ROOT / "frontend" / "src" / "components" /
+                  "badges.tsx").read_text(encoding="utf-8")
+        assert "MOCK" in badges and "OFFLINE" in badges
+        api = (ROOT / "frontend" / "src" / "api.ts").read_text(
             encoding="utf-8")
-        assert "MOCK" in body
-        assert "/healthz" in body and "/readyz" in body
-        assert "ProofOps" in body
+        assert "/healthz" in api
+        assert "ProofOps" in (ROOT / "frontend" / "index.html").read_text(
+            encoding="utf-8")
 
 
 class TestShellHygiene:

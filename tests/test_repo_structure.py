@@ -170,7 +170,8 @@ class TestDockerCompose:
             return [str(p).split("#")[0].strip()
                     for p in services[svc].get("ports", [])]
         assert "8000:8000" in published("api"), f"api ports={published('api')}"
-        assert "5173:80" in published("ui"), f"ui ports={published('ui')}"
+        # M19b: ui serves unprivileged 8080 (nginx USER per frontend/Dockerfile).
+        assert "5173:8080" in published("ui"), f"ui ports={published('ui')}"
         api = services["api"]
         assert api.get("env_file") == ".env" or "DATABASE_URL" in str(api.get("environment", ""))
         # ui must wait for a HEALTHY api, not merely a started one.
@@ -192,16 +193,15 @@ class TestDockerCompose:
                 target = vol if isinstance(vol, str) else str(vol.get("source", ""))
                 assert not target.startswith("/"), f"{svc}: host mount forbidden: {vol}"
 
-    def test_frontend_stub_present(self):
-        # M00.1 allows a static stub (full Vite scaffold is M19.x), but the stub
-        # must be a REAL non-empty page mentioning ProofOps — an empty file or a
-        # bare .gitkeep must NOT pass.
+    def test_frontend_app_present(self):
+        # M00.1 allowed a static stub; M19 lands the real Vite scaffold, so
+        # this gate now pins the scaffold manifests instead of the stub page.
+        # Dockerfile + self-HEALTHCHECK requirements are unchanged.
         assert (ROOT / "frontend" / "Dockerfile").is_file()
-        stub = ROOT / "frontend" / "public" / "index.html"
-        assert stub.is_file(), "frontend stub index.html missing"
-        body = stub.read_text(encoding="utf-8")
-        assert len(body.strip()) > 50, "stub must be non-empty"
-        assert "ProofOps" in body, "stub must carry the ProofOps marker"
+        assert (ROOT / "frontend" / "package.json").is_file()
+        assert (ROOT / "frontend" / "src" / "App.tsx").is_file()
+        title = (ROOT / "frontend" / "index.html").read_text(encoding="utf-8")
+        assert "ProofOps" in title, "app index must carry the ProofOps marker"
         ftext = _read("frontend/Dockerfile")
         assert "HEALTHCHECK" in ftext, "frontend image must HEALTHCHECK itself"
 

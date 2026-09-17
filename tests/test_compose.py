@@ -51,17 +51,18 @@ class TestTopology:
 
 
 class TestPorts:
+    # M19b: ui serves unprivileged 8080 (nginx USER); host mapping unchanged.
     def test_exact_published_ports(self):  # STATIC
         services = _compose()["services"]
         assert _published(services["api"]) == ["8000:8000"]
-        assert _published(services["ui"]) == ["5173:80"]
+        assert _published(services["ui"]) == ["5173:8080"]
         assert _published(services["db"]) == ["5433:5432"]
 
     def test_no_unexpected_ports(self):  # STATIC
         all_ports = []
         for svc, cfg in _compose()["services"].items():
             all_ports.extend(_published(cfg))
-        assert sorted(all_ports) == ["5173:80", "5433:5432", "8000:8000"]
+        assert sorted(all_ports) == ["5173:8080", "5433:5432", "8000:8000"]
 
 
 class TestOrdering:
