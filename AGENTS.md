@@ -577,7 +577,9 @@ python scripts/secret_scan.py   # values never printed; hunter2-fake-* are fixtu
 
 - `backend/app/contracts/` is the frozen M01.1 surface — M01.2+/M02 import from here only.
 - `schemas.py` is a re-export layer; defines no vocabulary. `config.py`/logging enums are M00-frozen.
-- `backend/app/services/`, `telemetry/gen.py` are legacy T-series: present, tested, but unwired until their modules land.
+- `backend/app/services/` hosts M05–M19 implementations (wired, tested,
+  merged); `telemetry/gen.py` wired into M16/M17. `contracts/` stays frozen
+  (above); services import from it, never redefine it.
 - `main.py` changes must stay additive (`/healthz` body is byte-frozen).
 
 ---
@@ -1066,8 +1068,9 @@ IMPLEMENTED + TESTED + ATTACKED + MEASURED + TRACEABLE + DEFENSIBLE.
 
 ## Appendix B — Unresolved / [UNVERIFIED] items (do not assume; verify before relying)
 
-1. Master operational checklist file named in the task brief is **absent from
-   this tree** — `docs/MODULE_REGISTRY.md` + spec §60–§61 govern instead.
+1. Master operational checklist (`docs/ProofOps_PS03_Master_Winning_Implementation_Trust_Submission_Checklist.md`)
+   is present but `[UNVERIFIED]` input (§0) — `docs/MODULE_REGISTRY.md` +
+   spec §60–§61 govern on conflict instead.
 2. Registry header tally (e.g. "87/183 with implementation · overall NOT
    COMPUTED") can go **stale relative to its own per-row table**. Per-row status
    + human verdict govern, not the header line.
@@ -1077,5 +1080,7 @@ IMPLEMENTED + TESTED + ATTACKED + MEASURED + TRACEABLE + DEFENSIBLE.
 4. Submission timing/page details in the rules research doc reflect the public
    listing as of Sep 2026 — **the live HiDevs Quest Engine page is the
    operational source of truth** at submission time.
-5. No evaluation, benchmark, adversarial, latency, token, or cost numbers exist
-   yet — every such number is a `[PROVISIONAL]` target until measured runs land in JSONL.
+5. No committed pipeline-system JSONL runs exist yet — harness-smoke and
+   mock-system numbers (M16/M18 tests, Temp artifacts) are machinery proof,
+   not product benchmarks. Every gate number stays a `[PROVISIONAL]` target
+   until pipeline-system runs land in JSONL.

@@ -41,27 +41,29 @@ never presented as official organizer rules.
 
 Registry count (verified against `docs/MODULE_REGISTRY.md` per-row table):
 
-- **10 APPROVED** (human verdict, locked): M00.1, M00.3–M00.7, M01.1–M01.4
-- **1 IMPLEMENTED awaiting verdict**: M00.2
-- **76 IMPLEMENTED_TESTED** (build-first, hardening pending): M01.5 → M10 (complete)
-- **96 NOT_STARTED**: M11 → M22 (complete)
-- Total with implementation: **87/183**
+- **60 APPROVED** (human verdict, locked): M00.1–M00.7, M01.1–M01.15,
+  M02.1–M02.10, M03.1–M03.6, M04.1–M04.6, M05.1–M05.6, M06.1–M06.10
+- **100 IMPLEMENTED_TESTED** (build-first, hardening pending):
+  M07 → M19.10 (complete: HITL through frontend)
+- **23 NOT_STARTED**: M20 → M22 (performance, integration, demo)
+- Total with implementation: **160/183**
 
 Wave map (see §3 for wave definitions):
 
 | Wave | Phases | State today |
 |------|--------|-------------|
-| 1 — Foundation + Contracts | M00 → M01 | DONE except M00.2 verdict pending |
-| 2 — Data / Evidence pipeline | M02 → M03 → M04 → M05 | IMPLEMENTED_TESTED |
-| 3 — Governance / Safety | M06 → M07 → M08 → M09 → M10 → M11 | M06–M10 IMPLEMENTED_TESTED · **M11 is the live frontier** |
-| 4 — Intelligence / Retrieval | M12 → M13 → M14 | NOT STARTED |
-| 5 — Audit / Evaluation | M15 → M16 → M17 → M18 | NOT STARTED |
-| 6 — Product surface / Optimization | M19 → M20 | NOT STARTED |
+| 1 — Foundation + Contracts | M00 → M01 | DONE (approvals through M01.15) |
+| 2 — Data / Evidence pipeline | M02 → M03 → M04 → M05 | DONE (approvals through M05.6) |
+| 3 — Governance / Safety | M06 → M07 → M08 → M09 → M10 → M11 | DONE (approvals through M06.10; M07–M11 IMPLEMENTED_TESTED) |
+| 4 — Intelligence / Retrieval | M12 → M13 → M14 | DONE (IMPLEMENTED_TESTED) |
+| 5 — Audit / Evaluation | M15 → M16 → M17 → M18 | DONE (IMPLEMENTED_TESTED) |
+| 6 — Product surface / Optimization | M19 → M20 | M19 DONE (IMPLEMENTED_TESTED) · **M20 is the live frontier** |
 | 7 — End-to-end integration / Demo | M21 → M22 | NOT STARTED |
 
-**Next controlled operation:** M11 Runbooks (6 units) → closes Wave 3 →
-unlocks Wave 4. Do not start Wave 4 retrieval/agent work before M11 loader +
-hash/pin exists, since agents pin runbooks they cannot yet load.
+**Next controlled operation:** M20 Performance (7 units: token/latency/cost
+measurement + budgets + allowed optimizations) → closes Wave 6 → unlocks
+Wave 7. Never optimize by weakening safety/verification/evidence/policy/
+adversarial coverage (spec §49).
 
 ---
 
@@ -85,7 +87,7 @@ Normal Phase A target status: `IMPLEMENTED_TESTED` or
 breadth (`IMPLEMENTED_TESTED`) across the whole wave before any module in it is
 hardened.
 
-### Wave 3 tail — Governance close-out `[IN PROGRESS]`
+### Wave 3 tail — Governance close-out `[LANDED]`
 
 - **M11 Runbooks (6 units).** Versioned/semver + sha256-pinned + parameterized
   loader; seed 5: `bad-deploy-rollback`, `crashloop-oom`, `db-pool-saturation`,
@@ -94,7 +96,7 @@ hardened.
   poison test red→BLOCK; registry rows flipped one per module.
 - Unlocks: Wave 4 (agents pin runbooks; retrieval indexes them).
 
-### Wave 4 — Intelligence / Retrieval `[NOT STARTED]`
+### Wave 4 — Intelligence / Retrieval `[LANDED]`
 
 - **M12 Retrieval (7).** Classic KB + metadata/temporal filter + rerank +
   Evidence Pack (≤6k tokens `[PROVISIONAL]`); NO pgvector (frozen decision);
@@ -111,7 +113,7 @@ hardened.
   NEW→…→AUDITED on mock path; invalid transitions rejected + audited.
 - Unlocks: Wave 5 (audit has transitions to chain; eval has traces to grade).
 
-### Wave 5 — Audit / Evaluation `[NOT STARTED]`
+### Wave 5 — Audit / Evaluation `[LANDED]`
 
 - **M15 Audit/AIMS (6).** Append-only SHA256 chain + verify endpoint + export +
   tamper test; AIMS = Lyzr trace/observability only where actually supported —
@@ -130,7 +132,7 @@ hardened.
   measurable for §C2.
 - Unlocks: Wave 6 (frontend has scorecard/audit APIs to render).
 
-### Wave 6 — Product surface / Optimization `[NOT STARTED]`
+### Wave 6 — Product surface / Optimization `[IN PROGRESS: M19 landed, M20 live frontier]`
 
 - **M19 Frontend (10).** Exactly 5 MVP views (Command Center · Incident Detail ·
   Safety Gate · Execution/Verification · RCA/Evaluation); every number traces to
