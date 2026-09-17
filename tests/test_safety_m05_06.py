@@ -140,8 +140,11 @@ class TestCoverage:
                   Claim(text="d", evidence_ids=[], claim_class="OPTIONAL")]
         assert must_cite_coverage(claims, set()) == 1.0  # vacuous open
 
-    def test_empty_claims_open(self):  # UNIT
-        assert must_cite_coverage([], set()) == 1.0
+    def test_empty_claims_deny(self):  # SECURITY (M05.6 gate)
+        # P1 closure (was: vacuous-open 1.0): an RCA with NO claims at all
+        # carries no evidence and must never pass the publish gate. Non-empty
+        # claim lists with zero MUST-CITE claims still score 1.0 (above).
+        assert must_cite_coverage([], set()) == 0.0
 
 
 # ------------------------------------------------------- M06.2 taxonomy

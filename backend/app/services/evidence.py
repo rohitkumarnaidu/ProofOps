@@ -8,7 +8,9 @@ claim coverage for the RCA publish gate.
 
 NO EVIDENCE -> NO CLAIM -> NO ACTION: the coverage gate primitive
 (:func:`must_cite_coverage`) measures; the publisher (future A4/publish_rca)
-enforces coverage == 1.0. This module never publishes.
+enforces coverage == 1.0. This module never publishes. An EMPTY claim list
+scores 0.0 (an evidence-free RCA must never pass); a non-empty list with no
+MUST-CITE claims scores 1.0 (advisory-only RCAs may publish).
 """
 from __future__ import annotations
 
@@ -107,15 +109,97 @@ def pack_size_tokens_estimate(pack: Mapping[str, Any]) -> int:
 
 
 def must_cite_coverage(claims: list[Claim],
-                       valid_evidence_ids: set[str] | frozenset[str]) -> float:
+                        valid_evidence_ids: set[str] | frozenset[str],
+                        evidence_by_id: Mapping[str, Evidence] | None = None
+                        ) -> float:
     """MUST-CITE coverage (M05.6): fraction of must-cite claims with >=1
-    valid evidence link. 1.0 (or no must-cite claims) opens the publish
-    gate; anything less DENIES publication. SHOULD-CITE/OPTIONAL claims
-    are reported but never gate.
+    GROUNDED evidence link. 0.0 for an empty claim list (deny); 1.0 when no
+    must-cite claims exist in a non-empty list (advisory-only may publish).
+
+    Two depths (backward compatible): with ``evidence_by_id`` omitted, a
+    cited id counts when it is a member of ``valid_evidence_ids`` (legacy
+    membership path kept for the A4 draft flow, which pre-validates its set).
+    With the mapping provided (the publish-gate path), a cited id counts
+    only when it resolves to evidence that is fresh (not stale), trusted
+    (MED or HIGH — LOW never grounds), and sealed (non-empty custody hash).
+    Per-evidence failures deny that citation (fail closed); malformed
+    containers raise (fail loud, never silent).
     """
-    must = [c for c in claims if c.claim_class is ClaimClass.MUST_CITE]
+    if not isinstance(claims, (list, tuple)):
+        raise ValueError(
+            f"claims must be a list, got {type(claims).__name__}")
+    if not isinstance(valid_evidence_ids, (set, frozenset)):
+        raise ValueError("valid_evidence_ids must be a set of ids")
+    if evidence_by_id is not None and not isinstance(evidence_by_id, Mapping):
+        raise ValueError("evidence_by_id must be a mapping or None")
+    claims = list(claims)
+    if not claims:
+        return 0.0
+    must = [c for c in claims if c.claim_class == ClaimClass.MUST_CITE]
     if not must:
         return 1.0
-    covered = sum(1 for c in must
-                  if any(e in valid_evidence_ids for e in c.evidence_ids))
+    covered = sum(1 for c in must if _safe_grounded(
+        c, valid_evidence_ids, evidence_by_id))
     return covered / len(must)
+
+
+def _safe_grounded(claim: Claim, valid_evidence_ids: set[str] | frozenset[str],
+                   evidence_by_id: Mapping[str, Evidence] | None) -> bool:
+    """Gate direction: a claim that cannot even be READ denies (never passes
+    on confusion)."""
+    try:
+        return _claim_grounded(claim, valid_evidence_ids, evidence_by_id)
+    except Exception:
+        return False
+
+
+def _claim_grounded(claim: Claim, valid_evidence_ids: set[str] | frozenset[str],
+                    evidence_by_id: Mapping[str, Evidence] | None) -> bool:
+    """One claim counts iff >=1 cited id is a valid, grounded link."""
+    for cited in claim.evidence_ids:
+        if cited not in valid_evidence_ids:
+            continue
+        if evidence_by_id is None:
+            return True
+        try:
+            ev = evidence_by_id.get(cited)
+            if ev is None:
+                continue
+            if is_stale(ev):
+                continue
+            if ev.trust == TrustLevel.LOW:
+                continue
+            if not ev.hash:
+                continue
+        except Exception:
+            continue  # malformed evidence denies the citation, never passes
+        return True
+    return False
+
+
+def verify_evidence_pack(pack: Any) -> bool:
+    """Pack verifier (M05.5): shape + budget gate for a built Evidence Pack.
+
+    Activates the PACK_MAX_ITEMS / PACK_MAX_REF_LEN constants (previously
+    declared, never enforced): every item must validate as canonical
+    Evidence, refs fit their cap, item count fits, and the token estimate
+    fits 6000. Total function: malformed input returns False, never raises.
+    """
+    try:
+        if not isinstance(pack, Mapping):
+            return False
+        items = pack.get("evidence", [])
+        if isinstance(items, (str, bytes)) or not isinstance(items, (list, tuple)):
+            return False
+        items = list(items)
+        if len(items) > PACK_MAX_ITEMS:
+            return False
+        for item in items:
+            if not isinstance(item, Mapping):
+                return False
+            ev = Evidence.model_validate(dict(item))
+            if len(ev.ref) > PACK_MAX_REF_LEN:
+                return False
+        return pack_size_tokens_estimate(pack) <= 6000
+    except Exception:
+        return False
