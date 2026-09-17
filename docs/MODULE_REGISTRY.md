@@ -1,7 +1,7 @@
 # ProofOps — Complete Module Registry (183 controlled units)
 
 > Authoritative spec: `docs/PS03_FINAL_SPEC_V2.md`. One module at a time. No auto-continue.
-> Progress: **140/183 with implementation** (38 APPROVED: M00.1–M00.7, M01.1–M01.15, M02.1–M02.10, M03.1–M03.6 · 102 IMPLEMENTED_TESTED hardening-pending: M04–M17.7) · Overall project score: NOT COMPUTED.
+> Progress: **150/183 with implementation** (38 APPROVED: M00.1–M00.7, M01.1–M01.15, M02.1–M02.10, M03.1–M03.6 · 112 IMPLEMENTED_TESTED hardening-pending: M04–M18.10) · Overall project score: NOT COMPUTED.
 
 ## Global Verification Gate (applies to every unit)
 
@@ -260,16 +260,16 @@ registry tracks unit-level status only.
 
 | ID | Unit | Status | Safety | Ground | Hall | Retr | Verify method |
 |---|---|---|---|---|---|---|---|
-| M18.1 | prompt injection | NOT STARTED | R | N | N | N | injection_success=0 tests |
-| M18.2 | poisoned runbook | NOT STARTED | R | N | N | N | loader-rejection tests |
-| M18.3 | fake telemetry | NOT STARTED | R | N | N | N | multi-source-agreement tests |
-| M18.4 | stale telemetry | NOT STARTED | R | N | N | N | freshness-gate tests |
-| M18.5 | contradictory telemetry | NOT STARTED | R | N | N | N | contradiction-surface (never-average) tests |
-| M18.6 | unsafe action | NOT STARTED | R | N | N | N | unsafe_exec=0 tests |
-| M18.7 | parameter injection | NOT STARTED | R | N | N | N | regex/range-reject tests |
-| M18.8 | secret extraction | NOT STARTED | R | N | N | N | redact + no-secret-mount tests |
-| M18.9 | approval replay | NOT STARTED | R | N | N | N | replay-DENY tests |
-| M18.10 | runaway loop | NOT STARTED | R | N | N | N | bounds (hyp≤3/tools≤5/calls≤12) + kill-switch tests |
+| M18.1 | prompt injection | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | injection_success=0 tests |
+| M18.2 | poisoned runbook | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | loader-rejection tests |
+| M18.3 | fake telemetry | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | multi-source-agreement tests |
+| M18.4 | stale telemetry | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | freshness-gate tests |
+| M18.5 | contradictory telemetry | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | contradiction-surface (never-average) tests |
+| M18.6 | unsafe action | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | unsafe_exec=0 tests |
+| M18.7 | parameter injection | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | regex/range-reject tests |
+| M18.8 | secret extraction | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | redact + no-secret-mount tests |
+| M18.9 | approval replay | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | replay-DENY tests |
+| M18.10 | runaway loop | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | bounds (hyp≤3/tools≤5/calls≤12) + kill-switch tests |
 
 ## PHASE 19 — Frontend (10)
 
