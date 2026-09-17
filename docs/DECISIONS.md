@@ -382,6 +382,39 @@ SAME file in one parallel block (results misreport; caught twice by
 diff-verify), and never hand-write oldString from memory (phantom anchors
 fail — read first). Diff-verify every edit before committing.
 
+## ADR-020 — M05 evidence grounding (this pass)
+
+Context: M05 scored 44.3 (thinnest after M02) with three P1s, all reproduced
+before fixing. No cross-lane file touched; A4's `_coverage` call site keeps
+working unchanged (2-arg legacy path preserved).
+Decision:
+- P1 #8 (trust inflation): pack evidence trust is COMPUTED via
+  `trust_for(fresh, corroborated)` — multi-pod signatures HIGH, everything
+  else MED-when-fresh. Corroboration = same signature on >=2 distinct pods
+  (deterministic from bundle data).
+- Freshness anchored at DETECTION (first alert ts), not bundle end: the old
+  end-anchor would have marked the prime-suspect deploy LOW (16m stale on
+  an 11m bundle). Test pins deploy freshness == 300.0 exactly. Untimed
+  input falls back to arrival-time 0.0 (M03 observation doctrine).
+- Packs are deterministic (content-derived ids, bundle-derived ts) so eval
+  reruns and caches (M20) see identical bytes; ts-less attack probes keep
+  stable hashes/ids with arrival ts.
+- P1 #9/#10 (coverage gate): `must_cite_coverage` gains an optional
+  evidence map — strict path denies stale/LOW/unsealed/missing citations;
+  empty claim list scores 0.0 (was: vacuous-open 1.0, pinned by a test that
+  named the hole — updated with this justification); advisory-only lists
+  still 1.0. Malformed containers raise; unreadable claims deny (never pass
+  on confusion); `==` (not `is`) on classes so foreign strings can't dodge
+  into advisory.
+- Pack verifier `verify_evidence_pack` activates the dead PACK_MAX_*
+  constants (shape + 32 items + 512-char refs + 6k tokens; total function).
+- Retrieval already shed-to-fit downstream — unchanged; predigest stays
+  within budget by construction, now PROVEN across all 12 NOISY scenarios.
+Boundaries: metric aggregate freshness 0.0 is a stated convention (aggregate
+currency = detection); `from_v`/`to_v` content unvalidated (visible tags);
+row-level (non-container) malformed lines skip-but-count (availability over
+purity; M03 rejects at ingest).
+
 ## PLANNED ADR slots (not taken in M00.6)
 
 - FSM-primary over SuperFlow mirror (owning module: orchestration phase).
