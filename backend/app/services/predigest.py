@@ -93,12 +93,18 @@ def build_evidence_pack(incident_id: str, tele: dict) -> dict[str, Any]:
     sig_count = Counter(lg.get("msg", "").split("trace=")[0].strip()[:80]
                         for lg in errs
                         if isinstance(lg.get("msg", ""), str))
-    err_vals = [float(m["value"]) for m in metrics
-                if isinstance(m, Mapping) and m.get("name") == "error_rate"
-                and isinstance(m.get("value"), (int, float))
-                and not isinstance(m.get("value"), bool)
-                and m.get("value") == m.get("value")
-                and abs(m.get("value")) != float("inf")]
+    err_vals: list[float] = []
+    for m in metrics:
+        if not isinstance(m, Mapping):
+            continue
+        if m.get("name") != "error_rate":
+            continue
+        value = m.get("value")
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            continue
+        if value != value or abs(value) == float("inf"):
+            continue
+        err_vals.append(float(value))
     delta = round(max(err_vals) - min(err_vals), 4) if len(err_vals) > 1 else 0.0
 
     # Detection anchor: the earliest alert ts (the moment the incident was
@@ -107,15 +113,16 @@ def build_evidence_pack(incident_id: str, tele: dict) -> dict[str, Any]:
     # punished the prime suspect: a deploy 5m before alerts reads 16m stale
     # once the metric series runs 11m past detection.) No alert ts anywhere
     # -> fall back to the latest observation ts -> arrival time (0.0).
-    alert_epochs = [_as_epoch(a.get("ts")) for a in tele.get("alerts", [])
-                    if isinstance(a, Mapping)]
-    alert_epochs = [e for e in alert_epochs if e is not None]
-    ends = [_as_epoch(lg.get("ts")) for lg in errs]
-    ends += [_as_epoch(m.get("ts")) for m in metrics
-             if isinstance(m, Mapping)]
-    ends += [_as_epoch(d.get("ts")) for d in deploys
-             if isinstance(d, Mapping)]
-    ends = [e for e in ends if e is not None]
+    alert_epochs: list[float] = [
+        e for e in (_as_epoch(a.get("ts")) for a in tele.get("alerts", [])
+                    if isinstance(a, Mapping)) if e is not None]
+    ends: list[float] = [
+        e for e in ([_as_epoch(lg.get("ts")) for lg in errs]
+                    + [_as_epoch(m.get("ts")) for m in metrics
+                       if isinstance(m, Mapping)]
+                    + [_as_epoch(d.get("ts")) for d in deploys
+                       if isinstance(d, Mapping)])
+        if e is not None]
     detection = min(alert_epochs) if alert_epochs else None
     if detection is None:
         detection = max(ends) if ends else None
