@@ -1,7 +1,7 @@
 # ProofOps — Complete Module Registry (183 controlled units)
 
 > Authoritative spec: `docs/PS03_FINAL_SPEC_V2.md`. One module at a time. No auto-continue.
-> Progress: **150/183 with implementation** (38 APPROVED: M00.1–M00.7, M01.1–M01.15, M02.1–M02.10, M03.1–M03.6 · 112 IMPLEMENTED_TESTED hardening-pending: M04–M18.10) · Overall project score: NOT COMPUTED.
+> Progress: **150/183 with implementation** (44 APPROVED: M00.1–M00.7, M01.1–M01.15, M02.1–M02.10, M03.1–M03.6, M04.1–M04.6 · 106 IMPLEMENTED_TESTED hardening-pending: M05–M18.10) · Overall project score: NOT COMPUTED.
 
 ## Global Verification Gate (applies to every unit)
 
@@ -88,12 +88,12 @@ registry tracks unit-level status only.
 
 | ID | Unit | Status | Safety | Ground | Hall | Retr | Verify method |
 |---|---|---|---|---|---|---|---|
-| M04.1 | fingerprinting | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | sha256(service\|sig\|env\|window) tests |
-| M04.2 | grouping | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | 30-fixture group tests |
-| M04.3 | deduplication | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | ≤5s + duplicate-suppress tests |
-| M04.4 | severity | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | P1–P4 rule tests |
-| M04.5 | dependency correlation | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | edge+10m+sim>0.7 tests |
-| M04.6 | edge cases | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | split/merge adversarial-fixture tests |
+| M04.1 | fingerprinting | HUMAN_APPROVED (91/100, re-audit 2026-09-16: window encoding pinned) | S | N | N | N | sha256(service\|sig\|env\|window) tests |
+| M04.2 | grouping | HUMAN_APPROVED (92/100, re-audit 2026-09-16: pairwise + storm + e2e matrix) | S | N | N | N | 30-fixture group + storm tests |
+| M04.3 | deduplication | HUMAN_APPROVED (92/100, re-audit 2026-09-16: attributed counts) | S | N | N | N | ≤5s + duplicate-suppress tests |
+| M04.4 | severity | HUMAN_APPROVED (92/100, re-audit 2026-09-16: per-service gate + table) | S | N | N | N | P1–P4 rule tests |
+| M04.5 | dependency correlation | HUMAN_APPROVED (91/100, re-audit 2026-09-16: pairwise edges) | S | N | N | N | edge+10m+sim>0.7 tests |
+| M04.6 | edge cases | HUMAN_APPROVED (91/100, re-audit 2026-09-16: storm/FP/matrix/perf) | S | N | N | N | split/merge adversarial-fixture tests |
 
 ## PHASE 05 — Evidence (6)
 
