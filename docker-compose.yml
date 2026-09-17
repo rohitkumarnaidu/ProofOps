@@ -66,11 +66,11 @@ services:
         max-size: "10m"
         max-file: "3"
     ports:
-      - "5173:80"
+      - "5173:8080"
     # Explicit compose-level healthcheck mirroring frontend/Dockerfile
     # (same wget / probe) for the same reason as api above.
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost/ || exit 1"]
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:8080/ || exit 1"]
       interval: 15s
       timeout: 3s
       retries: 3

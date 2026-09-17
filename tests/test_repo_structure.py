@@ -170,7 +170,8 @@ class TestDockerCompose:
             return [str(p).split("#")[0].strip()
                     for p in services[svc].get("ports", [])]
         assert "8000:8000" in published("api"), f"api ports={published('api')}"
-        assert "5173:80" in published("ui"), f"ui ports={published('ui')}"
+        # M19b: ui serves unprivileged 8080 (nginx USER per frontend/Dockerfile).
+        assert "5173:8080" in published("ui"), f"ui ports={published('ui')}"
         api = services["api"]
         assert api.get("env_file") == ".env" or "DATABASE_URL" in str(api.get("environment", ""))
         # ui must wait for a HEALTHY api, not merely a started one.

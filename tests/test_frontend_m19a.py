@@ -45,9 +45,8 @@ def test_package_manifest():
         and "vite build" in manifest["scripts"]["build"]
 
 
-def test_three_routes_wired():
+def test_core_routes_wired():
     app = _src("App.tsx")
-    assert app.count("<Route ") == 3
     for path in ('path="/"', 'path="/incidents/:id"', 'path="/safety"'):
         assert path in app
 

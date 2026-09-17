@@ -1,11 +1,12 @@
 import { HashRouter, Link, Route, Routes } from "react-router-dom";
 import { CommandCenter } from "./views/CommandCenter";
+import { ExecutionView } from "./views/ExecutionView";
 import { IncidentDetail } from "./views/IncidentDetail";
+import { RCAView } from "./views/RCAView";
 import { SafetyGate } from "./views/SafetyGate";
 
-/** ProofOps UI shell (M19a): 3 of 5 routes live; Execution + RCA views
-    land in commit B. No route renders without backend data or an honest
-    empty state. */
+/** ProofOps UI shell (M19b): all 5 MVP routes live. Every route renders
+    backend data or an honest empty/error state — no route fakes content. */
 export function App() {
   return (
     <HashRouter>
@@ -19,11 +20,16 @@ export function App() {
         <Link to="/safety" className="hover:underline">
           Safety Gate
         </Link>
+        <Link to="/rca/inc-1" className="hover:underline">
+          RCA
+        </Link>
       </nav>
       <Routes>
         <Route path="/" element={<CommandCenter />} />
         <Route path="/incidents/:id" element={<IncidentDetail />} />
         <Route path="/safety" element={<SafetyGate />} />
+        <Route path="/execution/:id" element={<ExecutionView />} />
+        <Route path="/rca/:id" element={<RCAView />} />
       </Routes>
     </HashRouter>
   );

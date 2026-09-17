@@ -58,22 +58,36 @@ export function IncidentDetail() {
               No transitions yet — advance this run from the API.
             </p>
           ) : (
-            <ol data-testid="timeline" className="text-sm">
-              {run.history.map((h) => (
-                <li key={h.seq} className="border-t border-gray-800 py-1">
-                  <span className="text-gray-500">#{h.seq}</span> {h.frm} →{" "}
-                  {h.to}
-                  {h.reason !== "" && (
-                    <span className="text-gray-400"> — {h.reason}</span>
-                  )}
-                  {h.forced && (
-                    <span className="ml-2 rounded bg-red-900 px-1 text-xs">
-                      forced
-                    </span>
-                  )}
-                </li>
-              ))}
-            </ol>
+          <ol data-testid="timeline" className="text-sm">
+            {run.history.map((h) => (
+              <li key={h.seq} className="border-t border-gray-800 py-1">
+                <span className="text-gray-500">#{h.seq}</span> {h.frm} →{" "}
+                {h.to}
+                {h.reason !== "" && (
+                  <span className="text-gray-400"> — {h.reason}</span>
+                )}
+                {h.forced && (
+                  <span className="ml-2 rounded bg-red-900 px-1 text-xs">
+                    forced
+                  </span>
+                )}
+                {h.refs.length > 0 && (
+                  <span className="ml-2">
+                    {h.refs.map((ref) => (
+                      <span
+                        key={ref}
+                        data-testid="evidence-chip"
+                        title={ref}
+                        className="mr-1 rounded bg-gray-800 px-1 text-xs text-sky-300"
+                      >
+                        {ref.length > 24 ? `${ref.slice(0, 24)}…` : ref}
+                      </span>
+                    ))}
+                  </span>
+                )}
+              </li>
+            ))}
+          </ol>
           )}
         </>
       )}

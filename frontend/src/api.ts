@@ -164,3 +164,28 @@ export const auditApi = {
       events: Array<Record<string, unknown>>;
     }>(`/incidents/${incident_id}/audit`),
 };
+
+export interface SmokeResult {
+  system: string;
+  note: string;
+  cases: number;
+  baseline: { n: number; pass_rate: number };
+  optimized: { n: number; pass_rate: number };
+  delta: Record<string, number | string | [number, number]>;
+  rubric: {
+    lyzr_30: Record<string, number>;
+    safety_30: Record<string, number>;
+    code_20: Record<string, number | string[]>;
+    ux_20: Record<string, number | string[]>;
+    total_100: number;
+    n: number;
+  };
+}
+
+export const evalApi = {
+  smoke: () =>
+    request<SmokeResult>("/eval/smoke", {
+      method: "POST",
+      body: JSON.stringify({ confirm: true }),
+    }),
+};

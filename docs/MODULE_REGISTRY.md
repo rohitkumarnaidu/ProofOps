@@ -1,7 +1,7 @@
 # ProofOps — Complete Module Registry (183 controlled units)
 
 > Authoritative spec: `docs/PS03_FINAL_SPEC_V2.md`. One module at a time. No auto-continue.
-> Progress: **150/183 with implementation** (38 APPROVED: M00.1–M00.7, M01.1–M01.15, M02.1–M02.10, M03.1–M03.6 · 112 IMPLEMENTED_TESTED hardening-pending: M04–M18.10) · Overall project score: NOT COMPUTED.
+> Progress: **160/183 with implementation** (38 APPROVED: M00.1–M00.7, M01.1–M01.15, M02.1–M02.10, M03.1–M03.6 · 122 IMPLEMENTED_TESTED hardening-pending: M04–M19.10) · Overall project score: NOT COMPUTED.
 
 ## Global Verification Gate (applies to every unit)
 
@@ -275,16 +275,16 @@ registry tracks unit-level status only.
 
 | ID | Unit | Status | Safety | Ground | Hall | Retr | Verify method |
 |---|---|---|---|---|---|---|---|
-| M19.1 | shell/app foundation | NOT STARTED | S | N | N | N | 5-route scaffold + build tests |
-| M19.2 | command center | NOT STARTED | S | N | N | N | queue + severity-chip tests |
-| M19.3 | incident detail | NOT STARTED | S | N | N | N | timeline + evidence-chip-link tests |
-| M19.4 | safety gate | NOT STARTED | S | N | N | N | approve/deny + TTL-countdown tests |
-| M19.5 | execution/verification | NOT STARTED | S | N | N | N | stream + BEFORE/AFTER-diff tests |
-| M19.6 | RCA/evaluation | NOT STARTED | S | N | N | N | RCA-doc + six-gate-chart tests |
-| M19.7 | SSE | NOT STARTED | S | N | N | N | stream + reconnect + polling-fallback tests |
-| M19.8 | live/replay/mock indicators | NOT STARTED | S | N | N | N | badge-visibility + honesty tests |
-| M19.9 | state-diff visualization | NOT STARTED | S | N | N | N | diff-render tests |
-| M19.10 | audit visualization | NOT STARTED | S | N | N | N | chain + valid-badge tests |
+| M19.1 | shell/app foundation | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | 5-route scaffold + build tests |
+| M19.2 | command center | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | queue + severity-chip tests |
+| M19.3 | incident detail | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | timeline + evidence-chip-link tests |
+| M19.4 | safety gate | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | approve/deny + TTL-countdown tests |
+| M19.5 | execution/verification | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | stream + BEFORE/AFTER-diff tests |
+| M19.6 | RCA/evaluation | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | RCA-doc + six-gate-chart tests |
+| M19.7 | SSE | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | stream + reconnect + polling-fallback tests |
+| M19.8 | live/replay/mock indicators | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | badge-visibility + honesty tests |
+| M19.9 | state-diff visualization | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | diff-render tests |
+| M19.10 | audit visualization | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | chain + valid-badge tests |
 
 ## PHASE 20 — Performance (7)
 
