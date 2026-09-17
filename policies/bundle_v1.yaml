@@ -1,6 +1,13 @@
 # ProofOps policy bundle v1. Evaluation order: DENY rules -> ESCALATE -> ALLOW.
 # Default: DENY. Any engine exception: DENY (fail-closed).
+# sha256 seals this file (canonical_json minus this key); the loader refuses
+# unsealed/tampered bundles. Re-seal after ANY edit:
+#   python -c "import sys; sys.path.insert(0,'backend'); import yaml;
+#   from app.contracts.values import canonical_json, sha256_hex;
+#   d=yaml.safe_load(open('policies/bundle_v1.yaml')); d.pop('sha256',None);
+#   print(sha256_hex(canonical_json(d)))"
 policy_version: v1
+sha256: 4fee9cc31c892feacbbf5bc2796012fda239ee6e130d64ca9e197e877478dbbf
 effective_from: "2026-09-12"
 deny_rules:
   - id: DENY-shell
