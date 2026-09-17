@@ -110,6 +110,13 @@ def get_run(incident_id: str) -> IncidentRun:
         raise RepoMissing(f"unknown incident: {incident_id}") from exc
 
 
+def list_runs() -> list[dict[str, Any]]:
+    """Queue summaries for the Command Center (M19a queue)."""
+    return [{"incident_id": run.incident_id, "state": run.state,
+             "history_len": len(run.history)}
+            for run in REPO_STORE.values()]
+
+
 def run_view(run: IncidentRun) -> dict[str, Any]:
     return {
         "incident_id": run.incident_id,
@@ -276,6 +283,10 @@ def http_get(incident_id: str) -> dict[str, Any]:
     return _guarded(lambda: run_view(get_run(incident_id)))
 
 
+def http_list() -> list[dict[str, Any]]:
+    return _guarded(list_runs)
+
+
 def http_advance(incident_id: str, body: AdvanceBody) -> dict[str, Any]:
     return _guarded(advance_run, incident_id, body.to, reason=body.reason,
                     refs=body.refs, permit=body.permit,
@@ -290,6 +301,7 @@ def http_sweep(incident_id: str, body: SweepBody) -> dict[str, Any]:
 
 if router is not None:  # container path; host asserts wiring via AST
     router.post("", status_code=201)(http_create)
+    router.get("")(http_list)
     router.get("/{incident_id}")(http_get)
     router.post("/{incident_id}/advance")(http_advance)
     router.post("/{incident_id}/sweep")(http_sweep)
