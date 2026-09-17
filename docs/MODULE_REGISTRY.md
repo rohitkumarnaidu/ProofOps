@@ -1,7 +1,7 @@
 # ProofOps — Complete Module Registry (183 controlled units)
 
 > Authoritative spec: `docs/PS03_FINAL_SPEC_V2.md`. One module at a time. No auto-continue.
-> Progress: **160/183 with implementation** (44 APPROVED: M00.1–M00.7, M01.1–M01.15, M02.1–M02.10, M03.1–M03.6, M04.1–M04.6 · 116 IMPLEMENTED_TESTED hardening-pending: M05–M19.10) · Overall project score: NOT COMPUTED.
+> Progress: **160/183 with implementation** (50 APPROVED: M00.1–M00.7, M01.1–M01.15, M02.1–M02.10, M03.1–M03.6, M04.1–M04.6, M05.1–M05.6 · 110 IMPLEMENTED_TESTED hardening-pending: M06–M19.10) · Overall project score: NOT COMPUTED.
 
 ## Global Verification Gate (applies to every unit)
 
@@ -99,12 +99,12 @@ registry tracks unit-level status only.
 
 | ID | Unit | Status | Safety | Ground | Hall | Retr | Verify method |
 |---|---|---|---|---|---|---|---|
-| M05.1 | evidence object | IMPLEMENTED_TESTED (build-first; hardening pending) | S | R | N | N | field + ref tests |
-| M05.2 | evidence hashing | IMPLEMENTED_TESTED (build-first; hardening pending) | S | R | N | N | hash-validity tests |
-| M05.3 | evidence freshness | IMPLEMENTED_TESTED (build-first; hardening pending) | S | R | N | N | staleness>15m-escalate tests |
-| M05.4 | trust level | IMPLEMENTED_TESTED (build-first; hardening pending) | S | R | N | N | high/med/low + agreement tests |
-| M05.5 | evidence pack | IMPLEMENTED_TESTED (build-first; hardening pending) | S | R | N | N | ≤6k-token + predigest tests |
-| M05.6 | claim-to-evidence mapping | IMPLEMENTED_TESTED (build-first; hardening pending) | S | R | N | N | MUST-CITE coverage=1.0 gate tests |
+| M05.1 | evidence object | HUMAN_APPROVED (91/100, grounding 96, re-audit 2026-09-16) | S | R | N | N | field + ref + edge tests |
+| M05.2 | evidence hashing | HUMAN_APPROVED (91/100, grounding 96, re-audit 2026-09-16) | S | R | N | N | hash-validity + tamper tests |
+| M05.3 | evidence freshness | HUMAN_APPROVED (91/100, grounding 95, re-audit 2026-09-16) | S | R | N | N | staleness>15m + detection-anchor tests |
+| M05.4 | trust level | HUMAN_APPROVED (91/100, grounding 95, re-audit 2026-09-16) | S | R | N | N | high/med/low + computed-trust tests |
+| M05.5 | evidence pack | HUMAN_APPROVED (92/100, grounding 95, re-audit 2026-09-16) | S | R | N | N | ≤6k-token + determinism + verifier tests |
+| M05.6 | claim-to-evidence mapping | HUMAN_APPROVED (92/100, grounding 96, re-audit 2026-09-16) | S | R | N | N | MUST-CITE grounded-coverage gate tests |
 
 ## PHASE 06 — Policy / Safety (10)
 
