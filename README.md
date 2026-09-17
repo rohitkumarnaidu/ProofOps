@@ -37,15 +37,17 @@ truth). Host Python 3.13/3.14 is NOT supported for running the API (Starlette
 v1 ABI drift — see `backend/requirements.txt` header); host may run the
 offline structure tests only (`pytest tests/test_repo_structure.py`).
 
-Status: M00 foundation + M01 contracts + M02–M11 build-first pipeline are
-implemented and tested (see `docs/MODULE_REGISTRY.md` per-row truth; M12–M22
-are NOT STARTED). Lyzr agents, FSM, eval, and demo hardening land in their own
-modules — the table above describes the target architecture, not
-claimed-today implementation for the NOT STARTED phases.
+Status: M00 foundation + M01 contracts + M02–M04 data pipeline are
+HUMAN_APPROVED (see `docs/MODULE_REGISTRY.md` per-row truth for the full
+picture, currently through Wave 6). Lyzr agents (M13), orchestration (M14),
+evaluation (M16), benchmarks (M17), adversarial (M18), and frontend (M19)
+have landed as IMPLEMENTED_TESTED — the table above describes the target
+architecture; per-module maturity is in the registry, not claimed here.
 Configuration trust boundary (typed Settings, fail-closed validation,
 secret-safe snapshot): `docs/CONFIGURATION.md`.
 Architecture target + built-today map: `docs/ARCHITECTURE.md`.
-API surface (live `/healthz` + `/readyz`; rest PLANNED): `docs/API.md`.
+API surface (live `/healthz` + `/readyz` plus the M19 routers for approvals,
+audit, eval, and runs; full contract in `docs/API.md`).
 Testing layers (host-safe green + daemon-owned runtime): `docs/TESTING.md`.
 
 ## Architecture diagram (M00.6 foundation; ASCII, spec §62 target)

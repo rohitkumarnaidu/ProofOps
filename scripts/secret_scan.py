@@ -68,6 +68,11 @@ WORKFLOW_FORBIDDEN: list[tuple[str, re.Pattern[str]]] = [
 TEXT_SUFFIXES = {
     ".py", ".yml", ".yaml", ".toml", ".sh", ".md", ".txt", ".html",
     ".example", ".gitignore", ".dockerignore",
+    # Web assets (M19 frontend): secrets get pasted into .env.local,
+    # api.ts, and component files as easily as into Python. package-lock
+    # churn is hash noise, never credential-shaped — safe to scan.
+    ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".css", ".scss",
+    ".json", ".conf",
 }
 SKIP_DIRS = {".git", "__pycache__", ".venv", "venv", "node_modules",
              ".pytest_cache", ".ruff_cache", ".mypy_cache"}

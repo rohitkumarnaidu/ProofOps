@@ -64,6 +64,37 @@ class TestExtraFailClosed:
         with pytest.raises(ConfigurationError):
             make(monkeypatch, tmp_path, **{**BASE_ENV, "APPROVAL_TTL_SECONDS": "abc"})
 
+    def test_bool_ttl_and_seed_rejected(self, monkeypatch, tmp_path):  # UNIT
+        # Native bools (not env strings): True->1 coercion would mean a
+        # 1-second approval window / seed 1. Always a caller bug: reject.
+        from app.config import ConfigurationError, load_settings
+        for k in KNOWN_KEYS:
+            monkeypatch.delenv(k, raising=False)
+        empty = tmp_path / ".env.empty"
+        empty.write_text("", encoding="utf-8")
+        from app.config import get_settings
+        get_settings.cache_clear()
+        try:
+            rest_ttl = {k: v for k, v in BASE_ENV.items()
+                        if k != "APPROVAL_TTL_SECONDS"}
+            with pytest.raises(ConfigurationError):
+                load_settings(_env_file=str(empty), **rest_ttl,
+                              APPROVAL_TTL_SECONDS=True)
+            rest_seed = {k: v for k, v in BASE_ENV.items()
+                         if k != "SEED_SEED"}
+            with pytest.raises(ConfigurationError):
+                load_settings(_env_file=str(empty), **rest_seed,
+                              SEED_SEED=False)
+        finally:
+            get_settings.cache_clear()
+
+    def test_string_numerals_still_coerce(self, monkeypatch, tmp_path):  # UNIT
+        # Env vars arrive as strings: "600"/"43" must keep working (the bool
+        # guard above must not break normal env-string parsing).
+        s = make(monkeypatch, tmp_path, **{
+            **BASE_ENV, "APPROVAL_TTL_SECONDS": "900", "SEED_SEED": "43"})
+        assert s.APPROVAL_TTL_SECONDS == 900 and s.SEED_SEED == 43
+
     def test_log_level_lowercase_fails_closed(self, monkeypatch, tmp_path):  # UNIT
         # Literal is uppercase-only; lowercase fails instead of silently mapping.
         from app.config import ConfigurationError

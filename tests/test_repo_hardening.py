@@ -40,6 +40,15 @@ class TestReadmeSpec44:
     def test_no_stale_foundation_only_claim(self):  # STATIC
         assert "M00.1 is foundation only" not in _readme()
 
+    def test_wave_status_current(self):  # STATIC
+        # Round-3 hunt: README claimed "M12-M22 are NOT STARTED" long after
+        # M12-M19 landed. Wave status must name approved reality + point at
+        # the registry, never a stale blanket claim.
+        body = _readme()
+        assert "are NOT STARTED" not in body  # stale blanket claim, see above
+        assert "HUMAN_APPROVED" in body
+        assert "approvals" in body and "audit" in body  # M19 routers exist
+
 
 class TestElevenDocsSet:
     def test_spec44_docs_exist(self):  # STATIC

@@ -137,6 +137,16 @@ class Settings(BaseSettings):
             raise ValueError("PROOFOPS_API_KEY is required; set it in .env")
         return v
 
+    @field_validator("APPROVAL_TTL_SECONDS", "SEED_SEED", mode="before")
+    @classmethod
+    def _no_bool_numbers(cls, v: Any, info: Any) -> Any:
+        # Pydantic coerces True->1 silently; a boolean TTL/seed is always a
+        # caller bug (TTL=True would mean a 1-second approval window).
+        if isinstance(v, bool):
+            raise ValueError(
+                f"{info.field_name} must be an integer, not a boolean")
+        return v
+
     @field_validator("APPROVAL_TTL_SECONDS")
     @classmethod
     def _ttl_positive(cls, v: int) -> int:
