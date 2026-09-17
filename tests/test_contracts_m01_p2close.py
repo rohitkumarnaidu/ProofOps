@@ -423,6 +423,48 @@ class TestFromLegacyFastPath:
                       ref="r", hash="h", freshness_s=1.0, relevance=0.5)
         assert Evidence.from_legacy(ev) is ev
 
+    def test_all_bridges_fast_path_identical(self):  # UNIT
+        # Campaign re-audit: all 16 fast-paths pinned (previously only 4).
+        # A removed fast-path would silently reintroduce coercion on the
+        # only real bridge input — this test makes that deletion fail.
+        from datetime import datetime, timezone
+        from app.contracts.alert import Alert
+        from app.contracts.approval import ApprovalToken
+        from app.contracts.hypothesis import Claim
+        now = datetime.now(timezone.utc)
+        cases = [
+            (Claim, Claim(text="t")),
+            (Runbook, Runbook(runbook_id="r", version="1.0.0", title="t")),
+            (Action, Action(
+                incident_id="i", agent_id="a", action_type="read",
+                resource_type="deployment", resource_id="w", reason="r",
+                runbook_id="rb", runbook_version="1.2.0",
+                expected_outcome="o")),
+            (PolicyDecision, PolicyDecision(
+                decision="ALLOW", rule_id="r", policy_version="v1",
+                effective_risk="GREEN")),
+            (ApprovalRequest, ApprovalRequest(
+                incident_id="i", action_id="a", actor="u", params_hash="h",
+                scope="s", expires_at=now, nonce="n0nce-abc123")),
+            (ApprovalToken, ApprovalToken(
+                token="t", approval_id="a", action_id="x", actor="u",
+                params_hash="h", expires_at=now)),
+            (Execution, Execution(
+                action_id="a", incident_id="i", idempotency_key="k")),
+            (VerificationResult, VerificationResult(
+                execution_id="e", verdict="RESOLVED")),
+            (Rollback, Rollback(execution_id="e",
+                                rollback_action={"a": 1})),
+            (BenchmarkResult, BenchmarkResult(
+                case_id="c", scenario="s", variant="v",
+                expected_cause="e")),
+            (EvaluationRun, EvaluationRun(suite="s", case_id="c")),
+            (Alert, Alert(source="p", service="w", severity="P1",
+                          message="m", fingerprint="f")),
+        ]
+        for cls, obj in cases:
+            assert cls.from_legacy(obj) is obj, cls.__name__
+
 
 class TestCrossFileActionSets:
     def test_shipped_runbooks_name_only_known_actions(self):  # INTEGRATION
