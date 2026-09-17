@@ -1,6 +1,13 @@
 # ProofOps risk matrix v1 (hackathon fail-closed).
 # LLM-proposed risk is ADVISORY; the policy engine recomputes from this table.
+# sha256 seals this file (canonical_json minus this key); the loader refuses
+# unsealed/tampered matrices. Re-seal after ANY edit:
+#   python -c "import sys; sys.path.insert(0,'backend'); import yaml;
+#   from app.contracts.values import canonical_json, sha256_hex;
+#   d=yaml.safe_load(open('policies/risk_matrix.yaml')); d.pop('sha256',None);
+#   print(sha256_hex(canonical_json(d)))"
 version: v1
+sha256: 7f6709b20a25bcf923b0f6ecd28c22ccc79f5f57a9a33e8dd6b350382b396730
 tiers:
   read:                {mock: GREEN, dev: GREEN, staging: GREEN, prod: GREEN}
   describe:            {mock: GREEN, dev: GREEN, staging: GREEN, prod: GREEN}

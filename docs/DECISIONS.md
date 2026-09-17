@@ -415,6 +415,46 @@ currency = detection); `from_v`/`to_v` content unvalidated (visible tags);
 row-level (non-container) malformed lines skip-but-count (availability over
 purity; M03 rejects at ingest).
 
+## ADR-021 — M06 safety-boundary hardening (this pass)
+
+Context: M06 scored 65.5 with two P1s, both reproduced before fixing; this
+is the deterministic authorization boundary, so the bar was proof, not
+plausibility.
+Decision:
+- P1 #1 (shell regex matched literal "n", missed real newlines): character
+  class rebuilt (`; & | backtick $ ( ) backslash < > CR LF TAB`) + tests
+  proving "nginx" passes and real newline/CR/TAB/redirection reject.
+- P1 #2 (top-level-only scan): iterative recursive scan with dotted paths
+  (`cfg.cmd`) over mappings/lists; scalars skipped. Scalars can't carry
+  shell/SQL; depth is contract-capped so iteration can't run away.
+- SQL shapes: DROP/DELETE FROM/TRUNCATE kept + UPDATE..SET + INSERT INTO;
+  bare UPDATE/INSERT words explicitly pass (over-blocking test-pinned).
+- `bundle or load_bundle()` falsy trap closed: explicit None (empty mapping
+  now fails validation instead of silently loading disk state).
+- `_rule_matches` unknown-key else-branch (unreachable via validated
+  pipeline, hardened anyway). Caught a REAL self-inflicted bug here: the
+  first elif rewrite broke every match (only 1 of 142 tests asserted a
+  rule_id) — fixed, and per-rule DENY attribution tests added for all 9
+  rules so it can never regress silently again.
+- Blast override extended to GREEN mutations in the reversible set
+  (mock/dev scale with absurd blast now ESCALATEs; reads unaffected;
+  unknown actors still DENY first — order fixed when the early return
+  threatened to skip identity).
+- Env context required (missing key used to dodge the mismatch check).
+- Bundle + matrix embedded sha256 seals, verified on load (canonical_json
+  minus the key; recompute command in each file header). validate_bundle
+  ignores the key (top-level extras tolerated, proven by effective_from).
+- Adjudicated NON-issues (documented, not fixed): TTL-on-DENY (DENY carries
+  no authority regardless of TTL); GREEN-reads blast (reads don't mutate);
+  severity/freshness/runbook-version not engine inputs (triage owns
+  severity, M05 gate owns freshness, validator+M11 own the pin — engine
+  contract pinned as-is); matrix version coupling (would false-couple
+  independent version lines).
+- Reversible parity test (validator set == matrix list) kills the drift P2.
+Boundaries: blast numerics accept ints only loosely (bool->int laundering
+in blast context is benign-small; blast comes from trusted callers);
+`_rule_matches({})` matches all (validator forbids empty `when` in files).
+
 ## PLANNED ADR slots (not taken in M00.6)
 
 - FSM-primary over SuperFlow mirror (owning module: orchestration phase).

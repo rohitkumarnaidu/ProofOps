@@ -9,18 +9,51 @@ from __future__ import annotations
 
 import re
 import sys
+from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "backend"))
 
 from app.contracts.action import Action  # noqa: E402 (M01.7 canonical)
 from app.contracts.runbook import Runbook  # noqa: E402 (M01.6 canonical)
 
-SHELL_META = re.compile(r"[;&|`$()\\n]")
+SHELL_META = re.compile(r"[;&|`$()\\<>\r\n\t]")
 IMAGE_TAG = re.compile(r"^[a-z0-9._-]{1,128}$")
-DESTRUCTIVE_SQL = re.compile(r"\b(DROP|DELETE\s+FROM|TRUNCATE)\b", re.IGNORECASE)
+# Destructive statement openers only (M06 90+ pass): bare UPDATE/INSERT are
+# ordinary words in parameter text ("update config", "insert key") and must
+# NOT match — only the destructive shapes (with SET/INTO) are rejected.
+DESTRUCTIVE_SQL = re.compile(
+    r"\b(DROP|DELETE\s+FROM|TRUNCATE|UPDATE\s+\S+\s+SET|INSERT\s+INTO)\b",
+    re.IGNORECASE)
 
 READ_TYPES = {"read", "describe", "logs", "metrics", "list"}
+
+
+def _scan_param_values(node: Any, errs: list[str], path: str = "") -> None:
+    """Recursive metachar/SQL scan over parameter VALUES (M06 90+ pass).
+
+    The old top-level-only loop missed nested payloads ({"cfg": {"cmd":
+    "a;evil"}}). Iterative (no recursion-limit risk): mappings recurse into
+    values, lists/tuples into items, strings get both pattern checks with
+    dotted paths ("cfg.cmd") for auditability. Non-string scalars (int,
+    float, bool, None) cannot carry shell/SQL and are skipped.
+    """
+    stack: list[tuple[Any, str]] = [(node, path)]
+    while stack:
+        value, at = stack.pop()
+        if isinstance(value, str):
+            where = f"parameter {at!r}" if at else "parameter value"
+            if SHELL_META.search(value):
+                errs.append(f"{where} contains shell metacharacters")
+            if DESTRUCTIVE_SQL.search(value):
+                errs.append(f"{where} contains destructive SQL")
+        elif isinstance(value, Mapping):
+            for k, v in value.items():
+                stack.append((v, f"{at}.{k}" if at else str(k)))
+        elif isinstance(value, (list, tuple)):
+            for i, v in enumerate(value):
+                stack.append((v, f"{at}[{i}]"))
 
 
 def validate_action(action: Action, runbook: Runbook | None = None) -> list[str]:
@@ -57,12 +90,7 @@ def validate_action(action: Action, runbook: Runbook | None = None) -> list[str]
             errs.append("replicas must be an integer 1..10")
     if "image_tag" in p and not IMAGE_TAG.match(str(p["image_tag"])):
         errs.append("image_tag failed allowlist")
-    for k, v in p.items():
-        if isinstance(v, str):
-            if SHELL_META.search(v):
-                errs.append(f"parameter {k!r} contains shell metacharacters")
-            if DESTRUCTIVE_SQL.search(v):
-                errs.append(f"parameter {k!r} contains destructive SQL")
+    _scan_param_values(p, errs)
 
     # 5. reversible YELLOW must carry rollback
     reversible = {"restart_pod", "scale_deployment", "rolling_restart",
