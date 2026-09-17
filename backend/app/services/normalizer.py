@@ -65,6 +65,16 @@ UNKNOWN_SERVICE = "unknown"
 
 MAX_LOG_MSG = 2000  # log bodies truncated here; full blobs live in DB by ref
 
+# Latest admissible event time: 2100-01-01T00:00:00Z as unix epoch. Rationale:
+# platform time_t ranges differ (Windows rejects year 5138, Linux accepts),
+# so "out of range" CANNOT be delegated to fromtimestamp — a bare
+# 99999999999 was accepted on Linux while Windows raised, which turned CI
+# red for a Windows-green test. Incident telemetry dated past 2100 is
+# malformed by construction on every platform; the ceiling makes fail-closed
+# uniform and deterministic (year-compared, never conversion-probed).
+MAX_TS = 4102444800
+MAX_TS_YEAR = 2100
+
 
 def hash_record(obj: Any) -> str:
     """Stable sha256 over canonical JSON (dicts/records/dumps)."""
@@ -88,6 +98,13 @@ def _coerce_ts(value: Any) -> datetime:
     return _coerce_ts_strict(value)
 
 
+def _check_ts_range(value: Any, dt: datetime) -> datetime:
+    """Uniform ceiling: no event time past 2100 on ANY platform."""
+    if dt.year > MAX_TS_YEAR or dt.year < 1970:
+        raise ValueError(f"ts out of admissible range 1970..{MAX_TS_YEAR}")
+    return dt
+
+
 def _coerce_ts_strict(value: Any) -> datetime:
     """Strict core shared by both ts rules (never fills)."""
     if isinstance(value, bool):
@@ -97,11 +114,27 @@ def _coerce_ts_strict(value: Any) -> datetime:
             raise ValueError("ts must be finite")
         if value < 0:
             raise ValueError("ts must be >= 0 (unix epoch)")
+        if value > MAX_TS:
+            raise ValueError(f"ts beyond {MAX_TS_YEAR} is malformed")
         try:
-            return datetime.fromtimestamp(float(value), tz=timezone.utc)
+            return _check_ts_range(value, datetime.fromtimestamp(
+                float(value), tz=timezone.utc))
         except (OverflowError, OSError) as exc:
             raise ValueError(
                 f"ts out of platform range: {value!r}") from exc
+    if isinstance(value, str):
+        try:
+            dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ValueError(f"ts is not a parseable timestamp: {value!r}") from exc
+        if dt.tzinfo is None or dt.utcoffset() is None:
+            raise ValueError("ts must be timezone-aware (reject naive)")
+        return _check_ts_range(value, dt)
+    if isinstance(value, datetime):
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("ts must be timezone-aware (reject naive)")
+        return _check_ts_range(value, value)
+    raise ValueError(f"ts has unsupported type: {type(value).__name__}")
     if isinstance(value, str):
         try:
             dt = datetime.fromisoformat(value.replace("Z", "+00:00"))

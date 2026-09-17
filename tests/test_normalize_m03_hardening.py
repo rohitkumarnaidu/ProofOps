@@ -216,6 +216,20 @@ class TestExtremeTimestamps:
     def test_epoch_zero_accepted(self):  # UNIT
         assert normalize_log({"msg": "m", "ts": 0})["ts"].year == 1970
 
+    def test_ceiling_uniform_both_sides(self):  # UNIT
+        # Regression for the CI red: 99999999999 (year 5138) raised on
+        # Windows but NOT on Linux. The explicit 2100 ceiling rejects on
+        # every platform; the boundary itself stays admissible.
+        assert normalize_log({"msg": "m", "ts": 4102444799}) is not None
+        with pytest.raises(ValueError):
+            normalize_log({"msg": "m", "ts": 4102444801})
+        with pytest.raises(ValueError):
+            normalize_log({"msg": "m",
+                           "ts": datetime(2101, 1, 1,
+                                           tzinfo=timezone.utc)})
+        with pytest.raises(ValueError):
+            normalize_log({"msg": "m", "ts": "2101-06-01T00:00:00+00:00"})
+
 
 class TestCanonicalTimeType:
     def test_every_normalized_ts_is_aware_datetime(self):  # UNIT
