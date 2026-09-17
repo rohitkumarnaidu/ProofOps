@@ -272,23 +272,26 @@ class TestDedup:
         return normalize_alert(raw_alert(alert_id=aid, ts=ts))
 
     def test_exact_id_dupes_suppressed(self):  # UNIT (M04.3)
-        unique, suppressed = deduplicate(
+        unique, suppressed, by_key = deduplicate(
             [self._alert("a", 100), self._alert("a", 100)])
         assert len(unique) == 1 and suppressed == 1
+        assert by_key == {("web", "http_5xx_spike", "prod"): 1}
 
     def test_near_dupes_within_5s_suppressed(self):  # UNIT
-        unique, suppressed = deduplicate(
+        unique, suppressed, by_key = deduplicate(
             [self._alert("a1", 100), self._alert("a2", 100 + DEDUP_WINDOW_S)])
         assert len(unique) == 1 and suppressed == 1
+        assert by_key == {("web", "http_5xx_spike", "prod"): 1}
 
     def test_beyond_window_kept(self):  # UNIT
-        unique, suppressed = deduplicate(
+        unique, suppressed, by_key = deduplicate(
             [self._alert("a1", 100), self._alert("a2", 100 + DEDUP_WINDOW_S + 1)])
         assert len(unique) == 2 and suppressed == 0
+        assert by_key == {}
 
     def test_order_preserved(self):  # UNIT
         alerts = [self._alert(f"a{i}", 100 + i * 10) for i in range(4)]
-        unique, _ = deduplicate(alerts)
+        unique, _, _ = deduplicate(alerts)
         assert [a.alert_id for a in unique] == [f"a{i}" for i in range(4)]
 
 
