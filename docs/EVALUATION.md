@@ -34,7 +34,8 @@ Nothing here claims production readiness or certification.
   unsafe_exec 0), latency (e2e P50 <90s mock). Numbers are targets under test,
   never measured results — no budget is asserted green today.
 - Datasets (spec §34): deep-5 scenarios × 5 variants fully seeded plus stub-7
-  minimal fixtures. PLANNED under M17 (benchmarks).
+  minimal fixtures — LANDED under M17 (`benchmarks/suites/*.jsonl`,
+  seal-verified against the generator).
 
 ## PLANNED (owning modules, not implemented)
 

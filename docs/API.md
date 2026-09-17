@@ -1,18 +1,25 @@
-# ProofOps API Foundation (M00.6 foundation; full surface owned by later phases)
+# ProofOps API (M00.6 foundation; built through M19, owned per module)
 
 Authoritative spec: `docs/PS03_FINAL_SPEC_V2.md` §40 (required surface), §38 (invariants),
 §27 (HITL), §32 (audit).
 
-Status: foundation only. Two routes exist today (`GET /healthz`, `GET /readyz`).
-Everything else below is marked PLANNED with its owning module. Nothing here
+Status: implemented through M19 (runs, approvals, audit, eval smoke).
+Per-route truth lives in `backend/app/routers/` + tests. Nothing here
 claims production readiness or certification.
 
-## Live today (M00.1/M00.4, tested)
+## Live today (tested)
 
 | Method + path | Owner | Behavior |
 |---|---|---|
 | `GET /healthz` | M00.1 (frozen body) | Liveness: `{"status":"ok","service":"proofops-api","spec":"PS03_FINAL_SPEC_V2"}`. Always 200 while the process lives, even with db down. Drives image HEALTHCHECK. |
 | `GET /readyz` | M00.4 | Readiness: 200 `ready` only when every dependency serves, else 503 `not-ready`. Body is secret-free (`database unreachable` / `database query failed`, never DSN). Bounded 2s probe. |
+| `POST /runs`, `GET /runs`, `GET /runs/{id}` | M14/M19 | FSM runs: open (409 on dup), queue list, state + history + handoffs + audit records. |
+| `POST /runs/{id}/advance` (+ Idempotency-Key) | M14 | Guarded transition: no-skip permit gate, re-plan ≤2, rollback-once; duplicate keys return cached. |
+| `POST /runs/{id}/sweep` | M14 | TTL sweep: staged approvals escalate on expiry. |
+| `POST /approvals`, `GET /approvals/{id}` | M19 (M07 crypto) | HITL request queue + status/TTL-countdown view. Actions re-validated as contracts. |
+| `POST /approvals/{id}/approve|reject` (+ Idempotency-Key) | M19 (M07 crypto) | Demo-role gate (approver/admin; M21 hardens), HMAC verify, nonce burn; typed 403/409/410. |
+| `GET /incidents/{id}/audit` (+ `/verify`, `/export`, `POST /events`) | M15 | Hash chain view + validity bool + export + event append. Origin `custom-hash-chain`. |
+| `POST /eval/smoke` | M19 (M16 engine) | Measured harness numbers on demand (mock systems, labeled): gates, deltas, rubric. |
 
 Repro:
 
@@ -37,13 +44,10 @@ python -m pytest tests/test_health.py tests/test_repo_structure.py -q
 
 ## PLANNED (owning modules, not implemented)
 
-- Alerts/incidents/triage/evidence/diagnose/remediation/approvals
-  (approve/reject)/executions + verify + rollback/audit/RCA/evaluations/
-  `POST /demo/seed` (spec §40) — owners: API + FSM (M14), HITL (M07/M15),
-  eval (M16), demo (M22).
-- Auth: API-key role checks (server-side); HMAC approval tokens single-use,
-  scope-bound (`action_id` + param hash), TTL-bound, nonce-burned (M07).
-- Streaming: `GET /stream/incidents/{id}` SSE for control-plane events with
-  reconnect + polling fallback + LIVE/REPLAY/MOCK badge (M19).
-- No route is claimed to exist until its module lands with tests; this doc
-  asserts the absence honestly instead of simulating it.
+- Alerts ingest, triage/evidence/diagnose/remediation endpoints, executions +
+  verify + rollback, RCA publish, `POST /demo/seed` (spec §40) — owners:
+  M21 integration, demo (M22).
+- Auth: full API-key guard matrix, server-side (M21; demo-role gate today).
+- Streaming: `GET /stream/incidents/{id}` SSE endpoint (client + contract
+  exist in M19 UI; server endpoint is M21).
+- No route is claimed to exist until its module lands with tests.
