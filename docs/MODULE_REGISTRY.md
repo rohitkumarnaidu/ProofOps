@@ -1,7 +1,7 @@
 # ProofOps — Complete Module Registry (183 controlled units)
 
 > Authoritative spec: `docs/PS03_FINAL_SPEC_V2.md`. One module at a time. No auto-continue.
-> Progress: **160/183 with implementation** (50 APPROVED: M00.1–M00.7, M01.1–M01.15, M02.1–M02.10, M03.1–M03.6, M04.1–M04.6, M05.1–M05.6 · 110 IMPLEMENTED_TESTED hardening-pending: M06–M19.10) · Overall project score: NOT COMPUTED.
+> Progress: **160/183 with implementation** (60 APPROVED: M00.1–M00.7, M01.1–M01.15, M02.1–M02.10, M03.1–M03.6, M04.1–M04.6, M05.1–M05.6, M06.1–M06.10 · 100 IMPLEMENTED_TESTED hardening-pending: M07–M19.10) · Overall project score: NOT COMPUTED.
 
 ## Global Verification Gate (applies to every unit)
 
@@ -110,16 +110,16 @@ registry tracks unit-level status only.
 
 | ID | Unit | Status | Safety | Ground | Hall | Retr | Verify method |
 |---|---|---|---|---|---|---|---|
-| M06.1 | action validator | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | shell/DROP/param-shape reject tests (pre-policy) |
-| M06.2 | action taxonomy | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | allowlist completeness tests |
-| M06.3 | risk matrix | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | matrix-vs-bundle consistency tests |
-| M06.4 | policy schema | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | bundle version/rule-ref tests |
-| M06.5 | policy engine | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | 40+ regression tests (ALLOW/ESCALATE/DENY) |
-| M06.6 | default deny | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | unknown/exception→DENY tests |
-| M06.7 | conflict resolution | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | most-restrictive-wins tests |
-| M06.8 | blast-radius evaluation | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | scope/replicas/traffic% threshold tests |
-| M06.9 | environment-aware rules | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | mock/staging/prod matrix tests |
-| M06.10 | policy audit | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | version+rule_id linkage tests |
+| M06.1 | action validator | HUMAN_APPROVED (91/100, safety 96, re-audit 2026-09-16) | R | N | N | N | shell/DROP/param-shape + nested-scan tests |
+| M06.2 | action taxonomy | HUMAN_APPROVED (91/100, safety 95, re-audit 2026-09-16) | R | N | N | N | allowlist completeness + parity tests |
+| M06.3 | risk matrix | HUMAN_APPROVED (91/100, safety 95, re-audit 2026-09-16) | R | N | N | N | matrix-vs-bundle + seal tests |
+| M06.4 | policy schema | HUMAN_APPROVED (92/100, safety 96, re-audit 2026-09-16) | R | N | N | N | bundle version/rule-ref + seal tests |
+| M06.5 | policy engine | HUMAN_APPROVED (92/100, safety 96, re-audit 2026-09-16) | R | N | N | N | 40+ regression + attribution tests |
+| M06.6 | default deny | HUMAN_APPROVED (92/100, safety 97, re-audit 2026-09-16) | R | N | N | N | unknown/exception/empty→DENY tests |
+| M06.7 | conflict resolution | HUMAN_APPROVED (91/100, safety 95, re-audit 2026-09-16) | R | N | N | N | most-restrictive-wins + rule-id tests |
+| M06.8 | blast-radius evaluation | HUMAN_APPROVED (91/100, safety 95, re-audit 2026-09-16) | R | N | N | N | scope/replicas/traffic% + override tests |
+| M06.9 | environment-aware rules | HUMAN_APPROVED (91/100, safety 95, re-audit 2026-09-16) | R | N | N | N | mock/staging/prod matrix + ctx tests |
+| M06.10 | policy audit | HUMAN_APPROVED (91/100, safety 95, re-audit 2026-09-16) | R | N | N | N | version+rule_id linkage tests |
 
 ## PHASE 07 — HITL (8)
 
