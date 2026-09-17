@@ -1,7 +1,7 @@
 # ProofOps — Complete Module Registry (183 controlled units)
 
 > Authoritative spec: `docs/PS03_FINAL_SPEC_V2.md`. One module at a time. No auto-continue.
-> Progress: **160/183 with implementation** (60 APPROVED: M00.1–M00.7, M01.1–M01.15, M02.1–M02.10, M03.1–M03.6, M04.1–M04.6, M05.1–M05.6, M06.1–M06.10 · 100 IMPLEMENTED_TESTED hardening-pending: M07–M19.10) · Overall project score: NOT COMPUTED.
+> Progress: **167/183 with implementation** (60 APPROVED: M00.1–M00.7, M01.1–M01.15, M02.1–M02.10, M03.1–M03.6, M04.1–M04.6, M05.1–M05.6, M06.1–M06.10 · 107 IMPLEMENTED_TESTED hardening-pending: M07–M20.7) · Overall project score: NOT COMPUTED.
 
 ## Global Verification Gate (applies to every unit)
 
@@ -290,13 +290,13 @@ registry tracks unit-level status only.
 
 | ID | Unit | Status | Safety | Ground | Hall | Retr | Verify method |
 |---|---|---|---|---|---|---|---|
-| M20.1 | token measurement | NOT STARTED | N | N | N | N | tokens_in/out ledger + budget-assert tests |
-| M20.2 | latency measurement | NOT STARTED | N | N | N | N | per-stage P50/P95 tests |
-| M20.3 | cost measurement | NOT STARTED | N | N | N | N | pricing-table (no-hardcoded-$) tests |
-| M20.4 | retrieval optimization | NOT STARTED | N | N | N | S | cache_hit>50% tests |
-| M20.5 | model routing | NOT STARTED | N | N | N | S | small-triage/large-diagnosis routing tests |
-| M20.6 | caching | NOT STARTED | N | N | N | S | static-ctx-cache tests |
-| M20.7 | parallelization | NOT STARTED | N | N | N | S | parallel-fetch timing tests |
+| M20.1 | token measurement | IMPLEMENTED_TESTED (build-first; hardening pending) | N | N | N | N | tokens_in/out ledger + budget-assert tests |
+| M20.2 | latency measurement | IMPLEMENTED_TESTED (build-first; hardening pending) | N | N | N | N | per-stage P50/P95 tests |
+| M20.3 | cost measurement | IMPLEMENTED_TESTED (build-first; hardening pending) | N | N | N | N | pricing-table (no-hardcoded-$) tests |
+| M20.4 | retrieval optimization | IMPLEMENTED_TESTED (build-first; hardening pending) | N | N | N | S | cache_hit>50% tests |
+| M20.5 | model routing | IMPLEMENTED_TESTED (build-first; hardening pending) | N | N | N | S | small-triage/large-diagnosis routing tests |
+| M20.6 | caching | IMPLEMENTED_TESTED (build-first; hardening pending) | N | N | N | S | static-ctx-cache tests |
+| M20.7 | parallelization | IMPLEMENTED_TESTED (build-first; hardening pending) | N | N | N | S | parallel-fetch timing tests |
 
 ## PHASE 21 — Integration (9)
 

@@ -1,0 +1,13 @@
+# ProofOps pricing table (M20.3, editable — the ONLY place money lives).
+#
+# EDITABLE DEMO RATES ONLY. These are placeholder figures so cost math is
+# table-driven; replace every rate with contract rates before any real
+# spend claim. No vendor prices are hardcoded in code (asserted by test:
+# budgets.py contains no currency literals).
+version: "v1"
+currency: USD
+tiers:
+  small: {per_1k_in: 0.0015, per_1k_out: 0.002}
+  medium: {per_1k_in: 0.003, per_1k_out: 0.004}
+  large: {per_1k_in: 0.015, per_1k_out: 0.02}
+  economical: {per_1k_in: 0.0008, per_1k_out: 0.001}
