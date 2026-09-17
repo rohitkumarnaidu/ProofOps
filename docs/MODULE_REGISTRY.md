@@ -1,7 +1,7 @@
 # ProofOps — Complete Module Registry (183 controlled units)
 
 > Authoritative spec: `docs/PS03_FINAL_SPEC_V2.md`. One module at a time. No auto-continue.
-> Progress: **167/183 with implementation** (60 APPROVED: M00.1–M00.7, M01.1–M01.15, M02.1–M02.10, M03.1–M03.6, M04.1–M04.6, M05.1–M05.6, M06.1–M06.10 · 107 IMPLEMENTED_TESTED hardening-pending: M07–M20.7) · Overall project score: NOT COMPUTED.
+> Progress: **176/183 with implementation** (60 APPROVED: M00.1–M00.7, M01.1–M01.15, M02.1–M02.10, M03.1–M03.6, M04.1–M04.6, M05.1–M05.6, M06.1–M06.10 · 116 IMPLEMENTED_TESTED hardening-pending: M07–M21.9) · Overall project score: NOT COMPUTED.
 
 ## Global Verification Gate (applies to every unit)
 
@@ -302,15 +302,15 @@ registry tracks unit-level status only.
 
 | ID | Unit | Status | Safety | Ground | Hall | Retr | Verify method |
 |---|---|---|---|---|---|---|---|
-| M21.1 | end-to-end happy path | NOT STARTED | R | S | N | N | seed→RESOLVED full-path test |
-| M21.2 | RED block | NOT STARTED | R | S | N | N | block + zero-diff + audit test |
-| M21.3 | YELLOW approval | NOT STARTED | R | S | N | N | token→approve→execute test |
-| M21.4 | sandbox execution | NOT STARTED | R | S | N | N | tier-labelled exec test |
-| M21.5 | verification | NOT STARTED | R | S | N | N | verdict-badge test |
-| M21.6 | rollback | NOT STARTED | R | S | N | N | auto-once + re-verify test |
-| M21.7 | RCA | NOT STARTED | R | S | N | N | gated-publish test |
-| M21.8 | audit | NOT STARTED | R | S | N | N | chain-valid export test |
-| M21.9 | evaluation | NOT STARTED | R | S | N | N | scorecard-link test |
+| M21.1 | end-to-end happy path | IMPLEMENTED_TESTED (build-first; hardening pending) | R | S | N | N | seed→RESOLVED full-path test |
+| M21.2 | RED block | IMPLEMENTED_TESTED (build-first; hardening pending) | R | S | N | N | block + zero-diff + audit test |
+| M21.3 | YELLOW approval | IMPLEMENTED_TESTED (build-first; hardening pending) | R | S | N | N | token→approve→execute test |
+| M21.4 | sandbox execution | IMPLEMENTED_TESTED (build-first; hardening pending) | R | S | N | N | tier-labelled exec test |
+| M21.5 | verification | IMPLEMENTED_TESTED (build-first; hardening pending) | R | S | N | N | verdict-badge test |
+| M21.6 | rollback | IMPLEMENTED_TESTED (build-first; hardening pending) | R | S | N | N | auto-once + re-verify test |
+| M21.7 | RCA | IMPLEMENTED_TESTED (build-first; hardening pending) | R | S | N | N | gated-publish test |
+| M21.8 | audit | IMPLEMENTED_TESTED (build-first; hardening pending) | R | S | N | N | chain-valid export test |
+| M21.9 | evaluation | IMPLEMENTED_TESTED (build-first; hardening pending) | R | S | N | N | scorecard-link test |
 
 ## PHASE 22 — Demo (7)
 
