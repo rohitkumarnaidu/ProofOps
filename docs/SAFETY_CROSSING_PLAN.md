@@ -212,3 +212,107 @@ Then — and only then — the next wave.
 | D11 | review | No forced M00.6 lift; re-audit decides on evidence | Mechanical | Pragmatic | ≥90 passes; churning a passing unit violates breadth rules | 91+ mandate |
 | D12 | gate | Code only via dedicated file tools (Read/Write/Edit); never shell heredocs, python -c source surgery, or shell string replacement for code — human standing rule | Taste | Explicit | Shell-written code caused real corruption before (mojibake); file tools are diff-verifiable | Shell code-writing for speed |
 | D13 | gate | Agent may invoke any available skill where the task matches its triggers; skill use pre-approved, reported in review messages | Mechanical | Pragmatic | Per-skill permission round-trips would stall the loop; misuse is visible in review | Asking first every time |
+| D14 | gate | Human declares FINAL TRUST PHASE for M00–M06 scope 2026-09-17; approves fast-forward to master c3cb09e + per-module push-after-green; reference tables added §13 verbatim as reference only | Mechanical | Explicit | User verdicts at human gate: FINAL TRUST + rebase + per-module push; gates unchanged | Starting without declaration / merging stale / blanket push |
+
+## 13. Reference score targets (user-provided 2026-09-17, reference only)
+
+Human-supplied crossing reference. Gates are unchanged (§1 + registry + AGENTS §14.3): Overall ≥ 90 every unit; Safety ≥ 95 where REQUIRED (all of M06); Grounding ≥ 95 where REQUIRED (all of M05). The tables below are the human's reference numbers, not a gate redefinition and not a rescore. M05 rows carry the user's "Safety" label verbatim; the REQUIRED dimension for M05 remains Grounding and is re-measured in the loop.
+
+### M00 — overall 91.7 · safety 96.7
+
+| Unit | Overall | Safety |
+|---|---|---|
+| .1 repo structure | 93 | 97 |
+| .2 env/config | 92 | 97 |
+| .3 compose | 92 | 95 |
+| .4 health | 92 | 97 |
+| .5 logging | 91 | 97 |
+| .6 docs | 90 | 97 |
+| .7 CI | 92 | 97 |
+
+### M01 — overall 91.7 · safety 97.0
+
+| Unit | Overall | Safety |
+|---|---|---|
+| .1 shared types | 92 | 97 |
+| .2 Incident | 95 | 97 |
+| .3 Alert | 95 | 97 |
+| .4 Evidence | 91 | 97 |
+| .5 Hypothesis | 92 | 97 |
+| .6 Runbook | 91 | 97 |
+| .7 Action | 92 | 97 |
+| .8 PolicyDecision | 91 | 97 |
+| .9 Approval | 91 | 97 |
+| .10 Execution | 91 | 97 |
+| .11 Verification | 91 | 97 |
+| .12 Rollback | 91 | 97 |
+| .13 RCA | 91 | 97 |
+| .14 Audit | 91 | 97 |
+| .15 Evaluation | 91 | 97 |
+
+### M02 — overall 91.2 · safety 97.0
+
+| Unit | Overall | Safety |
+|---|---|---|
+| .1 generator | 91 | 97 |
+| .2 seeding | 91 | 97 |
+| .3 alerts | 91 | 97 |
+| .4 logs | 92 | 97 |
+| .5 metrics | 91 | 97 |
+| .6 traces | 91 | 97 |
+| .7 k8s events | 91 | 97 |
+| .8 deploy events | 91 | 97 |
+| .9 topology | 91 | 97 |
+| .10 hashing | 92 | 97 |
+
+### M03 — overall 91.8 · safety 97.0
+
+| Unit | Overall | Safety |
+|---|---|---|
+| .1 alert norm | 92 | 97 |
+| .2 log norm | 92 | 97 |
+| .3 metrics norm | 92 | 97 |
+| .4 trace norm | 92 | 97 |
+| .5 deploy norm | 91 | 97 |
+| .6 canonical model | 92 | 97 |
+
+### M04 — overall 91.5 · safety 97.0
+
+| Unit | Overall | Safety |
+|---|---|---|
+| .1 fingerprinting | 91 | 97 |
+| .2 grouping | 92 | 97 |
+| .3 dedup | 92 | 97 |
+| .4 severity | 92 | 97 |
+| .5 dep correlation | 91 | 97 |
+| .6 edge cases | 91 | 97 |
+
+### M05 — overall 91.3 · safety 95.5 (user label verbatim; REQUIRED dimension stays Grounding)
+
+| Unit | Overall | Safety |
+|---|---|---|
+| .1 evidence obj | 91 | 96 |
+| .2 hashing | 91 | 96 |
+| .3 freshness | 91 | 95 |
+| .4 trust | 91 | 95 |
+| .5 pack | 92 | 95 |
+| .6 claim mapping | 92 | 96 |
+
+### M06 — overall 91.3 · safety 95.5
+
+| Unit | Overall | Safety |
+|---|---|---|
+| .1 validator | 91 | 96 |
+| .2 taxonomy | 91 | 95 |
+| .3 risk matrix | 91 | 95 |
+| .4 policy schema | 92 | 96 |
+| .5 engine | 92 | 96 |
+| .6 default deny | 92 | 97 |
+| .7 conflicts | 91 | 95 |
+| .8 blast radius | 91 | 95 |
+| .9 env rules | 91 | 95 |
+| .10 audit | 91 | 95 |
+
+### Grand — overall 91.5 · safety 95.0 · min overall 90 · min safety 95 · 60/60 units at or above 90
+
+Rescore rule (§8): every round scores from zero against the frozen rubric; a reference row never substitutes for measured evidence. A rescore moving a prior APPROVED number down is a P1-class event: fix or escalate with evidence; history keeps the old row, the new verdict supersedes with rationale.

@@ -22,6 +22,12 @@ COPY backend/app ./app
 # M14b: agents/ ships too (routers import it at boot; without this line the
 # container ImportErrors while host tests pass via repo-root CWD).
 COPY agents ./agents
+# M16/M17/M18: services/eval.py, benchmarks.py, adversarial.py import
+# telemetry.gen at boot (routers import them at startup); without this line
+# the container ImportErrors while host tests pass via repo-root CWD.
+# Same failure class as the M14b agents/ line above. gen.py is stdlib-only
+# (hashlib/json/random/typing); .dockerignore does not exclude telemetry/.
+COPY telemetry ./telemetry
 USER appuser
 EXPOSE 8000
 HEALTHCHECK --interval=10s --timeout=3s --start-period=15s --retries=3 CMD python -c "import sys,urllib.request; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/healthz', timeout=2).status == 200 else 1)"

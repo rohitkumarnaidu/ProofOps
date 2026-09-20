@@ -300,7 +300,8 @@ class TestLiveContract:
     def test_published_ports_live(self):  # RUNTIME
         # Live mapping proof (not YAML text): ask the daemon itself.
         assert _compose("port", "api", "8000").stdout.strip() == "0.0.0.0:8000"
-        assert _compose("port", "ui", "80").stdout.strip() == "0.0.0.0:5173"
+        # M19b: ui serves unprivileged 8080 (was port 80 pre-M19b).
+        assert _compose("port", "ui", "8080").stdout.strip() == "0.0.0.0:5173"
         assert _compose("port", "db", "5432").stdout.strip() == "0.0.0.0:5433"
 
     def test_logs_accessible_and_sane(self):  # RUNTIME

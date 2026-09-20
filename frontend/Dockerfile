@@ -9,7 +9,12 @@ COPY index.html vite.config.ts tsconfig*.json ./
 COPY src ./src
 RUN npm run build
 
-FROM nginx:1.27-alpine
+# Unprivileged variant (not stock nginx:1.27-alpine): with `USER nginx`
+# below, the stock image crash-loops — /var/cache/nginx is root-owned
+# (mkdir client_temp: permission denied, proven by daemon boot log at
+# c3cb09e). The unprivileged image pre-chowns cache/run/conf dirs for
+# UID 101 and listens on 8080 by default, matching our conf + HEALTHCHECK.
+FROM nginxinc/nginx-unprivileged:1.27-alpine
 COPY frontend.nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /build/dist /usr/share/nginx/html
 USER nginx

@@ -22,6 +22,17 @@ runs/
 !**/suites/*.jsonl
 *.log
 .DS_Store
+Thumbs.db
 .vscode/
 .idea/
 .opencode/
+.cache/
+*.tmp
+*.swp
+*~
+*.db
+*.sqlite
+*.sqlite3
+.turbo/
+.next/
+frontend/.vite/

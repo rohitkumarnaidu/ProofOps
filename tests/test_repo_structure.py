@@ -148,10 +148,15 @@ class TestDockerCompose:
         # M14b exception: `COPY agents ./agents` ships only in the root image
         # (compose builds it); the backend/ context cannot reach ../agents,
         # so backend/Dockerfile legitimately lacks that one line.
+        # Telemetry exception (same class, proven by api boot ImportError at
+        # c3cb09e): `COPY telemetry ./telemetry` ships only in the root image;
+        # services/eval.py, benchmarks.py, adversarial.py import telemetry.gen
+        # at boot. The backend/ context cannot reach ../telemetry either.
         def norm(name: str) -> list[str]:
             return [d.replace("backend/", "") for d in _docker_directives(name)
                     if not d.startswith("HEALTHCHECK")
-                    and d != "COPY agents ./agents"]
+                    and d != "COPY agents ./agents"
+                    and d != "COPY telemetry ./telemetry"]
         assert norm("Dockerfile") == norm("backend/Dockerfile"), \
             f"Dockerfile drift:\n{norm('Dockerfile')}\nvs\n{norm('backend/Dockerfile')}"
         for name in ("Dockerfile", "backend/Dockerfile"):
