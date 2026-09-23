@@ -4,6 +4,7 @@ Commit A backend half (M19.4 Safety Gate API): pure functions only, no HTTP.
 Role checks are demo-grade (M21 owns the guard matrix); crypto is M07-real.
 """
 import sys
+import json
 import time
 from pathlib import Path
 
@@ -297,3 +298,70 @@ def test_verified_permit_same_incident_ok_and_unbound_compat():
         out2 = _request(incident_id="inc-B")
         AP.approve_approval(out2["approval_id"], "sre-1", out2["token"],
                             "approver", SECRET)
+
+
+# ---------------------------------------------------------------------------
+# Lane 2 loop 4: REQUESTS file persistence (var/approvals.json)
+# ---------------------------------------------------------------------------
+
+def test_store_roundtrip_resume_approve():
+    """Restart resume via the default path: approve works on reloaded req."""
+    out = _request()
+    assert AP.STORE_PATH.is_file()  # request auto-saves
+    AP.REQUESTS.clear()  # simulate restart: memory gone, file survives
+    view = AP.approval_view(out["approval_id"])  # auto-loads from file
+    assert view["status"] == "pending"
+    # Crypto continuity: the original token verifies against the reloaded
+    # request+action (HMAC binds action_id/actor/params/scope/expiry/nonce).
+    approved = AP.approve_approval(out["approval_id"], "sre-1", out["token"],
+                                   "approver", SECRET)
+    assert approved["status"] == "approved"
+
+
+def test_store_save_load_tmp_path(tmp_path):
+    path = tmp_path / "approvals.json"
+    out = _request()
+    AP.save_store(path)
+    assert path.is_file()
+    AP.REQUESTS.clear()
+    loaded = AP.load_store(path)
+    assert loaded == [out["approval_id"]]
+    assert AP.approval_view(out["approval_id"])["status"] == "pending"
+    assert AP.REQUESTS[out["approval_id"]]["evidence_ids"] == ["ev-1"]
+
+
+def test_store_corrupt_raises_no_partial(tmp_path):
+    path = tmp_path / "approvals.json"
+    path.write_text("{not json", encoding="utf-8")
+    with pytest.raises(ValueError):
+        AP.load_store(path)
+    assert AP.REQUESTS == {}
+    path.write_text(json.dumps(
+        {"a1": {"request": {}, "action": {},
+                "status": "pending", "evidence_ids": []}}),
+        encoding="utf-8")
+    with pytest.raises(ValueError):
+        AP.load_store(path)
+    assert AP.REQUESTS == {}  # fail-closed: no partial load
+
+
+def test_store_no_partial_on_mixed_file(tmp_path):
+    out = _request()
+    path = tmp_path / "approvals.json"
+    AP.save_store(path)
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw["bogus"] = {"status": "pending"}  # missing request/action
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    with pytest.raises(ValueError):
+        AP.load_store(path)
+    assert set(AP.REQUESTS) == {out["approval_id"]}  # live dict untouched
+
+
+def test_reset_clears_memory_and_file():
+    out = _request()
+    assert AP.STORE_PATH.is_file()
+    AP.reset_demo_state()
+    assert AP.REQUESTS == {}
+    assert not AP.STORE_PATH.exists()
+    with pytest.raises(AP.ApprovalMissing):
+        AP.approval_view(out["approval_id"])

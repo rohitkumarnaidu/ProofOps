@@ -382,13 +382,13 @@ def test_blameless_lint_rejects():
     with pytest.raises(OutputRejected):
         A4.run_report("inc-1", ["t1"], "The engineer at fault delayed.",
                       _claims(), {"ev-1"}, ["rolled back"], ["add alert"],
-                      _disabled(), sess.SessionStore())
+                      _disabled(), sess.SessionStore(), legacy_draft=True)
 
 
 def test_low_coverage_gates():
     out = A4.run_report("inc-1", ["t1"], "v23 caused it.", _claims(),
                         {"ev-OTHER"}, ["rolled back"], ["add alert"],
-                        _disabled(), sess.SessionStore())
+                        _disabled(), sess.SessionStore(), legacy_draft=True)
     assert out.gated is True and "coverage" in out.gate_reason
 
 
@@ -396,7 +396,7 @@ def test_full_coverage_ungated_disabled():
     claims = _claims()
     out = A4.run_report("inc-1", ["t1 row"], "v23 caused it.", claims,
                         {"ev-1"}, ["rolled back"], ["add alert"],
-                        _disabled(), sess.SessionStore())
+                        _disabled(), sess.SessionStore(), legacy_draft=True)
     assert out.gated is False
     assert "inc-1" in out.summary
     assert out.claim_ids == [claims[0].claim_id]
@@ -405,14 +405,15 @@ def test_full_coverage_ungated_disabled():
 def test_empty_timeline_rejected():
     with pytest.raises(OutputRejected):
         A4.run_report("inc-1", [], "r", _claims(), {"ev-1"}, [], [],
-                      _disabled(), sess.SessionStore())
+                      _disabled(), sess.SessionStore(), legacy_draft=True)
 
 
 def test_live_summary_linted():
     fake = FakeClient({"summary": "The team was negligent here."})
     with pytest.raises(OutputRejected):
         A4.run_report("inc-1", ["t1"], "v23 caused it.", _claims(), {"ev-1"},
-                      ["r"], ["p"], fake, sess.SessionStore())
+                      ["r"], ["p"], fake, sess.SessionStore(),
+                      legacy_draft=True)
 
 
 # ---------------------------------------------------------------------------
@@ -469,5 +470,15 @@ def test_chain_triage_to_rca():
     rca = A4.run_report("inc-1", ["t0 triage P1", "t1 rollback v22"],
                         "v23 caused it.", claims, set(known),
                         ["rollback to v22"], ["pin canary"],
-                        _disabled(), store)
+                        _disabled(), store, legacy_draft=True)
     assert rca.gated is False and rca.root_cause == "v23 caused it."
+
+
+def test_reporter_denies_legacy_by_default():
+    # Fail-closed default: None mapping without legacy_draft=True raises.
+    with pytest.raises(OutputRejected) as exc:
+        A4.run_report("inc-1", ["t1"], "v23 caused it.", _claims(), {"ev-1"},
+                      ["rolled back"], ["add alert"],
+                      _disabled(), sess.SessionStore())
+    assert "legacy_draft" in str(exc.value) or "evidence_by_id" in str(
+        exc.value)

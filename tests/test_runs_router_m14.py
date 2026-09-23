@@ -6,6 +6,7 @@ main.py) and the Dockerfile COPY pins guard container boot (agents/ must
 ship -- routers import it at main-import time).
 """
 import ast
+import json
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -276,9 +277,11 @@ def test_diagnose_plan_report_fns():
 
     claims = [{"text": "v23 caused it", "evidence_ids": [known[0]],
                "claim_class": "MUST-CITE"}]
+    # Pure-fn draft test: explicit legacy opt-in (visible, not default).
+    # Publication hardening lives in pipeline.publish_rca (hardened-only).
     rca = runs.report_run(runs.SESSIONS, _disabled(), "inc-1",
                           ["t0 triage"], "v23 caused it.", claims, list(known),
-                          ["rollback"], ["canary"])
+                          ["rollback"], ["canary"], legacy_draft=True)
     assert rca["gated"] is False
 
 
@@ -328,3 +331,99 @@ def test_dockerfile_ships_agents():
     assert any(line.startswith("COPY") and "agents" in line
                for line in lines), \
         "Dockerfile must COPY agents/ (routers import it at boot)"
+
+
+# ---------------------------------------------------------------------------
+# Lane 2 loop 4: REPO_STORE file persistence (var/runs.json)
+# ---------------------------------------------------------------------------
+
+def _to_approved(incident):
+    _to_policy(incident)
+    bound = _bound_approval(incident_id=incident)
+    view = runs.advance_run(incident, "APPROVED", approval=bound,
+                            approval_secret=SECRET, now=NOW)
+    assert view["permit_pending"] is True
+    return incident
+
+
+def test_store_roundtrip_resume_advance(tmp_path):
+    """Restart resume: history intact, pending permit still drives EXECUTING."""
+    _to_approved("inc-rt")
+    before = runs.run_view(runs.get_run("inc-rt"))
+    path = tmp_path / "runs.json"
+    runs.save_store(path)
+    assert path.is_file()
+    runs.REPO_STORE.clear()  # simulate restart: memory gone, file survives
+    loaded = runs.load_store(path)
+    assert loaded == ["inc-rt"]
+    after = runs.run_view(runs.get_run("inc-rt"))
+    assert after["history"] == before["history"]
+    assert after["permit_pending"] is True
+    assert after["replans"] == before["replans"]
+    cont = runs.advance_run("inc-rt", "EXECUTING", now=NOW)
+    assert cont["state"] == "EXECUTING"
+    assert len(cont["history"]) == len(before["history"]) + 1
+    assert cont["permit_pending"] is False
+
+
+def test_store_auto_resume_default_path():
+    runs.create_run("inc-auto", now=NOW)
+    assert runs.STORE_PATH.is_file()  # create auto-saves
+    runs.REPO_STORE.clear()  # simulate restart
+    run = runs.get_run("inc-auto")  # auto-load on miss
+    assert run.state == "NEW"
+    with pytest.raises(runs.RepoExists):
+        runs.create_run("inc-auto", now=NOW)  # persisted id not clobbered
+
+
+def test_store_corrupt_raises_no_partial(tmp_path):
+    path = tmp_path / "runs.json"
+    path.write_text("{nope", encoding="utf-8")
+    with pytest.raises(ValueError):
+        runs.load_store(path)
+    assert runs.REPO_STORE == {}
+    path.write_text(json.dumps(
+        {"inc-1": {"incident_id": "inc-1", "state": "NOPE",
+                   "history": [], "handoffs": [], "suppressions": [],
+                   "replans": 0, "rolled_back": False, "permit": None,
+                   "consumed_refs": [], "entered_at": {}}}),
+        encoding="utf-8")
+    with pytest.raises(ValueError):  # unknown state rejected by constructor
+        runs.load_store(path)
+    assert runs.REPO_STORE == {}  # fail-closed: no partial load
+
+
+def test_store_no_partial_on_mixed_file(tmp_path):
+    runs.create_run("inc-keep", now=NOW)
+    path = tmp_path / "runs.json"
+    runs.save_store(path)
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw["bogus"] = {"incident_id": "bogus"}  # missing required keys
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    with pytest.raises(ValueError):
+        runs.load_store(path)
+    assert set(runs.REPO_STORE) == {"inc-keep"}  # live dict untouched
+
+
+def test_store_payload_excludes_http_idem_cache(tmp_path):
+    """IDEM_RESPONSES stays a memory-only HTTP cache (documented choice)."""
+    runs.create_run("inc-1", now=NOW)
+    runs.advance_run("inc-1", "TRIAGING", idempotency_key="k1", now=NOW)
+    assert runs.IDEM_RESPONSES  # cache populated, but must not persist
+    path = tmp_path / "runs.json"
+    runs.save_store(path)
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    assert set(raw["inc-1"]) == {"incident_id", "state", "history",
+                                 "handoffs", "suppressions", "replans",
+                                 "rolled_back", "permit", "consumed_refs",
+                                 "entered_at"}
+
+
+def test_reset_clears_memory_and_file():
+    runs.create_run("inc-1", now=NOW)
+    assert runs.STORE_PATH.is_file()
+    runs.reset_demo_state()
+    assert runs.REPO_STORE == {}
+    assert not runs.STORE_PATH.exists()
+    with pytest.raises(runs.RepoMissing):
+        runs.get_run("inc-1")

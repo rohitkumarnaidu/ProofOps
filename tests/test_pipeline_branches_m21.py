@@ -26,6 +26,16 @@ from app.services.audit import AuditChain  # noqa: E402 (M15 chain)
 import telemetry.gen as gen  # noqa: E402 (M02 fixtures)
 
 
+@pytest.fixture(autouse=True)
+def _clean_approvals():
+    # Pipeline HITL mints durable approvals: reset both layers per test so
+    # var/approvals.json + var/nonces.jsonl never leak between tests.
+    from app.routers import approvals as AP
+    AP.reset_demo_state()
+    yield
+    AP.reset_demo_state()
+
+
 class Scripted:
     def __init__(self, payload=None):
         self.payload = payload
@@ -261,6 +271,7 @@ def _happy():
 
 
 def test_rca_ungated_on_valid_ids():
+    # LEGACY-PATH: membership-only draft (explicit opt-in).
     tele, report = _happy()
     assert tele is not None
     claims = [Claim(text="v23 caused it",
@@ -270,11 +281,12 @@ def test_rca_ungated_on_valid_ids():
     out = P.draft_rca("inc-1", report["run"], None, "v23 caused it.",
                       claims, rows, ["rollback to v22"], ["canary"],
                       set(report["evidence_ids"]), Scripted(None),
-                      session_mod.SessionStore())
+                      session_mod.SessionStore(), legacy_draft=True)
     assert out.gated is False
 
 
 def test_rca_gated_on_unknown_ids():
+    # LEGACY-PATH: membership-only draft (explicit opt-in).
     _, report = _happy()
     claims = [Claim(text="v23 caused it", evidence_ids=["ev-NOPE"],
                     claim_class="MUST-CITE")]
@@ -282,7 +294,7 @@ def test_rca_gated_on_unknown_ids():
     out = P.draft_rca("inc-1", report["run"], None, "v23 caused it.",
                       claims, rows, ["rollback"], ["canary"],
                       set(report["evidence_ids"]), Scripted(None),
-                      session_mod.SessionStore())
+                      session_mod.SessionStore(), legacy_draft=True)
     assert out.gated is True and "coverage" in out.gate_reason
 
 
@@ -464,3 +476,66 @@ def test_policy_deny_emits_decision(monkeypatch):
                for e in chain.events)
     assert any("BLOCKED" in e.result for e in chain.events
                if e.event_type == "transition")
+
+
+# ---------------------------------------------------------------------------
+# Legacy opt-in hardening: fail closed by default, explicit legacy, audit
+# ---------------------------------------------------------------------------
+
+def test_draft_rca_denies_legacy_by_default():
+    # (a) No mapping + no flag -> PipelineFailed naming hardened alternative.
+    _, report = _happy()
+    claims = [Claim(text="v23 caused it",
+                    evidence_ids=[report["evidence_ids"][0]],
+                    claim_class="MUST-CITE")]
+    rows = [f"t{i} {s}" for i, s in enumerate(report["states"])]
+    with pytest.raises(P.PipelineFailed) as exc:
+        P.draft_rca("inc-1", report["run"], None, "v23 caused it.",
+                    claims, rows, ["rollback"], ["canary"],
+                    set(report["evidence_ids"]), Scripted(None),
+                    session_mod.SessionStore())
+    assert "evidence_by_id" in str(exc.value) or "hardened" in str(exc.value)
+
+
+def test_draft_rca_legacy_opt_in_proceeds_gated():
+    # (b) legacy_draft=True proceeds on the legacy path (gated draft here).
+    _, report = _happy()
+    claims = [Claim(text="v23 caused it", evidence_ids=["ev-NOPE"],
+                    claim_class="MUST-CITE")]
+    rows = [f"t{i} {s}" for i, s in enumerate(report["states"])]
+    out = P.draft_rca("inc-1", report["run"], None, "v23 caused it.",
+                      claims, rows, ["rollback"], ["canary"],
+                      set(report["evidence_ids"]), Scripted(None),
+                      session_mod.SessionStore(), legacy_draft=True)
+    assert out.gated is True and "coverage" in out.gate_reason
+
+
+def test_draft_rca_with_chain_emits_legacy_audit():
+    # (c) Draft with chain emits rca.draft with coverage + legacy flag.
+    _, report = _happy()
+    claims = [Claim(text="v23 caused it",
+                    evidence_ids=[report["evidence_ids"][0]],
+                    claim_class="MUST-CITE")]
+    rows = [f"t{i} {s}" for i, s in enumerate(report["states"])]
+    chain = AuditChain(incident_id="inc-1")
+    out = P.draft_rca("inc-1", report["run"], None, "v23 caused it.",
+                      claims, rows, ["rollback"], ["canary"],
+                      set(report["evidence_ids"]), Scripted(None),
+                      session_mod.SessionStore(), legacy_draft=True,
+                      chain=chain)
+    assert out.gated is False
+    drafts = [e for e in chain.events if e.event_type == "rca.draft"]
+    assert len(drafts) == 1
+    assert "coverage" in drafts[0].result and "legacy=True" in drafts[0].result
+    assert drafts[0].evidence_ids and chain.verify()["valid"] is True
+
+
+def test_draft_rca_hardened_ungated():
+    # (d) Hardened draft with fresh trusted sealed evidence -> ungated.
+    ids = {"ev-1"}
+    out = P.draft_rca("inc-1", None, None, "v23 did it.",
+                      _rca_claims(ids), ["t0 triage"], ["rollback"],
+                      ["canary"], set(ids), Scripted(None),
+                      session_mod.SessionStore(),
+                      evidence_by_id=_ev_map(ids))
+    assert out.gated is False

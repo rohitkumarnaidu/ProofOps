@@ -22,6 +22,16 @@ from app.services import correlator, predigest  # noqa: E402 (M04/M05)
 import telemetry.gen as gen  # noqa: E402 (M02 fixtures)
 
 
+@pytest.fixture(autouse=True)
+def _clean_approvals():
+    # Pipeline HITL mints durable approvals: reset both layers per test so
+    # var/approvals.json + var/nonces.jsonl never leak between tests.
+    from app.routers import approvals as AP
+    AP.reset_demo_state()
+    yield
+    AP.reset_demo_state()
+
+
 class Scripted:
     """Per-agent scripted client (deterministic golden payloads)."""
 

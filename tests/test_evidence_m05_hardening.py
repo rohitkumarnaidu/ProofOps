@@ -51,7 +51,12 @@ class TestGroundedCoverage:
         claims = [_claim("c", [], ClaimClass.SHOULD_CITE)]
         assert must_cite_coverage(claims, set()) == 1.0
 
-    def test_stale_citation_denies(self):  # SECURITY
+    def test_stale_citation_denies_legacy_path(self):  # SECURITY
+        # LEGACY-PATH (primitive backward-compat): membership-only coverage
+        # (evidence_by_id=None) still measures 1.0 for member ids. This
+        # primitive behavior is preserved; the fail-closed default lives one
+        # layer up (reporter.run_report / pipeline.draft_rca deny a None
+        # mapping unless legacy_draft=True is passed explicitly).
         claims = [_claim("root cause", ["ev-1"])]
         old = _ev("ev-1", freshness_s=STALE_AFTER_S + 1)
         assert must_cite_coverage(claims, {"ev-1"}, {"ev-1": old}) == 0.0
@@ -212,3 +217,46 @@ class TestCaptureEdges:
         assert e.trust is TrustLevel.HIGH
         with pytest.raises(ValueError):
             capture_evidence("i", "log", "s", "r", "c", trust="omniscient")
+
+
+class TestLegacyDefaultDeny:
+    """Fail-closed default: None mapping without legacy_draft=True raises."""
+
+    def _disabled(self):
+        from agents import lyzr_client as LC
+        return LC.LyzrClient(LC.ClientConfig())
+
+    def test_reporter_denies_legacy_by_default(self):  # SECURITY
+        from agents import reporter as reporter_mod
+        from agents import session as session_mod
+        from agents.schemas import OutputRejected
+        claims = [_claim("root cause", ["ev-1"])]
+        with pytest.raises(OutputRejected) as exc:
+            reporter_mod.run_report(
+                "inc-1", ["t1"], "v23 caused it.", claims, {"ev-1"},
+                ["rollback"], ["canary"], self._disabled(),
+                session_mod.SessionStore())
+        assert "legacy_draft" in str(exc.value) or "evidence_by_id" in str(
+            exc.value)
+
+    def test_reporter_legacy_opt_in_proceeds(self):  # UNIT (legacy path)
+        from agents import reporter as reporter_mod
+        from agents import session as session_mod
+        claims = [_claim("root cause", ["ev-1"])]
+        out = reporter_mod.run_report(
+            "inc-1", ["t1"], "v23 caused it.", claims, {"ev-1"},
+            ["rollback"], ["canary"], self._disabled(),
+            session_mod.SessionStore(), legacy_draft=True)
+        assert out.gated is False
+
+    def test_draft_rca_denies_legacy_by_default(self):  # SECURITY
+        from app.services import pipeline as pipeline_mod
+        from agents import session as session_mod
+        claims = [_claim("root cause", ["ev-1"])]
+        with pytest.raises(pipeline_mod.PipelineFailed) as exc:
+            pipeline_mod.draft_rca(
+                "inc-1", None, None, "v23 caused it.", claims, ["t0"],
+                ["rollback"], ["canary"], {"ev-1"}, self._disabled(),
+                session_mod.SessionStore())
+        assert "evidence_by_id" in str(exc.value) or "hardened" in str(
+            exc.value)

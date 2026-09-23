@@ -128,8 +128,12 @@ class TestPackBudget:
 
 
 # ------------------------------------------------------- M05.6 coverage gate
-class TestCoverage:
-    def test_full_and_partial(self):  # UNIT (M05.6 gate)
+# LEGACY-PATH NOTE: membership-only coverage (evidence_by_id=None) is the
+# backward-compatible primitive. It is preserved here; the fail-closed
+# default lives one layer up (reporter.run_report / pipeline.draft_rca deny
+# a None mapping unless legacy_draft=True is passed explicitly).
+class TestCoverageLegacyPath:
+    def test_full_and_partial_legacy_path(self):  # UNIT (M05.6 gate)
         claims = [Claim(text="a", evidence_ids=["ev-1"]),
                   Claim(text="b", evidence_ids=["ev-9"])]
         assert must_cite_coverage(claims, {"ev-1", "ev-2"}) == 0.5
@@ -145,6 +149,52 @@ class TestCoverage:
         # carries no evidence and must never pass the publish gate. Non-empty
         # claim lists with zero MUST-CITE claims still score 1.0 (above).
         assert must_cite_coverage([], set()) == 0.0
+
+
+class TestCoverageDefaultDeny:
+    """Fail-closed default: None mapping without legacy_draft=True raises."""
+
+    def _disabled(self):
+        import sys as _sys
+        from pathlib import Path as _Path
+        _root = _Path(__file__).resolve().parents[1]
+        if str(_root) not in _sys.path:
+            _sys.path.insert(0, str(_root))
+        from agents import lyzr_client as LC
+        return LC.LyzrClient(LC.ClientConfig())
+
+    def test_reporter_denies_legacy_by_default(self):  # SECURITY
+        from agents import reporter as reporter_mod
+        from agents import session as session_mod
+        from agents.schemas import OutputRejected
+        claims = [Claim(text="a", evidence_ids=["ev-1"])]
+        with pytest.raises(OutputRejected) as exc:
+            reporter_mod.run_report(
+                "inc-1", ["t1"], "v23 caused it.", claims, {"ev-1"},
+                ["rollback"], ["canary"], self._disabled(),
+                session_mod.SessionStore())
+        assert "legacy_draft" in str(exc.value) or "evidence_by_id" in str(
+            exc.value)
+
+    def test_draft_rca_denies_legacy_by_default(self):  # SECURITY
+        from agents import session as session_mod
+        from app.services import pipeline as pipeline_mod
+        claims = [Claim(text="a", evidence_ids=["ev-1"])]
+        with pytest.raises(pipeline_mod.PipelineFailed):
+            pipeline_mod.draft_rca(
+                "inc-1", None, None, "v23 caused it.", claims, ["t0"],
+                ["rollback"], ["canary"], {"ev-1"}, self._disabled(),
+                session_mod.SessionStore())
+
+    def test_reporter_legacy_opt_in_proceeds(self):  # UNIT (legacy path)
+        from agents import reporter as reporter_mod
+        from agents import session as session_mod
+        claims = [Claim(text="a", evidence_ids=["ev-1"])]
+        out = reporter_mod.run_report(
+            "inc-1", ["t1"], "v23 caused it.", claims, {"ev-1"},
+            ["rollback"], ["canary"], self._disabled(),
+            session_mod.SessionStore(), legacy_draft=True)
+        assert out.gated is False
 
 
 # ------------------------------------------------------- M06.2 taxonomy
