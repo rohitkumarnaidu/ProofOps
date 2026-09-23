@@ -87,12 +87,23 @@ def _coverage(claims: Sequence[Claim],
 
 
 def run_report(incident_id: str, timeline: Sequence[Any], root_cause: str,
-               claims: Sequence[Claim], valid_evidence_ids: set[str],
-               remediation_log: Sequence[str], prevention: Sequence[str],
-               client: Any, store: session_mod.SessionStore,
-               evidence_by_id: Mapping[str, Any] | None = None
-               ) -> RCAReport:
-    """A4 entry point: record -> linted, gated RCA draft (M13.5)."""
+                claims: Sequence[Claim], valid_evidence_ids: set[str],
+                remediation_log: Sequence[str], prevention: Sequence[str],
+                client: Any, store: session_mod.SessionStore,
+                evidence_by_id: Mapping[str, Any] | None = None,
+                *, legacy_draft: bool = False
+                ) -> RCAReport:
+    """A4 entry point: record -> linted, gated RCA draft (M13.5).
+
+    Hardened by default: a None ``evidence_by_id`` mapping is denied unless
+    the caller explicitly opts into the legacy membership-only path with
+    ``legacy_draft=True`` (explicit, auditable choice). The hardened path
+    requires the mapping (freshness/trust/seal per citation).
+    """
+    if evidence_by_id is None and not legacy_draft:
+        raise OutputRejected(
+            "legacy draft denied: pass evidence_by_id mapping for the "
+            "hardened path or opt in explicitly with legacy_draft=True")
     if not isinstance(incident_id, str) or not incident_id.strip():
         raise ValueError("incident_id must be a non-empty string")
     if not isinstance(root_cause, str) or not root_cause.strip():

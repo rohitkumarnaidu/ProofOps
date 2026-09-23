@@ -14,7 +14,10 @@ scope/actor 403; replay 409; expired 410; empty secret refused at config.
 """
 from __future__ import annotations
 
+import json
+import os
 import sys
+import tempfile
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -64,6 +67,136 @@ except OSError:
     NONCES = approval_svc.NonceStore()
 IDEM_RESPONSES: dict[tuple[str, str], dict[str, Any]] = {}
 
+#: File-persistence for the request queue (Lane 2, hardening loop 4).
+#: Sanitized constant -- callers never choose the production path; tests may
+#: pass an explicit tmp path via the ``path`` parameter of save/load.
+STORE_PATH = Path(__file__).resolve().parents[3] / "var" / "approvals.json"
+
+#: Lifecycle states accepted on reload (fail-closed set).
+_APPROVAL_STATUSES = frozenset({"pending", "approved", "denied", "expired"})
+
+
+def save_store(path: str | Path | None = None) -> Path:
+    """Persist REQUESTS to JSON (atomic tmp+rename; Lane 2 loop 4).
+
+    Request + action serialize via pydantic ``model_dump(mode="json")``;
+    status as str, evidence_ids as list. The HMAC token itself is never
+    stored (it is re-presented by the caller); crypto continuity comes from
+    the reloaded request+action, which is exactly what ``verify`` binds.
+    """
+    out = Path(path) if path is not None else STORE_PATH
+    out.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        approval_id: {
+            "request": entry["request"].model_dump(mode="json"),
+            "action": entry["action"].model_dump(mode="json"),
+            "status": entry["status"],
+            "evidence_ids": list(entry.get("evidence_ids", [])),
+        }
+        for approval_id, entry in REQUESTS.items()
+    }
+    text = json.dumps(payload, sort_keys=True)
+    tmp = tempfile.NamedTemporaryFile(
+        mode="w", encoding="utf-8", dir=str(out.parent),
+        prefix=out.name + ".", suffix=".tmp", delete=False)
+    try:
+        tmp.write(text + "\n")
+        tmp.flush()
+        os.fsync(tmp.fileno())
+        tmp.close()
+        os.replace(tmp.name, out)
+    except OSError:
+        try:
+            os.unlink(tmp.name)
+        except OSError:
+            pass
+        raise
+    return out
+
+
+def load_store(path: str | Path | None = None) -> list[str]:
+    """Reload REQUESTS from JSON (Lane 2 loop 4).
+
+    Re-validates every entry via the ApprovalRequest/Action contracts;
+    raises ValueError on any garbage (corrupt/tampered files never become
+    partial state). All entries are validated BEFORE the live dict is
+    replaced (fail-closed, never partial-load). Missing file raises
+    FileNotFoundError for the caller to distinguish.
+    """
+    from app.contracts.action import Action  # noqa: E402 (lazy: weight)
+    from app.contracts.approval import ApprovalRequest  # noqa: E402
+
+    src = Path(path) if path is not None else STORE_PATH
+    try:
+        text = src.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        raise
+    except OSError as exc:
+        raise ValueError(f"approvals file unreadable: {exc}") from exc
+    try:
+        raw = json.loads(text)
+    except ValueError as exc:
+        raise ValueError(f"approvals file corrupt: {exc}") from exc
+    if not isinstance(raw, dict):
+        raise ValueError("approvals file corrupt: top-level object required")
+    staged: dict[str, dict[str, Any]] = {}
+    for approval_id, item in raw.items():
+        if not isinstance(item, dict):
+            raise ValueError(
+                f"approvals file entry {approval_id!r} invalid: not an object")
+        try:
+            req = ApprovalRequest.model_validate(item.get("request"))
+            action = Action.model_validate(item.get("action"))
+        except Exception as exc:
+            raise ValueError(
+                f"approvals file entry {approval_id!r} invalid: {exc}"
+            ) from exc
+        status = item.get("status")
+        if status not in _APPROVAL_STATUSES:
+            raise ValueError(
+                f"approvals file entry {approval_id!r} invalid: "
+                f"bad status {status!r}")
+        evidence = item.get("evidence_ids")
+        if not isinstance(evidence, list) or \
+                any(not isinstance(e, str) for e in evidence):
+            raise ValueError(
+                f"approvals file entry {approval_id!r} invalid: "
+                "evidence_ids must be a string list")
+        if approval_id != req.approval_id:
+            raise ValueError(
+                f"approvals file key {approval_id!r} mismatches "
+                f"entry {req.approval_id!r}")
+        staged[approval_id] = {"request": req, "action": action,
+                               "status": status,
+                               "evidence_ids": list(evidence)}
+    REQUESTS.clear()
+    REQUESTS.update(staged)
+    return sorted(staged)
+
+
+def _ensure_loaded() -> None:
+    """Auto-load on first store access when memory is empty (restart resume).
+
+    No-op when memory holds requests or no file exists. Corrupt files raise
+    (fail-closed, never silently empty); a raced deletion stays memory-only.
+    """
+    if REQUESTS:
+        return
+    if not STORE_PATH.is_file():
+        return
+    try:
+        load_store()
+    except FileNotFoundError:
+        pass  # raced deletion between is_file and read: stay memory-only
+
+
+def _save_best_effort() -> None:
+    """Auto-save after mutations; durability must never fail the request."""
+    try:
+        save_store()
+    except OSError:
+        pass
+
 
 class ApprovalMissing(Exception):
     """Unknown approval id (HTTP 404)."""
@@ -96,6 +229,7 @@ def http_status(exc: Exception) -> int:
 
 
 def _entry(approval_id: str) -> dict[str, Any]:
+    _ensure_loaded()
     try:
         return REQUESTS[approval_id]
     except KeyError as exc:
@@ -119,6 +253,7 @@ def request_approval(action: Mapping[str, Any], actor: str, secret: str,
     """Queue one approval request + mint its token (M19a request)."""
     from app.contracts.action import Action  # noqa: E402 (lazy: weight)
 
+    _ensure_loaded()  # resume persisted queue first: never clobber on save
     if not isinstance(action, Mapping):
         raise ValueError("action must be a mapping")
     if not isinstance(actor, str) or not actor.strip():
@@ -138,6 +273,7 @@ def request_approval(action: Mapping[str, Any], actor: str, secret: str,
                                      candidate.evidence_ids)}
     _emit(chain, "approval.request", REQUESTS[req.approval_id], actor,
           f"requested {req.action_id}")
+    _save_best_effort()
     return {"approval_id": req.approval_id, "token": token,
             "status": "pending",
             "expires_at": req.expires_at.isoformat(),
@@ -200,6 +336,7 @@ def approve_approval(approval_id: str, actor: str, token: str, role: str,
             if "expired" in message:
                 entry["status"] = "expired"
                 _emit(chain, "approval.expire", entry, actor, message)
+                _save_best_effort()
                 raise ApprovalExpired(message) from exc
             if "replay" in message:
                 _emit(chain, "approval.rejected", entry, actor,
@@ -211,6 +348,7 @@ def approve_approval(approval_id: str, actor: str, token: str, role: str,
         entry["status"] = "approved"
         _emit(chain, "approval.approve", entry, actor,
               f"approved {req.action_id}")
+        _save_best_effort()
         return approval_view(approval_id)
 
     return _idem(approval_id, idempotency_key, _produce)
@@ -231,6 +369,7 @@ def reject_approval(approval_id: str, actor: str, role: str,
         entry["status"] = "denied"
         _emit(chain, "approval.deny", entry, actor,
               reason or "denied by approver")
+        _save_best_effort()
         return approval_view(approval_id)
 
     return _idem(approval_id, idempotency_key, _produce)
@@ -238,6 +377,7 @@ def reject_approval(approval_id: str, actor: str, role: str,
 
 def sweep_approvals(now: float, chain: Any = None) -> list[str]:
     """Mark past-TTL pendings expired (M19a TTL; escalation is M14)."""
+    _ensure_loaded()
     expired: list[str] = []
     moment = datetime.fromtimestamp(float(now), tz=timezone.utc)
     for approval_id, entry in REQUESTS.items():
@@ -247,6 +387,7 @@ def sweep_approvals(now: float, chain: Any = None) -> list[str]:
             _emit(chain, "approval.expire", entry,
                   entry["request"].actor, "ttl elapsed")
             expired.append(approval_id)
+    _save_best_effort()
     return expired
 
 
@@ -319,9 +460,19 @@ def verified_permit(approval_id: str, token: str, actor: str,
 
 
 def reset_demo_state() -> None:
+    """Clear memory AND the persisted queue file (demo/test-only).
+
+    Test isolation depends on both layers clearing together: without file
+    deletion, one test's ``var/approvals.json`` would leak into the next
+    test's auto-load. Never call in production.
+    """
     REQUESTS.clear()
     IDEM_RESPONSES.clear()
     NONCES.clear()
+    try:
+        STORE_PATH.unlink(missing_ok=True)
+    except OSError:
+        pass
 
 
 class ApprovalBody(BaseModel):
@@ -385,6 +536,7 @@ def _require_key(x_api_key: str | None) -> None:
 
 def _chain_for_approval(approval_id: str) -> Any:
     """Chain of the incident owning this approval (unknown id: none)."""
+    _ensure_loaded()
     try:
         incident = REQUESTS[approval_id]["request"].incident_id
     except KeyError:

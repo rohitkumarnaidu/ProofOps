@@ -60,6 +60,7 @@ REQUIRED_EXTRAS: dict[str, tuple[str, ...]] = {
     "rollback.start": ("execution_id",),
     "rollback.finish": ("execution_id",),
     "handoff": ("agent", "result"),
+    "rca.draft": ("result",),
     "rca.publish": ("result",),
     "eval.run": ("result",),
 }

@@ -19,7 +19,11 @@ target the pure layer plus an AST wiring assertion.)
 """
 from __future__ import annotations
 
+import dataclasses
+import json
+import os
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -70,11 +74,265 @@ from app.services.fsm import (  # noqa: E402
     InvalidTransition,
     Permit,
     PermitRejected,
+    TransitionRecord,
 )
 
 REPO_STORE: dict[str, IncidentRun] = {}
 SESSIONS = session_mod.SessionStore()
 IDEM_RESPONSES: dict[tuple[str, str, str], dict[str, Any]] = {}
+
+#: File-persistence for the run repo (Lane 2, hardening loop 4).
+#: Sanitized constant -- callers never choose the production path; tests may
+#: pass an explicit tmp path via the ``path`` parameter of save/load.
+STORE_PATH = Path(__file__).resolve().parents[3] / "var" / "runs.json"
+
+# NOTE (Lane 2): IDEM_RESPONSES (router-level HTTP cache) is intentionally
+# NOT persisted -- it only replays identical HTTP bodies within a process.
+# Likewise run.idem_store (FSM execute_once result cache) is NOT persisted:
+# its values are opaque callback results that may not be JSON-serializable,
+# and a cold cache after restart simply re-runs once under fresh
+# verification + audit. FSM-level duplicate SUPPRESSION survives via
+# run.suppressions (persisted below), which is the audit-grade record.
+
+
+def _run_to_json(run: IncidentRun) -> dict[str, Any]:
+    """Serialize one run: dataclasses.asdict + set->sorted-list (Lane 2)."""
+    return {
+        "incident_id": run.incident_id,
+        "state": run.state,
+        "history": [dataclasses.asdict(r) for r in run.history],
+        "handoffs": [dict(h) for h in run.handoffs],
+        "suppressions": [dict(s) for s in run.suppressions],
+        "replans": run.replans,
+        "rolled_back": run.rolled_back,
+        "permit": dataclasses.asdict(run.permit)
+        if run.permit is not None else None,
+        "consumed_refs": sorted(run.consumed_refs),
+        "entered_at": dict(run.entered_at),
+    }
+
+
+def _dict_list(raw: Any, name: str) -> list[dict[str, Any]]:
+    if not isinstance(raw, list) \
+            or any(not isinstance(h, Mapping) for h in raw):
+        raise ValueError(f"run {name} must be a list of objects")
+    return [dict(h) for h in raw]
+
+
+def _record_from_json(item: Any) -> TransitionRecord:
+    if not isinstance(item, Mapping):
+        raise ValueError("history record must be an object")
+    allowed = {"seq", "frm", "to", "reason", "refs", "forced", "at"}
+    if set(item) - allowed:
+        raise ValueError("history record holds unexpected keys")
+    try:
+        seq = item["seq"]
+        frm = item["frm"]
+        to = item["to"]
+        reason = item["reason"]
+        refs = item["refs"]
+        forced = item["forced"]
+        at = item["at"]
+    except KeyError as exc:
+        raise ValueError(f"history record missing {exc}") from exc
+    if isinstance(seq, bool) or not isinstance(seq, int):
+        raise ValueError("history record seq must be an int")
+    for name, value in (("frm", frm), ("to", to), ("reason", reason)):
+        if not isinstance(value, str):
+            raise ValueError(f"history record {name} must be a str")
+    if not isinstance(refs, list) \
+            or any(not isinstance(r, str) for r in refs):
+        raise ValueError("history record refs must be a string list")
+    if not isinstance(forced, bool):
+        raise ValueError("history record forced must be a bool")
+    if isinstance(at, bool) or not isinstance(at, (int, float)):
+        raise ValueError("history record at must be epoch seconds")
+    return TransitionRecord(seq=seq, frm=frm, to=to, reason=reason,
+                            refs=list(refs), forced=forced, at=float(at))
+
+
+def _permit_from_json(raw: Any) -> Permit | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, Mapping):
+        raise ValueError("run permit must be an object or null")
+    allowed = {"action_id", "params_hash", "expires_at", "token_ref", "auto"}
+    if set(raw) - allowed:
+        raise ValueError("run permit holds unexpected keys")
+    auto = raw.get("auto", False)
+    if not isinstance(auto, bool):
+        raise ValueError("run permit auto must be a bool")
+    try:
+        return Permit(action_id=raw["action_id"],
+                      params_hash=raw["params_hash"],
+                      expires_at=raw["expires_at"],
+                      token_ref=raw["token_ref"], auto=auto)
+    except KeyError as exc:
+        raise ValueError(f"run permit missing {exc}") from exc
+    except Exception as exc:  # PermitRejected on empty/shape garbage
+        raise ValueError(f"run permit invalid: {exc}") from exc
+
+
+def _run_from_json(payload: Any) -> IncidentRun:
+    """Rebuild one run via constructors; ValueError on garbage (fail-closed).
+
+    IncidentRun/Permit constructors enforce their own invariants (unknown
+    state, blank ids, empty permit refs); scalar fields without constructor
+    checks are validated explicitly above so tampered types cannot load.
+    """
+    if not isinstance(payload, Mapping):
+        raise ValueError("run entry must be an object")
+    for key in ("incident_id", "state", "history", "handoffs",
+                "suppressions", "replans", "rolled_back", "permit",
+                "consumed_refs", "entered_at"):
+        if key not in payload:
+            raise ValueError(f"run entry missing {key!r}")
+    if set(payload) - {"incident_id", "state", "history", "handoffs",
+                        "suppressions", "replans", "rolled_back", "permit",
+                        "consumed_refs", "entered_at"}:
+        raise ValueError("run entry holds unexpected keys")
+    raw_history = payload["history"]
+    if not isinstance(raw_history, list):
+        raise ValueError("run history must be a list")
+    history = [_record_from_json(item) for item in raw_history]
+    replans = payload["replans"]
+    if isinstance(replans, bool) or not isinstance(replans, int) \
+            or replans < 0:
+        raise ValueError("run replans must be a non-negative int")
+    rolled_back = payload["rolled_back"]
+    if not isinstance(rolled_back, bool):
+        raise ValueError("run rolled_back must be a bool")
+    consumed = payload["consumed_refs"]
+    if not isinstance(consumed, list) \
+            or any(not isinstance(c, str) for c in consumed):
+        raise ValueError("run consumed_refs must be a string list")
+    entered = payload["entered_at"]
+    if not isinstance(entered, Mapping):
+        raise ValueError("run entered_at must be an object")
+    entered_at: dict[str, float] = {}
+    for key, value in entered.items():
+        if not isinstance(key, str) or isinstance(value, bool) \
+                or not isinstance(value, (int, float)):
+            raise ValueError("run entered_at must map str -> epoch seconds")
+        entered_at[key] = float(value)
+    try:
+        return IncidentRun(
+            incident_id=payload["incident_id"],
+            state=payload["state"],
+            history=history,
+            handoffs=_dict_list(payload["handoffs"], "handoffs"),
+            suppressions=_dict_list(payload["suppressions"], "suppressions"),
+            replans=replans,
+            rolled_back=rolled_back,
+            permit=_permit_from_json(payload["permit"]),
+            consumed_refs=set(consumed),
+            entered_at=entered_at,
+        )
+    except ValueError:
+        raise
+    except Exception as exc:
+        raise ValueError(f"run entry invalid: {exc}") from exc
+
+
+def _read_store(path: Path) -> dict[str, IncidentRun]:
+    """Validate the whole file into staged runs (no live-dict side effects).
+
+    Raises ValueError on any corrupt entry (never partial); FileNotFoundError
+    when missing; ValueError when unreadable. Key/entry incident mismatch
+    fails closed (same discipline as the audit chain owner check).
+    """
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        raise
+    except OSError as exc:
+        raise ValueError(f"runs file unreadable: {exc}") from exc
+    try:
+        raw = json.loads(text)
+    except ValueError as exc:
+        raise ValueError(f"runs file corrupt: {exc}") from exc
+    if not isinstance(raw, dict):
+        raise ValueError("runs file corrupt: top-level object required")
+    staged: dict[str, IncidentRun] = {}
+    for incident_id, item in raw.items():
+        run = _run_from_json(item)
+        if incident_id != run.incident_id:
+            raise ValueError(
+                f"runs file key {incident_id!r} mismatches "
+                f"entry {run.incident_id!r}")
+        staged[incident_id] = run
+    return staged
+
+
+def save_store(path: str | Path | None = None) -> Path:
+    """Persist REPO_STORE to JSON (atomic tmp+rename; Lane 2 loop 4)."""
+    out = Path(path) if path is not None else STORE_PATH
+    out.parent.mkdir(parents=True, exist_ok=True)
+    payload = {iid: _run_to_json(run) for iid, run in REPO_STORE.items()}
+    text = json.dumps(payload, sort_keys=True)
+    tmp = tempfile.NamedTemporaryFile(
+        mode="w", encoding="utf-8", dir=str(out.parent),
+        prefix=out.name + ".", suffix=".tmp", delete=False)
+    try:
+        tmp.write(text + "\n")
+        tmp.flush()
+        os.fsync(tmp.fileno())
+        tmp.close()
+        os.replace(tmp.name, out)
+    except OSError:
+        try:
+            os.unlink(tmp.name)
+        except OSError:
+            pass
+        raise
+    return out
+
+
+def load_store(path: str | Path | None = None) -> list[str]:
+    """Full restore of REPO_STORE (explicit load: validate-all, then replace).
+
+    Raises ValueError on any garbage (fail-closed, never partial-load).
+    """
+    staged = _read_store(Path(path) if path is not None else STORE_PATH)
+    REPO_STORE.clear()
+    REPO_STORE.update(staged)
+    return sorted(staged)
+
+
+def _ensure_loaded(incident_id: str | None = None) -> None:
+    """Auto-load on miss when the file exists (restart resume; Lane 2).
+
+    Empty memory restores the whole file; a miss against warm memory merges
+    file-only runs without clobbering live state. Corrupt files raise
+    (fail-closed); a raced deletion stays memory-only.
+    """
+    if incident_id is not None and incident_id in REPO_STORE:
+        return
+    if not STORE_PATH.is_file():
+        return
+    if not REPO_STORE:
+        try:
+            load_store()
+        except FileNotFoundError:
+            pass  # raced deletion between is_file and read
+        return
+    if incident_id is None:
+        return
+    try:
+        staged = _read_store(STORE_PATH)
+    except FileNotFoundError:
+        pass  # raced deletion between is_file and read
+    else:
+        for key, run in staged.items():
+            REPO_STORE.setdefault(key, run)
+
+
+def _save_best_effort() -> None:
+    """Auto-save after mutations; durability must never fail the request."""
+    try:
+        save_store()
+    except OSError:
+        pass
 
 
 class RepoExists(FsmError):
@@ -103,14 +361,21 @@ def http_status(exc: Exception) -> int:
 
 
 def create_run(incident_id: str, now: float | None = None) -> IncidentRun:
+    _ensure_loaded()
     if incident_id in REPO_STORE:
         raise RepoExists(f"run already open: {incident_id}")
     run = fsm_svc.new_run(incident_id, now=now)
     REPO_STORE[incident_id] = run
+    _save_best_effort()
     return run
 
 
 def get_run(incident_id: str) -> IncidentRun:
+    try:
+        return REPO_STORE[incident_id]
+    except KeyError:
+        pass
+    _ensure_loaded(incident_id)
     try:
         return REPO_STORE[incident_id]
     except KeyError as exc:
@@ -119,6 +384,7 @@ def get_run(incident_id: str) -> IncidentRun:
 
 def list_runs() -> list[dict[str, Any]]:
     """Queue summaries for the Command Center (M19a queue)."""
+    _ensure_loaded()
     return [{"incident_id": run.incident_id, "state": run.state,
              "history_len": len(run.history)}
             for run in REPO_STORE.values()]
@@ -178,6 +444,7 @@ def advance_run(incident_id: str, to: str, *, reason: str = "",
         raise PermitRejected("approval credential only valid on APPROVED")
     state = fsm_svc.advance(run, to, reason=reason, refs=list(refs),
                             permit=permit, now=now)
+    _save_best_effort()
     view = run_view(run)
     view["duplicate"] = False
     if idempotency_key is not None:
@@ -228,6 +495,7 @@ def sweep_run(incident_id: str, now: float, stage_ttl: float | None = None,
     if approval_ttl is not None:
         kwargs["approval_ttl"] = float(approval_ttl)
     escalated = fsm_svc.sweep(run, float(now), **kwargs)
+    _save_best_effort()
     view = run_view(run)
     view["escalated"] = escalated
     return view
@@ -272,20 +540,37 @@ def report_run(store: session_mod.SessionStore, client: Any,
                valid_evidence_ids: Sequence[str],
                remediation_log: Sequence[str],
                prevention: Sequence[str],
-               evidence_by_id: Mapping[str, Any] | None = None) -> dict[str, Any]:
+               evidence_by_id: Mapping[str, Any] | None = None,
+               legacy_draft: bool = False) -> dict[str, Any]:
+    """A4 draft via the run layer (Lane-1 handoff: hardened by default).
+
+    Draft-only helper: hardened coverage unless the caller explicitly opts
+    into legacy_draft (visible, auditable choice). Publication always goes
+    through pipeline.publish_rca (hardened-only).
+    """
     claim_objs = [Claim(**dict(c)) for c in claims]
     out = A4.run_report(incident_id, list(timeline), root_cause, claim_objs,
                         set(str(e) for e in valid_evidence_ids),
                         list(remediation_log), list(prevention),
-                        client, store, evidence_by_id=evidence_by_id)
+                        client, store, evidence_by_id=evidence_by_id,
+                        legacy_draft=legacy_draft)
     return out.model_dump(mode="json")
 
 
 def reset_demo_state() -> None:
-    """Test/demo helper: clear in-memory runs, sessions, idempotency."""
+    """Test/demo helper: clear in-memory runs, sessions, idempotency.
+
+    Also deletes the persisted ``var/runs.json`` file so file state cannot
+    leak across tests (same two-layer discipline as the audit router).
+    Never call in production.
+    """
     REPO_STORE.clear()
     IDEM_RESPONSES.clear()
     SESSIONS.reset()
+    try:
+        STORE_PATH.unlink(missing_ok=True)
+    except OSError:
+        pass
 
 
 # ---------------------------------------------------------------------------

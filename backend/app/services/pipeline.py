@@ -339,7 +339,8 @@ def draft_rca(incident_id: str, run: Any, diagnosis: Any, root_cause: str,
               claims: Sequence[Any], timeline_rows: Sequence[str],
               remediation_log: Sequence[str], prevention: Sequence[str],
               valid_evidence_ids: set[str] | frozenset[str], client: Any,
-              store: Any, evidence_by_id: Mapping[str, Any] | None = None
+              store: Any, evidence_by_id: Mapping[str, Any] | None = None,
+              *, legacy_draft: bool = False, chain: Any = None
               ) -> Any:
     """RCA draft from pipeline artifacts (M21.7): gate over INDEPENDENT ids.
 
@@ -347,15 +348,32 @@ def draft_rca(incident_id: str, run: Any, diagnosis: Any, root_cause: str,
     from the claims themselves -- deriving validity from cited ids would
     make the gate vacuous. Timeline rows come from the fsm history.
     evidence_by_id enables the hardened path (freshness/trust/seal per
-    citation); omit only for the legacy draft flow -- publication always
-    requires it (publish_rca).
+    citation); the legacy membership-only path requires explicit
+    ``legacy_draft=True`` (fail closed by default) -- publication always
+    requires the mapping (publish_rca).
     """
     from agents import reporter as reporter_mod
     _ = (run, diagnosis)
-    return reporter_mod.run_report(
+    if evidence_by_id is None and not legacy_draft:
+        raise PipelineFailed(
+            "legacy draft denied: pass evidence_by_id mapping for the "
+            "hardened path or opt in explicitly with legacy_draft=True")
+    draft = reporter_mod.run_report(
         incident_id, list(timeline_rows), root_cause, list(claims),
         set(valid_evidence_ids), list(remediation_log), list(prevention),
-        client, store, evidence_by_id=evidence_by_id)
+        client, store, evidence_by_id=evidence_by_id,
+        legacy_draft=legacy_draft)
+    if chain is not None:
+        try:
+            coverage = reporter_mod._coverage(
+                list(claims), set(valid_evidence_ids), evidence_by_id)
+        except Exception:
+            coverage = 0.0
+        chain.emit("rca.draft", actor="control-plane",
+                   evidence_ids=sorted(set(str(e) for e in valid_evidence_ids)),
+                   result=(f"draft coverage {coverage:.2f} "
+                           f"legacy={legacy_draft} gated={draft.gated}"))
+    return draft
 
 
 def publish_rca(incident_id: str, claims: Sequence[Any],
