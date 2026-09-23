@@ -5,10 +5,12 @@ and agents/*; handlers validate shape, map errors to typed HTTP codes, and
 pass through. No policy/crypto/execution logic here.
 
 Deliberately NOT exposed (owning modules): approve/reject (M15 HITL API),
-execute_action (M08 sandbox), auth guard matrix (M21 -- runs are in-memory
-demo state with no infra side effects, and EXECUTING still demands a permit
-credential in-body). Singletons REPO/STORE are demo-scope; persistence is
-M21's job.
+execute_action (M08 sandbox). Mutating handlers require X-API-Key (M21
+guard matrix); APPROVED additionally requires an HMAC-bound approval
+(approval_id + token + actor verified against the STORED M07 request --
+client JSON never mints permits, P0-1). Every accepted transition is
+recorded into the incident audit chain (P0-2). Singletons REPO/STORE are
+demo-scope; file-backed nonce durability is M07's job.
 
 Pure functions (create_run/run_view/advance_run/sweep_run/triage_run/...)
 carry all logic and are unit-tested without HTTP; the @router wrappers only
@@ -137,27 +139,28 @@ def run_view(run: IncidentRun) -> dict[str, Any]:
     }
 
 
-def _permit_from(payload: Mapping[str, Any] | None) -> Permit | None:
-    if payload is None:
-        return None
-    if not isinstance(payload, Mapping):
-        raise PermitRejected("permit must be a mapping")
-    try:
-        return Permit(action_id=str(payload["action_id"]),
-                      params_hash=str(payload["params_hash"]),
-                      expires_at=float(payload["expires_at"]),
-                      token_ref=str(payload["token_ref"]),
-                      auto=bool(payload.get("auto", False)))
-    except (KeyError, TypeError, ValueError) as exc:
-        raise PermitRejected(f"malformed permit: {exc}") from exc
+def _record_fsm(incident_id: str, run: IncidentRun) -> int:
+    """Chain every banked FSM record (P0-2: no silent transitions)."""
+    from app.routers import audit as audit_router
+    from app.services import audit as audit_mod
+    chain = audit_router.get_or_create_chain(incident_id)
+    return audit_mod.record_fsm(chain, fsm_svc.audit_records(run))
 
 
 def advance_run(incident_id: str, to: str, *, reason: str = "",
                 refs: Sequence[str] = (),
-                permit: Mapping[str, Any] | None = None,
+                approval: Mapping[str, Any] | None = None,
+                approval_secret: str | None = None,
                 idempotency_key: str | None = None,
                 now: float | None = None) -> dict[str, Any]:
-    """Guarded transition with HTTP idempotency (M14.5 over HTTP)."""
+    """Guarded transition with HTTP idempotency (M14.5 over HTTP).
+
+    APPROVED edges require an HMAC-bound approval: ``approval`` must carry
+    ``approval_id`` + ``token`` + ``actor`` from a STORED, human-approved
+    M07 request, verified with ``approval_secret``. Raw client permits are
+    never accepted (P0-1: the client cannot authorize itself). Credentials
+    on any other edge are rejected.
+    """
     run = get_run(incident_id)
     if idempotency_key is not None:
         if not isinstance(idempotency_key, str) or not idempotency_key.strip():
@@ -167,14 +170,44 @@ def advance_run(incident_id: str, to: str, *, reason: str = "",
             cached = dict(IDEM_RESPONSES[cache_key])
             cached["duplicate"] = True
             return cached
+    permit: Permit | None = None
+    if to == "APPROVED":
+        permit = _bound_permit(approval, approval_secret, now)
+    elif approval is not None:
+        raise PermitRejected("approval credential only valid on APPROVED")
     state = fsm_svc.advance(run, to, reason=reason, refs=list(refs),
-                            permit=_permit_from(permit), now=now)
+                            permit=permit, now=now)
     view = run_view(run)
     view["duplicate"] = False
     if idempotency_key is not None:
         IDEM_RESPONSES[(incident_id, to, idempotency_key)] = dict(view)
     _ = state
     return view
+
+
+def _bound_permit(approval: Mapping[str, Any] | None,
+                  secret: str | None, now: float | None) -> Permit:
+    """Resolve an APPROVED credential via the stored M07 approval (P0-1)."""
+    from app.routers import approvals as approvals_router
+    if not isinstance(approval, Mapping):
+        raise PermitRejected(
+            "APPROVED requires an HMAC-bound approval "
+            "(approval_id + token + actor)")
+    try:
+        approval_id = str(approval["approval_id"])
+        token = str(approval["token"])
+        actor = str(approval["actor"])
+    except KeyError as exc:
+        raise PermitRejected(
+            f"approval credential missing {exc} (no raw permits accepted)"
+        ) from exc
+    if not isinstance(secret, str) or not secret:
+        raise PermitRejected("APPROVED requires the server approval secret")
+    try:
+        return approvals_router.verified_permit(
+            approval_id, token, actor, secret, now)
+    except Exception as exc:
+        raise PermitRejected(f"approval binding failed: {exc}") from exc
 
 
 def sweep_run(incident_id: str, now: float, stage_ttl: float | None = None,
@@ -229,12 +262,13 @@ def report_run(store: session_mod.SessionStore, client: Any,
                claims: Sequence[Mapping[str, Any]],
                valid_evidence_ids: Sequence[str],
                remediation_log: Sequence[str],
-               prevention: Sequence[str]) -> dict[str, Any]:
+               prevention: Sequence[str],
+               evidence_by_id: Mapping[str, Any] | None = None) -> dict[str, Any]:
     claim_objs = [Claim(**dict(c)) for c in claims]
     out = A4.run_report(incident_id, list(timeline), root_cause, claim_objs,
                         set(str(e) for e in valid_evidence_ids),
                         list(remediation_log), list(prevention),
-                        client, store)
+                        client, store, evidence_by_id=evidence_by_id)
     return out.model_dump(mode="json")
 
 
@@ -260,7 +294,7 @@ class AdvanceBody(BaseModel):
     to: str = Field(min_length=1, max_length=32)
     reason: str = Field(default="", max_length=1024)
     refs: list[str] = Field(default_factory=list, max_length=64)
-    permit: dict[str, Any] | None = None
+    approval: dict[str, Any] | None = None
     idempotency_key: str | None = Field(default=None, max_length=128)
 
 
@@ -279,7 +313,17 @@ def _guarded(fn: Any, *args: Any, **kwargs: Any) -> Any:
                             detail=str(exc)) from exc
 
 
-def http_create(body: CreateBody) -> dict[str, Any]:
+def _require_key(x_api_key: str | None) -> None:
+    from app.config import get_settings  # noqa: E402 (request-time only)
+    from app.routers import auth as auth_mod
+    auth_mod.guard_http(
+        x_api_key, lambda: get_settings().PROOFOPS_API_KEY, HTTPException)
+
+
+def http_create(body: CreateBody,
+                x_api_key: str | None = Header(default=None)
+                ) -> dict[str, Any]:
+    _require_key(x_api_key)
     run = _guarded(create_run, body.incident_id, body.now)
     return run_view(run)
 
@@ -293,21 +337,29 @@ def http_list() -> list[dict[str, Any]]:
 
 
 def http_advance(incident_id: str, body: AdvanceBody,
-                 x_api_key: str | None = Header(default=None)
-                 ) -> dict[str, Any]:
+                  x_api_key: str | None = Header(default=None)
+                  ) -> dict[str, Any]:
     from app.config import get_settings  # noqa: E402 (request-time only)
     from app.routers import auth as auth_mod
     auth_mod.guard_http(
         x_api_key, lambda: get_settings().PROOFOPS_API_KEY, HTTPException)
-    return _guarded(advance_run, incident_id, body.to, reason=body.reason,
-                    refs=body.refs, permit=body.permit,
+    view = _guarded(advance_run, incident_id, body.to, reason=body.reason,
+                    refs=body.refs, approval=body.approval,
+                    approval_secret=get_settings().APPROVAL_SECRET,
                     idempotency_key=body.idempotency_key)
+    _guarded(_record_fsm, incident_id, get_run(incident_id))
+    return view
 
 
-def http_sweep(incident_id: str, body: SweepBody) -> dict[str, Any]:
-    return _guarded(sweep_run, incident_id, body.now,
+def http_sweep(incident_id: str, body: SweepBody,
+               x_api_key: str | None = Header(default=None)
+               ) -> dict[str, Any]:
+    _require_key(x_api_key)
+    view = _guarded(sweep_run, incident_id, body.now,
                     stage_ttl=body.stage_ttl,
                     approval_ttl=body.approval_ttl)
+    _guarded(_record_fsm, incident_id, get_run(incident_id))
+    return view
 
 
 if router is not None:  # container path; host asserts wiring via AST

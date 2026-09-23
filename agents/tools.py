@@ -21,7 +21,11 @@ from typing import Any, Callable, Mapping
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 
 from agents import AGENTS  # noqa: E402 (M13 workforce map)
-from agents.schemas import ToolDenied, ToolUnavailable  # noqa: E402
+from agents.schemas import (  # noqa: E402
+    MAX_TOOLS_PER_AGENT,
+    ToolDenied,
+    ToolUnavailable,
+)
 from app.services.runbooks import load_runbook  # noqa: E402 (M11 loader)
 
 
@@ -86,6 +90,20 @@ ACL: dict[str, frozenset[str]] = {
 Provider = Callable[[dict[str, Any]], Any]
 _PROVIDERS: dict[str, Provider] = {}
 
+#: Per-agent tool-call counts (spec: tools <= 5/agent). The control plane
+#: resets per incident; tests reset via reset_tool_counts().
+_TOOL_COUNTS: dict[str, int] = {}
+
+
+def reset_tool_counts() -> None:
+    """Forget per-agent tool-call counts (incident boundary / tests)."""
+    _TOOL_COUNTS.clear()
+
+
+def tool_calls(agent: str) -> int:
+    """Measured tool calls by one agent since the last reset."""
+    return _TOOL_COUNTS.get(agent, 0)
+
 
 def _check_agent(agent: str) -> str:
     if agent not in AGENTS:
@@ -146,8 +164,20 @@ def _check_args(spec: ToolSpec, args: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def invoke(agent: str, tool: str, args: Mapping[str, Any]) -> Any:
-    """ACL-checked, provider-backed tool call (reads only, M13)."""
+    """ACL-checked, provider-backed tool call (reads only, M13).
+
+    Enforces the per-agent tool budget (P1 fix): more than
+    MAX_TOOLS_PER_AGENT attempts denies instead of looping forever.
+    Authorization failures never consume budget; every authorized attempt
+    does (invalid-arg loops are bounded too).
+    """
     spec = check_acl(agent, tool)
+    used = _TOOL_COUNTS.get(agent, 0) + 1
+    if used > MAX_TOOLS_PER_AGENT:
+        raise ToolDenied(
+            f"agent {agent!r} exceeded tool budget "
+            f"({MAX_TOOLS_PER_AGENT}/agent)")
+    _TOOL_COUNTS[agent] = used
     checked = _check_args(spec, args)
     provider = _PROVIDERS.get(tool)
     if provider is None:

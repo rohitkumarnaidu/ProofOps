@@ -48,6 +48,8 @@ REQUIRED_EXTRAS: dict[str, tuple[str, ...]] = {
     "approval.approve": ("approval_id",),
     "approval.deny": ("approval_id",),
     "approval.expire": ("approval_id",),
+    "approval.rejected": ("approval_id",),
+    "permit.minted": ("approval_id", "action_id"),
     "execution.start": ("action_id", "execution_id"),
     "execution.finish": ("action_id", "execution_id"),
     "execution.duplicate-suppressed": ("action_id", "execution_id"),

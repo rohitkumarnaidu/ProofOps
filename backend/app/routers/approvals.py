@@ -26,6 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from app.services import approval as approval_svc  # noqa: E402 (M07 tokens)
+from app.services.fsm import Permit  # noqa: E402 (M14 credential, no cycle)
 from app.services.validator import validate_action  # noqa: E402 (M06.1)
 
 try:  # pragma: no cover - container path (pinned deps)
@@ -50,8 +51,17 @@ except Exception:  # host-only drift (AGENTS.md S13.2)
 
 APPROVER_ROLES = frozenset({"approver", "admin"})
 
+#: Permit-freshness ceiling for runs-router APPROVED edges (invariant 19:
+#: execute re-checks permit freshness <= 5m). Stored approval TTL still
+#: governs the human decision; the FSM credential never outlives either.
+PERMIT_FRESHNESS_S = 300.0
+
 REQUESTS: dict[str, dict[str, Any]] = {}
-NONCES = approval_svc.NonceStore()
+NONCE_STORE_PATH = Path(__file__).resolve().parents[3] / "var" / "nonces.jsonl"
+try:
+    NONCES = approval_svc.NonceStore(NONCE_STORE_PATH)
+except OSError:
+    NONCES = approval_svc.NonceStore()
 IDEM_RESPONSES: dict[tuple[str, str], dict[str, Any]] = {}
 
 
@@ -192,7 +202,11 @@ def approve_approval(approval_id: str, actor: str, token: str, role: str,
                 _emit(chain, "approval.expire", entry, actor, message)
                 raise ApprovalExpired(message) from exc
             if "replay" in message:
+                _emit(chain, "approval.rejected", entry, actor,
+                      f"replay rejected: {message}")
                 raise ApprovalReplayed(message) from exc
+            _emit(chain, "approval.rejected", entry, actor,
+                  f"verify rejected: {message}")
             raise ApprovalDenied(message) from exc
         entry["status"] = "approved"
         _emit(chain, "approval.approve", entry, actor,
@@ -236,10 +250,63 @@ def sweep_approvals(now: float, chain: Any = None) -> list[str]:
     return expired
 
 
+def verified_permit(approval_id: str, token: str, actor: str,
+                    secret: str, now: float | None = None,
+                    chain: Any = None) -> Permit:
+    """HMAC-bound FSM credential for an APPROVED edge (P0-1 fix).
+
+    The runs router must never mint permits from client JSON. This binds
+    the credential to a STORED, human-approved request: entry must exist,
+    status must be "approved", and crypto (signature, actor, exact params
+    hash, scope, expiry, nonce burn) must verify via M07. Expiry is capped
+    at now + PERMIT_FRESHNESS_S (invariant 19). Raises ApprovalMissing /
+    ApprovalDenied / ApprovalReplayed / ApprovalExpired (=> 404/403/409/410).
+    """
+    entry = _entry(approval_id)
+    if entry["status"] != "approved":
+        raise ApprovalDenied(
+            f"approval is {entry['status']}, not approved (human decision "
+            "required before APPROVED)")
+    req, action = entry["request"], entry["action"]
+    try:
+        # Crypto/binding check only: the approve step already burned the
+        # approval nonce. Minting burns its own derived nonce below, so one
+        # approval mints at most one permit (single-use end to end).
+        approval_svc.verify(token, req, action, actor, secret, NONCES,
+                            burn=False)
+    except approval_svc.ApprovalError as exc:
+        message = str(exc).lower()
+        if "expired" in message:
+            entry["status"] = "expired"
+            _emit(chain, "approval.expire", entry, actor, message)
+            raise ApprovalExpired(message) from exc
+        if "replay" in message:
+            _emit(chain, "approval.rejected", entry, actor,
+                  f"replay rejected: {message}")
+            raise ApprovalReplayed(message) from exc
+        _emit(chain, "approval.rejected", entry, actor,
+              f"verify rejected: {message}")
+        raise ApprovalDenied(message) from exc
+    if not NONCES.consume(req.nonce + ":permit"):
+        _emit(chain, "approval.rejected", entry, actor,
+              "permit already minted for this approval (replay)")
+        raise ApprovalReplayed(
+            "permit already minted for this approval (replay)")
+    ts = time.time() if now is None else float(now)
+    expiry = min(req.expires_at.timestamp(), ts + PERMIT_FRESHNESS_S)
+    permit = Permit(action_id=req.action_id, params_hash=req.params_hash,
+                    expires_at=expiry, token_ref=approval_id, auto=False)
+    if chain is not None:
+        chain.emit("permit.minted", actor=actor,
+                   approval_id=approval_id, action_id=req.action_id,
+                   result=f"bound permit for {req.action_id}")
+    return permit
+
+
 def reset_demo_state() -> None:
     REQUESTS.clear()
     IDEM_RESPONSES.clear()
-    NONCES._used.clear()
+    NONCES.clear()
 
 
 class ApprovalBody(BaseModel):
@@ -271,9 +338,23 @@ def _settings_secret() -> str:
     return get_settings().APPROVAL_SECRET
 
 
-def http_request(body: ApprovalBody) -> dict[str, Any]:
+def _chain_for(incident_id: str) -> Any:
+    """Serving-path chain (P0-2: HTTP approvals emit, never silent)."""
+    from app.routers import audit as audit_router
+    if isinstance(incident_id, str) and incident_id.strip():
+        return audit_router.get_or_create_chain(incident_id.strip())
+    return None
+
+
+def http_request(body: ApprovalBody,
+                 x_api_key: str | None = Header(default=None)
+                 ) -> dict[str, Any]:
+    _require_key(x_api_key)
+    incident = body.action.get("incident_id", "") \
+        if isinstance(body.action, dict) else ""
     return _guarded(request_approval, body.action, body.actor,
-                    _settings_secret(), body.ttl_seconds)
+                    _settings_secret(), body.ttl_seconds,
+                    _chain_for(incident))
 
 
 def http_view(approval_id: str) -> dict[str, Any]:
@@ -287,12 +368,22 @@ def _require_key(x_api_key: str | None) -> None:
         x_api_key, lambda: get_settings().PROOFOPS_API_KEY, HTTPException)
 
 
+def _chain_for_approval(approval_id: str) -> Any:
+    """Chain of the incident owning this approval (unknown id: none)."""
+    try:
+        incident = REQUESTS[approval_id]["request"].incident_id
+    except KeyError:
+        return None
+    return _chain_for(incident)
+
+
 def http_approve(approval_id: str, body: DecideBody,
                  x_api_key: str | None = Header(default=None)
                  ) -> dict[str, Any]:
     _require_key(x_api_key)
     return _guarded(approve_approval, approval_id, body.actor, body.token,
-                    body.role, _settings_secret(), body.idempotency_key)
+                    body.role, _settings_secret(), body.idempotency_key,
+                    _chain_for_approval(approval_id))
 
 
 def http_reject(approval_id: str, body: DecideBody,
@@ -300,7 +391,8 @@ def http_reject(approval_id: str, body: DecideBody,
                 ) -> dict[str, Any]:
     _require_key(x_api_key)
     return _guarded(reject_approval, approval_id, body.actor, body.role,
-                    body.reason, body.idempotency_key)
+                    body.reason, body.idempotency_key,
+                    _chain_for_approval(approval_id))
 
 
 if router is not None:  # container path; host asserts wiring via AST

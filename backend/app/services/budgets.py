@@ -139,16 +139,21 @@ class Ledger:
 
 
 def assert_budgets(ledger: Ledger) -> dict[str, Any]:
-    """C4 gate over measured ledger totals (M20.1): strict spec bounds."""
+    """C4 gate over measured ledger totals (M20.1): spec bounds.
+
+    Bounds are INCLUSIVE (<=): the control plane permits exactly
+    TOKENS_LT tokens / CALLS_LT calls / CTX_LT context (P1 off-by-one fix:
+    a ledger at exactly the permitted budget passes).
+    """
     if not isinstance(ledger, Ledger):
         raise BudgetError("assert_budgets needs a Ledger")
-    checks = {"tokens": ledger.tokens < TOKENS_LT,
-              "calls": ledger.llm_calls < CALLS_LT,
-              "ctx": ledger.ctx_max < CTX_LT}
+    checks = {"tokens": ledger.tokens <= TOKENS_LT,
+              "calls": ledger.llm_calls <= CALLS_LT,
+              "ctx": ledger.ctx_max <= CTX_LT}
     notes: dict[str, str] = {
-        "tokens": f"{ledger.tokens} < {TOKENS_LT}",
-        "calls": f"{ledger.llm_calls} < {CALLS_LT}",
-        "ctx": f"{ledger.ctx_max} < {CTX_LT}"}
+        "tokens": f"{ledger.tokens} <= {TOKENS_LT}",
+        "calls": f"{ledger.llm_calls} <= {CALLS_LT}",
+        "ctx": f"{ledger.ctx_max} <= {CTX_LT}"}
     rate = ledger.cache_rate
     if rate is None:
         notes["cache"] = "no retrieval calls (skipped, not passed)"

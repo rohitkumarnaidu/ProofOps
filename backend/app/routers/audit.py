@@ -19,12 +19,17 @@ from app.services import audit as audit_svc  # noqa: E402 (M15 chain)
 
 try:  # pragma: no cover - container path (pinned deps)
     from fastapi import APIRouter as _APIRouter
+    from fastapi import Header as _Header
     from fastapi import HTTPException as _HTTPException
     _APIRouter(prefix="/__probe__")
     router = _APIRouter(tags=["audit"])
     HTTPException = _HTTPException
+    Header = _Header
 except Exception:  # host-only drift (AGENTS.md S13.2)
     router = None  # type: ignore[assignment]
+
+    def Header(default: object = None, **kwargs: object) -> object:  # type: ignore[no-redef]
+        return default
 
     class HTTPException(Exception):  # type: ignore[no-redef]
         def __init__(self, status_code: int = 500, detail: str = "") -> None:
@@ -94,12 +99,24 @@ def _guarded(fn: Any, *args: Any, **kwargs: Any) -> Any:
 
 
 def _chain_of(incident_id: str) -> audit_svc.AuditChain:
+    return get_or_create_chain(incident_id)
+
+
+def get_or_create_chain(incident_id: str) -> audit_svc.AuditChain:
+    """Serving-path chain accessor (P0-2: HTTP layers chain, never None)."""
     if incident_id not in CHAINS:
         CHAINS[incident_id] = audit_svc.AuditChain(incident_id=incident_id)
     return CHAINS[incident_id]
 
 
-def http_emit(incident_id: str, body: EmitBody) -> dict[str, Any]:
+def http_emit(incident_id: str, body: EmitBody,
+              x_api_key: str | None = Header(default=None)
+              ) -> dict[str, Any]:
+    """External appends require the demo key (P1: no open chain pollution)."""
+    from app.config import get_settings  # noqa: E402 (request-time only)
+    from app.routers import auth as auth_mod
+    auth_mod.guard_http(
+        x_api_key, lambda: get_settings().PROOFOPS_API_KEY, HTTPException)
     event = _guarded(_chain_of(incident_id).emit, body.event_type,
                      actor=body.actor, agent=body.agent,
                      input_hash=body.input_hash,

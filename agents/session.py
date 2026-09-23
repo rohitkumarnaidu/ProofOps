@@ -42,6 +42,7 @@ class Session:
     llm_calls: int = 0
     compacted: int = 0
     compacted_head: str = ""
+    _store: Any = field(default=None, repr=False, compare=False)
 
     @property
     def session_id(self) -> str:
@@ -49,10 +50,15 @@ class Session:
         return self.incident_id
 
     def record_call(self) -> int:
+        store = self._store
+        if store is not None:
+            store._pre_call(self.incident_id)  # aggregate first: no drift
         if self.llm_calls >= MAX_LLM_CALLS_PER_INCIDENT:
             raise BudgetExceeded(
                 f"LLM call budget exhausted ({MAX_LLM_CALLS_PER_INCIDENT}/incident)")
         self.llm_calls += 1
+        if store is not None:
+            store._note_call(self.incident_id)
         return self.llm_calls
 
     def append(self, role: str, content: str) -> None:
@@ -99,10 +105,36 @@ class Session:
 
 
 class SessionStore:
-    """Per-incident sessions with JSON resume (fail-closed on corruption)."""
+    """Per-incident sessions with JSON resume (fail-closed on corruption).
+
+    Enforces the per-INCIDENT aggregate call budget (P1 fix): sessions are
+    keyed per (incident, agent) but record_call() also counts toward the
+    incident total, so four agents cannot each spend 12 calls.
+    """
 
     def __init__(self) -> None:
         self._sessions: dict[tuple[str, str], Session] = {}
+        self._incident_calls: dict[str, int] = {}
+
+    def _pre_call(self, incident_id: str) -> None:
+        """Fail BEFORE any counter moves (no post-raise accounting drift)."""
+        if self._incident_calls.get(incident_id, 0) \
+                >= MAX_LLM_CALLS_PER_INCIDENT:
+            raise BudgetExceeded(
+                "incident LLM budget exhausted "
+                f"({MAX_LLM_CALLS_PER_INCIDENT}/incident across agents)")
+
+    def _note_call(self, incident_id: str) -> None:
+        total = self._incident_calls.get(incident_id, 0) + 1
+        if total > MAX_LLM_CALLS_PER_INCIDENT:
+            raise BudgetExceeded(
+                "incident LLM budget exhausted "
+                f"({MAX_LLM_CALLS_PER_INCIDENT}/incident across agents)")
+        self._incident_calls[incident_id] = total
+
+    def incident_calls(self, incident_id: str) -> int:
+        """Measured LLM calls across all agents for one incident."""
+        return self._incident_calls.get(incident_id, 0)
 
     def get_or_create(self, incident_id: str, agent: str) -> Session:
         if not isinstance(incident_id, str) or not incident_id.strip():
@@ -112,13 +144,19 @@ class SessionStore:
         key = (incident_id, agent)
         if key not in self._sessions:
             self._sessions[key] = Session(incident_id=incident_id, agent=agent)
-        return self._sessions[key]
+        session = self._sessions[key]
+        session._store = self
+        return session
 
     def get(self, incident_id: str, agent: str) -> Session | None:
-        return self._sessions.get((incident_id, agent))
+        session = self._sessions.get((incident_id, agent))
+        if session is not None:
+            session._store = self  # rebind: get() enforces like get_or_create
+        return session
 
     def reset(self) -> None:
         self._sessions.clear()
+        self._incident_calls.clear()
 
     def save_json(self, path: str | Path) -> Path:
         out = Path(path)
@@ -160,7 +198,12 @@ class SessionStore:
             session.llm_calls = llm_calls
             session.compacted = compacted
             session.compacted_head = compacted_head
+            session._store = self
             count += 1
+        self._incident_calls = {}
+        for (incident_id, _), session in self._sessions.items():
+            self._incident_calls[incident_id] = \
+                self._incident_calls.get(incident_id, 0) + session.llm_calls
         return count
 
     def to_plain(self) -> dict[str, Any]:

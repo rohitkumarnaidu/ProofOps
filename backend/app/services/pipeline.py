@@ -32,6 +32,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from agents import diagnostic as A2  # noqa: E402 (M13.3)
 from agents import planner as A3  # noqa: E402 (M13.4)
 from agents import session as session_mod  # noqa: E402 (M13.7 sessions)
+from agents import tools as tools_mod  # noqa: E402 (M13 budgets per run)
 from agents import triage as A1  # noqa: E402 (M13.2)
 from app.contracts.values import params_hash  # noqa: E402 (scope binding)
 from app.services import audit as audit_mod  # noqa: E402 (M15 recording)
@@ -66,6 +67,10 @@ class PipelineStalled(PipelineError):
 
 class PipelineFailed(PipelineError):
     """Unexpected failure (bug signal, never an expected outcome)."""
+
+
+class RcaDenied(PipelineError):
+    """RCA publication denied: MUST-CITE coverage below 1.0 (audited)."""
 
 
 def _now(now: float | None) -> float:
@@ -108,12 +113,17 @@ def run_pipeline(incident_id: str, alerts: Sequence[Mapping[str, Any]],
     ts = _now(now)
     blast = dict(DEMO_BLAST if blast is None else blast)
     run = fsm_svc.new_run(incident_id, now=ts)
+    tools_mod.reset_tool_counts()  # incident boundary: budgets restart here
+    if chain is None:
+        # P0-2: audit emission is mandatory, never opt-in. A caller-supplied
+        # chain (e.g. the HTTP layer's per-incident chain) still wins.
+        chain = audit_mod.AuditChain(incident_id=incident_id)
     after_err: float | None = None
 
     def _stop(exc: PipelineError) -> PipelineError:
         exc.run = run  # type: ignore[attr-defined]
-        if chain is not None:
-            audit_mod.record_fsm(chain, fsm_svc.audit_records(run))
+        exc.audit_chain = chain  # type: ignore[attr-defined]
+        audit_mod.record_fsm(chain, fsm_svc.audit_records(run))
         return exc
 
     def _walk(*states: str) -> None:
@@ -155,14 +165,27 @@ def run_pipeline(incident_id: str, alerts: Sequence[Mapping[str, Any]],
         raise _stop(PipelineBlocked(f"validator rejected: {issues}"))
     bundle = policy_svc.load_bundle()
     matrix = policy_svc.load_matrix()
-    decision = str(policy_svc.evaluate(
+    evaluation = policy_svc.evaluate(
         action, dict(APPROVER), {"environment": resource.get("environment",
-                                                             env)},
-        str(triage.severity), blast, bundle, matrix).decision)
+                                                              env)},
+        str(triage.severity), blast, bundle, matrix)
+    decision = str(evaluation.decision)
+    def _decide(kind: str) -> None:
+        chain.emit("policy.decision", actor="control-plane",
+                   policy={"version": getattr(evaluation, "policy_version",
+                                              "unknown"),
+                           "rule": getattr(evaluation, "rule_id", "unknown"),
+                           "result": kind},
+                   action_id=action.action_id,
+                   result=f"{kind}: policy decided {kind} "
+                          f"(rule {getattr(evaluation, 'rule_id', '?')})")
+
     if decision == "DENY":
+        _decide("DENY")
         fsm_svc.advance(run, "BLOCKED", reason="policy DENY", now=ts)
         raise _stop(PipelineBlocked("policy DENY (audited BLOCKED)"))
     if decision == "ESCALATE":
+        _decide("ESCALATE")
         if approval is None:
             # Honest FSM route: wait for a human who never arrives in this
             # call (TTL sweep escalates later); the stall is the report.
@@ -174,6 +197,7 @@ def run_pipeline(incident_id: str, alerts: Sequence[Mapping[str, Any]],
         fsm_svc.advance(run, "AWAITING_APPROVAL", now=ts)
         fsm_svc.advance(run, "APPROVED", permit=permit, now=ts)
     else:
+        _decide("ALLOW")
         permit = _permit_for(action, True, ts,
                              token_ref=f"auto-{action.action_id}")
         fsm_svc.advance(run, "APPROVED", permit=permit, now=ts)
@@ -205,6 +229,8 @@ def run_pipeline(incident_id: str, alerts: Sequence[Mapping[str, Any]],
     verdict_name = str(verdict.value if hasattr(verdict, "value")
                        else verdict)
     verdicts = [verdict_name]
+    chain.emit("verification.verdict", actor="control-plane",
+               execution_id=execution_id, result=verdict_name)
     rolled_back = False
     if verdict_name != "RESOLVED" and should_rollback(verdict_name, 0):
         try:
@@ -231,20 +257,22 @@ def run_pipeline(incident_id: str, alerts: Sequence[Mapping[str, Any]],
             verdict_name = str(verdict2.value
                                if hasattr(verdict2, "value") else verdict2)
             verdicts.append(verdict_name)
+            chain.emit("verification.verdict", actor="control-plane",
+                       execution_id=rb_execution_id, result=verdict_name)
     if verdict_name != "RESOLVED":
         _walk("ESCALATED")
         report = _report(incident_id, "escalated", run, triage, decision,
                          action, execution_id, verdict_name, verdicts,
                          evidence_ids, rolled_back, after_err)
-        if chain is not None:
-            audit_mod.record_fsm(chain, fsm_svc.audit_records(run))
+        report["audit_chain"] = chain
+        audit_mod.record_fsm(chain, fsm_svc.audit_records(run))
         return report
     _walk("RESOLVED")
     report = _report(incident_id, "resolved", run, triage, decision, action,
                      execution_id, verdict_name, verdicts, evidence_ids,
                      rolled_back, after_err)
-    if chain is not None:
-        audit_mod.record_fsm(chain, fsm_svc.audit_records(run))
+    report["audit_chain"] = chain
+    audit_mod.record_fsm(chain, fsm_svc.audit_records(run))
     return report
 
 
@@ -268,19 +296,57 @@ def draft_rca(incident_id: str, run: Any, diagnosis: Any, root_cause: str,
               claims: Sequence[Any], timeline_rows: Sequence[str],
               remediation_log: Sequence[str], prevention: Sequence[str],
               valid_evidence_ids: set[str] | frozenset[str], client: Any,
-              store: Any) -> Any:
+              store: Any, evidence_by_id: Mapping[str, Any] | None = None
+              ) -> Any:
     """RCA draft from pipeline artifacts (M21.7): gate over INDEPENDENT ids.
 
     valid_evidence_ids must come from the evidence pack (measured), never
     from the claims themselves -- deriving validity from cited ids would
     make the gate vacuous. Timeline rows come from the fsm history.
+    evidence_by_id enables the hardened path (freshness/trust/seal per
+    citation); omit only for the legacy draft flow -- publication always
+    requires it (publish_rca).
     """
     from agents import reporter as reporter_mod
     _ = (run, diagnosis)
     return reporter_mod.run_report(
         incident_id, list(timeline_rows), root_cause, list(claims),
         set(valid_evidence_ids), list(remediation_log), list(prevention),
-        client, store)
+        client, store, evidence_by_id=evidence_by_id)
+
+
+def publish_rca(incident_id: str, claims: Sequence[Any],
+                evidence_by_id: Mapping[str, Any],
+                valid_evidence_ids: set[str] | frozenset[str],
+                timeline_rows: Sequence[str], root_cause: str,
+                remediation_log: Sequence[str], prevention: Sequence[str],
+                client: Any, store: Any, chain: Any = None) -> Any:
+    """Gated RCA publication (P0-3: the MUST-CITE gate that enforces).
+
+    Uses ONLY the hardened coverage path (freshness + trust + seal per
+    citation -- no legacy membership fallback). Below-coverage publication
+    is DENIED with an audited rca.publish event (fail-closed, never a
+    silent draft). Returns the ungated RCAReport on success.
+    """
+    from agents import reporter as reporter_mod
+    if evidence_by_id is None:
+        raise PipelineFailed(
+            "publish_rca requires evidence_by_id (hardened path only)")
+    if chain is None:
+        chain = audit_mod.AuditChain(incident_id=incident_id)
+    draft = reporter_mod.run_report(
+        incident_id, list(timeline_rows), root_cause, list(claims),
+        set(valid_evidence_ids), list(remediation_log), list(prevention),
+        client, store, evidence_by_id=evidence_by_id)
+    if draft.gated:
+        chain.emit("rca.publish", actor="control-plane",
+                   evidence_ids=sorted(set(valid_evidence_ids)),
+                   result=f"DENIED: {draft.gate_reason}")
+        raise RcaDenied(f"RCA publication denied: {draft.gate_reason}")
+    chain.emit("rca.publish", actor="control-plane",
+               evidence_ids=sorted(set(valid_evidence_ids)),
+               result=f"published RCA for {incident_id}")
+    return draft
 
 
 def to_eval_trace(report: Mapping[str, Any], tele_public: Mapping[str, Any],
@@ -338,7 +404,12 @@ def to_eval_trace(report: Mapping[str, Any], tele_public: Mapping[str, Any],
 
 def _hitl_permit(action: Any, secret: str, actor: str,
                  now: float, chain: Any = None) -> Permit:
-    """Request + approve through the approvals router pure fns (M19a)."""
+    """Request + approve through the approvals router pure fns (M19a).
+
+    The FSM credential comes from verified_permit (R2 closure): bound to the
+    STORED human-approved request with derived-nonce single-use and the
+    TTL/freshness cap -- never constructed by hand here.
+    """
     from app.routers import approvals as approvals_router
     dumped = action.model_dump(mode="json")
     issued = approvals_router.request_approval(dumped, actor, secret,
@@ -347,8 +418,6 @@ def _hitl_permit(action: Any, secret: str, actor: str,
         issued["approval_id"], actor, issued["token"], "approver", secret,
         chain=chain)
     assert view["status"] == "approved"
-    params = action.parameters
-    plain = params.to_plain() if hasattr(params, "to_plain") else dict(params)
-    return Permit(action_id=action.action_id,
-                  params_hash=params_hash(plain), expires_at=now + 300.0,
-                  token_ref=issued["approval_id"], auto=False)
+    return approvals_router.verified_permit(
+        issued["approval_id"], issued["token"], actor, secret, now,
+        chain=chain)

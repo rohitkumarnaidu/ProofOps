@@ -125,6 +125,22 @@ def configure_logging(level: str = "INFO",
     root.handlers.clear()
     root.addHandler(handler)
     root.setLevel(normalized)
+    for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+        # P1 fix: uvicorn loggers bypass the root handler chain (separate
+        # handlers/propagation for access lines that can carry request
+        # URLs/tokens). Bind the redacting formatter here. Any stale
+        # RedactingFormatter handler is replaced so secret rotation (and
+        # repeated configure calls in tests) refreshes the scrub set;
+        # foreign handlers are never touched.
+        logger = logging.getLogger(name)
+        logger.handlers = [
+            h for h in logger.handlers
+            if not isinstance(getattr(h, "formatter", None),
+                              RedactingFormatter)]
+        uvicorn_handler = logging.StreamHandler()
+        uvicorn_handler.setFormatter(formatter)
+        logger.addHandler(uvicorn_handler)
+        logger.propagate = False
     return formatter
 
 

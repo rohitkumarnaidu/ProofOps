@@ -26,12 +26,17 @@ from app.services import eval as eval_svc  # noqa: E402 (M16 engine)
 
 try:  # pragma: no cover - container path (pinned deps)
     from fastapi import APIRouter as _APIRouter
+    from fastapi import Header as _Header
     from fastapi import HTTPException as _HTTPException
     _APIRouter(prefix="/__probe__")
     router = _APIRouter(tags=["eval"])
     HTTPException = _HTTPException
+    Header = _Header
 except Exception:  # host-only drift (AGENTS.md S13.2)
     router = None  # type: ignore[assignment]
+
+    def Header(default: object = None, **kwargs: object) -> object:  # type: ignore[no-redef]
+        return default
 
     class HTTPException(Exception):  # type: ignore[no-redef]
         def __init__(self, status_code: int = 500, detail: str = "") -> None:
@@ -82,7 +87,14 @@ class SmokeBody(BaseModel):
                           description="Set true: smoke runs compute, not free")
 
 
-def http_smoke(body: SmokeBody) -> dict[str, Any]:
+def http_smoke(body: SmokeBody,
+               x_api_key: str | None = Header(default=None)
+               ) -> dict[str, Any]:
+    """Smoke runs compute: confirm gate + demo key (no open compute)."""
+    from app.config import get_settings  # noqa: E402 (request-time only)
+    from app.routers import auth as auth_mod
+    auth_mod.guard_http(
+        x_api_key, lambda: get_settings().PROOFOPS_API_KEY, HTTPException)
     if body.confirm is not True:
         raise HTTPException(status_code=400,
                             detail="confirm must be true to run smoke")

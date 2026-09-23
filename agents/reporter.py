@@ -77,17 +77,21 @@ def _check_timeline(timeline: Sequence[Any]) -> list[str]:
 
 
 def _coverage(claims: Sequence[Claim],
-              valid_evidence_ids: set[str] | frozenset[str]) -> float:
+              valid_evidence_ids: set[str] | frozenset[str],
+              evidence_by_id: Mapping[str, Any] | None = None) -> float:
     for claim in claims:
         if not isinstance(claim, Claim):
             raise OutputRejected("claims must be Claim contracts")
-    return must_cite_coverage(list(claims), valid_evidence_ids)
+    return must_cite_coverage(list(claims), valid_evidence_ids,
+                              evidence_by_id)
 
 
 def run_report(incident_id: str, timeline: Sequence[Any], root_cause: str,
                claims: Sequence[Claim], valid_evidence_ids: set[str],
                remediation_log: Sequence[str], prevention: Sequence[str],
-               client: Any, store: session_mod.SessionStore) -> RCAReport:
+               client: Any, store: session_mod.SessionStore,
+               evidence_by_id: Mapping[str, Any] | None = None
+               ) -> RCAReport:
     """A4 entry point: record -> linted, gated RCA draft (M13.5)."""
     if not isinstance(incident_id, str) or not incident_id.strip():
         raise ValueError("incident_id must be a non-empty string")
@@ -101,7 +105,7 @@ def run_report(incident_id: str, timeline: Sequence[Any], root_cause: str,
     blame = lint_report_fields(prose)
     if blame:
         raise OutputRejected(f"blameless-lint violations: {blame}")
-    coverage = _coverage(claims, valid_evidence_ids)
+    coverage = _coverage(claims, valid_evidence_ids, evidence_by_id)
     claim_ids = [c.claim_id for c in claims]
     session = store.get_or_create(incident_id, "reporter")
     if coverage < 1.0:
