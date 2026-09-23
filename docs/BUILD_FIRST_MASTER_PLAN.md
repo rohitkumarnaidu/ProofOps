@@ -47,10 +47,10 @@ Registry count (verified against `docs/MODULE_REGISTRY.md` per-row table):
 
 - **60 APPROVED** (human verdict, locked): M00.1–M00.7, M01.1–M01.15,
   M02.1–M02.10, M03.1–M03.6, M04.1–M04.6, M05.1–M05.6, M06.1–M06.10
-- **100 IMPLEMENTED_TESTED** (build-first, hardening pending):
-  M07 → M19.10 (complete: HITL through frontend)
-- **23 NOT_STARTED**: M20 → M22 (performance, integration, demo)
-- Total with implementation: **160/183**
+- **116 IMPLEMENTED_TESTED** (build-first, hardening pending):
+  M07 → M21.9 (complete: HITL through integration)
+- **7 NOT_STARTED**: M22.1–M22.7 (demo hardening, live frontier)
+- Total with implementation: **176/183**
 
 Wave map (see §3 for wave definitions):
 
@@ -61,12 +61,12 @@ Wave map (see §3 for wave definitions):
 | 3 — Governance / Safety | M06 → M07 → M08 → M09 → M10 → M11 | DONE (approvals through M06.10; M07–M11 IMPLEMENTED_TESTED) |
 | 4 — Intelligence / Retrieval | M12 → M13 → M14 | DONE (IMPLEMENTED_TESTED) |
 | 5 — Audit / Evaluation | M15 → M16 → M17 → M18 | DONE (IMPLEMENTED_TESTED) |
-| 6 — Product surface / Optimization | M19 → M20 | M19 DONE (IMPLEMENTED_TESTED) · **M20 is the live frontier** |
-| 7 — End-to-end integration / Demo | M21 → M22 | NOT STARTED |
+| 6 — Product surface / Optimization | M19 → M20 | DONE (M19 frontend + M20 budgets IMPLEMENTED_TESTED) |
+| 7 — End-to-end integration / Demo | M21 → M22 | IN PROGRESS (M21 landed IMPLEMENTED_TESTED · **M22 is the live frontier**) |
 
-**Next controlled operation:** M20 Performance (7 units: token/latency/cost
-measurement + budgets + allowed optimizations) → closes Wave 6 → unlocks
-Wave 7. Never optimize by weakening safety/verification/evidence/policy/
+**Next controlled operation:** M22 Demo (7 units: seeded scenario + demo
+script + replay mode + fallback + demo checker + rehearsal + final evidence
+package) → closes Wave 7 → triggers Phase B. Never optimize by weakening safety/verification/evidence/policy/
 adversarial coverage (spec §49).
 
 ---
@@ -136,7 +136,7 @@ hardened.
   measurable for §C2.
 - Unlocks: Wave 6 (frontend has scorecard/audit APIs to render).
 
-### Wave 6 — Product surface / Optimization `[IN PROGRESS: M19 landed, M20 live frontier]`
+### Wave 6 — Product surface / Optimization `[DONE: M19–M20 landed IMPLEMENTED_TESTED]`
 
 - **M19 Frontend (10).** Exactly 5 MVP views (Command Center · Incident Detail ·
   Safety Gate · Execution/Verification · RCA/Evaluation); every number traces to
@@ -151,7 +151,7 @@ hardened.
   polling fallback; C4/C6 baselines recorded (first numbers, not targets met).
 - Unlocks: Wave 7 (something demonstrable exists to integrate).
 
-### Wave 7 — End-to-end integration / Demo `[NOT STARTED]`
+### Wave 7 — End-to-end integration / Demo `[IN PROGRESS: M21 landed IMPLEMENTED_TESTED, M22 live frontier]`
 
 - **M21 Integration (9).** Happy path + RED-block path + rollback path green
   across the full pipeline; API guard matrix; clean-clone reproducibility.

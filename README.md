@@ -15,11 +15,11 @@ blameless RCA → hash-chained audit → six-checkpoint evaluation scorecard.
 ## Lyzr vs custom vs simulated
 | Component | Owner | Detail |
 |---|---|---|
-| 4 agents (Triage, Diagnostic, Planner, RCA) | LYZR-NATIVE | ADK/API, Structured Output, session_id=incident_id; LYZR-NATIVE where keyed, else local fallback; today deterministic-first |
-| Semantic safety (injection/PII/toxicity/groundedness) | LYZR-NATIVE | RAI policy `PS03-Governed` on every agent; LYZR-NATIVE where keyed, else local fallback; today deterministic-first |
-| Runbook/history retrieval, incident memory | LYZR-NATIVE | Classic KB + Cognis + Global Context; LYZR-NATIVE where keyed, else local fallback; today deterministic-first |
-| Run trace / latency | LYZR-NATIVE | AIMS tracing (+ custom hash audit below); LYZR-NATIVE where keyed, else local fallback; today deterministic-first |
-| Agent-level eval assist | LYZR-NATIVE | Agent Eval (hallucination/faithfulness/tool-args); LYZR-NATIVE where keyed, else local fallback; today deterministic-first |
+| 4 agents (Triage, Diagnostic, Planner, RCA) | LYZR-NATIVE (where keyed) / LOCAL (today) | ADK/API, Structured Output, session_id=incident_id; LYZR-NATIVE where keyed, else local fallback; today deterministic-first |
+| Semantic safety (injection/PII/toxicity/groundedness) | LYZR-NATIVE (where keyed) / LOCAL (today) | RAI policy `PS03-Governed` on every agent; LYZR-NATIVE where keyed, else local fallback; today deterministic-first |
+| Runbook/history retrieval, incident memory | LYZR-NATIVE (where keyed) / LOCAL (today) | Classic KB + Cognis + Global Context; LYZR-NATIVE where keyed, else local fallback; today deterministic-first |
+| Run trace / latency | LYZR-NATIVE (where keyed) / LOCAL (today) | AIMS tracing (+ custom hash audit below); LYZR-NATIVE where keyed, else local fallback; today deterministic-first |
+| Agent-level eval assist | LYZR-NATIVE (where keyed) / LOCAL (today) | Agent Eval (hallucination/faithfulness/tool-args); LYZR-NATIVE where keyed, else local fallback; today deterministic-first |
 | FSM, validator, policy, HMAC HITL, sandbox, verifier, rollback | CUSTOM-DETERMINISTIC | FastAPI + Postgres (connectivity/probe today), 100% tested |
 | Hash-chained audit, eval runner, pre-digestion | CUSTOM-DETERMINISTIC | Exportable proof, labelled non-AIMS |
 | Telemetry, mock K8s, mock executor | SIMULATED | Deterministic seeds; docker tier local-real |

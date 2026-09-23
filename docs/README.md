@@ -4,7 +4,7 @@
 
 ## Root — Entry-point docs (indexed below; 19 total on disk)
 
-These stay at `docs/` root because they are frozen M00–M01 contracts or live-reviewed. `tests/test_docs.py` pins 11 of them in `CANONICAL_8` (name historical — holds 11: 4 frozen M00.2–M00.5 + 7 M00.6 foundation) and governs 8 more as `known_extra` (SPEC, registry, plan, checklist, index, audit, safety-plan, contracts).
+These stay at `docs/` root because they are frozen M00–M01 contracts or live-reviewed. `tests/test_docs.py` pins 11 of them in `CANONICAL_DOCS` (4 frozen M00.2–M00.5 + 7 M00.6 foundation) and governs 8 more as `known_extra` (SPEC, registry, plan, checklist, index, audit, safety-plan, contracts).
 
 | File | Owner | Purpose |
 |------|-------|---------|
