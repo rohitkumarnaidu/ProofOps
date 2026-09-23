@@ -8,7 +8,7 @@ import { useMode } from "../components/useMode";
     Evidence-chip drill-down lands in commit B with the audit viewer. */
 export function IncidentDetail() {
   const { id } = useParams<{ id: string }>();
-  const mode = useMode();
+  const mode = useMode(id);
   const [run, setRun] = useState<RunView | null>(null);
   const [error, setError] = useState("");
 
@@ -30,7 +30,7 @@ export function IncidentDetail() {
     <div className="p-6">
       <div className="mb-4 flex items-center gap-3">
         <h1 className="text-xl font-bold">Incident {id}</h1>
-        <ModeBadge mode={mode ?? "OFFLINE"} />
+        <ModeBadge mode={mode} />
         {mode === null && (
           <span
             data-testid="mode-probing"

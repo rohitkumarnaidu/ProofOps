@@ -50,6 +50,10 @@ export function SafetyGate() {
     view !== null &&
     view.status === "pending" &&
     view.seconds_remaining > 0;
+  // Role guardrail (UI only — the server 403s regardless): the viewer role
+  // may deny but never approve, so Approve disables instead of inviting a
+  // doomed click.
+  const viewerBlocked = role === "viewer";
 
   useEffect(() => {
     if (view === null || view.status !== "pending") return;
@@ -98,7 +102,7 @@ export function SafetyGate() {
     <div className="p-6">
       <div className="mb-4 flex items-center gap-3">
         <h1 className="text-xl font-bold">Safety Gate</h1>
-        <ModeBadge mode={mode ?? "OFFLINE"} />
+        <ModeBadge mode={mode} />
         {mode === null && (
           <span
             data-testid="mode-probing"
@@ -207,7 +211,7 @@ export function SafetyGate() {
                 <div className="flex gap-2">
                   <button
                     onClick={() => void decide("approve")}
-                    disabled={!decidable}
+                    disabled={!decidable || viewerBlocked}
                     className="rounded bg-green-700 px-3 py-1 text-sm font-bold hover:bg-green-600 disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     Approve
@@ -220,6 +224,15 @@ export function SafetyGate() {
                     Deny
                   </button>
                 </div>
+                {viewerBlocked && (
+                  <p
+                    data-testid="viewer-cannot-approve"
+                    className="mt-1 text-xs text-amber-300"
+                  >
+                    viewer role cannot approve — server 403s; pick
+                    approver/admin (anyone may still deny).
+                  </p>
+                )}
               </div>
             </div>
           )}

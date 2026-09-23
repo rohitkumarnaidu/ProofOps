@@ -9,13 +9,25 @@ import {
 import { ModeBadge } from "../components/badges";
 import { useMode } from "../components/useMode";
 
+const GATES = ["C1", "C2", "C3", "C4", "C5", "C6"] as const;
+
+/** Format a gate number from the smoke response (numbers measured live by
+    the harness; anything else renders verbatim or as "—", never estimated). */
+function fmtGate(value: unknown): string {
+  if (typeof value === "number") return value.toFixed(2);
+  if (typeof value === "string") return value;
+  if (Array.isArray(value))
+    return value.map((v: unknown) => fmtGate(v)).join(",");
+  return "—";
+}
+
 /** View 5 — RCA/Evaluation (M19.6 + M19.10): audit chain viewer with
     validity badge, plus six-gate cards from a live harness-smoke run.
     Gate numbers are measured on demand (labeled mock-system); the audit
     chain is the incident's own export. Nothing estimated. */
 export function RCAView() {
   const { id } = useParams<{ id: string }>();
-  const mode = useMode();
+  const mode = useMode(id);
   const [events, setEvents] = useState<Array<Record<string, unknown>>>([]);
   const [valid, setValid] = useState<boolean | null>(null);
   const [origin, setOrigin] = useState("");
@@ -49,11 +61,25 @@ export function RCAView() {
     }
   }
 
+  // Per-gate (C1–C6) cards render ONLY from smoke-response data
+  // (baseline/optimized gates_rate, measured live by the harness):
+  // absent data = no cards, never estimates.
+  const baseGates = smoke?.baseline.gates_rate;
+  const optGates = smoke?.optimized.gates_rate;
+  const showPerGate =
+    baseGates !== undefined &&
+    optGates !== undefined &&
+    GATES.every(
+      (gate) =>
+        typeof baseGates[gate] === "number" &&
+        typeof optGates[gate] === "number",
+    );
+
   return (
     <div className="p-6">
       <div className="mb-4 flex items-center gap-3">
         <h1 className="text-xl font-bold">RCA {id}</h1>
-        <ModeBadge mode={mode ?? "OFFLINE"} />
+        <ModeBadge mode={mode} />
         {mode === null && (
           <span
             data-testid="mode-probing"
@@ -116,6 +142,27 @@ export function RCAView() {
             systems; pipeline-system numbers land in runs/*.jsonl and are
             never mixed into this demo response)
           </p>
+          {showPerGate && (
+            <div
+              data-testid="per-gate-cards"
+              className="mt-2 grid gap-2 md:grid-cols-3"
+            >
+              {GATES.map((gate) => (
+                <div
+                  key={gate}
+                  data-testid={`gate-card-${gate}`}
+                  className="rounded border border-gray-800 px-2 py-1"
+                >
+                  <p className="font-bold">{gate}</p>
+                  <p className="text-gray-400">
+                    base {fmtGate(baseGates?.[gate])} → opt{" "}
+                    {fmtGate(optGates?.[gate])} (Δ{" "}
+                    {fmtGate(smoke?.delta[`d_${gate}`])})
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>

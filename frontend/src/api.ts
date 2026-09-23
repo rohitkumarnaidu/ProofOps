@@ -6,6 +6,12 @@ const API_URL =
   (import.meta.env.VITE_API_URL as string | undefined) ??
   "http://localhost:8000";
 
+/** Backend base URL for non-fetch consumers (the SSE subscriber builds its
+    stream URL from the same source the fetchers use). */
+export function apiBase(): string {
+  return API_URL;
+}
+
 /* Auth (M21b demo-key gate): empty = unauthenticated demo mode. Mutating
    calls without a key fail closed server-side (401); nothing here authorizes
    anything — the key is only attached so the server can verify it. */
@@ -205,8 +211,16 @@ export interface SmokeResult {
   system: string;
   note: string;
   cases: number;
-  baseline: { n: number; pass_rate: number };
-  optimized: { n: number; pass_rate: number };
+  baseline: {
+    n: number;
+    pass_rate: number;
+    gates_rate?: Record<string, number>;
+  };
+  optimized: {
+    n: number;
+    pass_rate: number;
+    gates_rate?: Record<string, number>;
+  };
   delta: Record<string, number | string | [number, number]>;
   rubric: {
     lyzr_30: Record<string, number>;

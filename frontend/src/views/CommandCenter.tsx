@@ -45,7 +45,7 @@ export function CommandCenter() {
     <div className="p-6">
       <div className="mb-4 flex items-center gap-3">
         <h1 className="text-xl font-bold">Command Center</h1>
-        <ModeBadge mode={mode ?? "OFFLINE"} />
+        <ModeBadge mode={mode} />
         {mode === null && (
           <span
             data-testid="mode-probing"

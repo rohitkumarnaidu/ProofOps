@@ -11,7 +11,7 @@ import { useMode } from "../components/useMode";
     No execution records yet = honest empty state (never invents diffs). */
 export function ExecutionView() {
   const { id } = useParams<{ id: string }>();
-  const mode = useMode();
+  const mode = useMode(id);
   const [run, setRun] = useState<RunView | null>(null);
   const [error, setError] = useState("");
 
@@ -53,7 +53,7 @@ export function ExecutionView() {
     <div className="p-6">
       <div className="mb-4 flex items-center gap-3">
         <h1 className="text-xl font-bold">Execution {id}</h1>
-        <ModeBadge mode={mode ?? "OFFLINE"} />
+        <ModeBadge mode={mode} />
         {mode === null && (
           <span
             data-testid="mode-probing"
@@ -108,6 +108,8 @@ export function ExecutionView() {
           <h2 className="mb-1 text-sm font-bold text-gray-300">
             State diff
           </h2>
+          {/* run_view carries no state snapshot: null is the genuine
+              no-snapshot case — diff rows are never invented here. */}
           <StateDiff diff={null} />
           <h2 className="mb-1 mt-4 text-sm font-bold text-gray-300">
             Rollback
@@ -124,10 +126,54 @@ export function ExecutionView() {
               {run.rolled_back ? " (already attempted once)" : ""}.
             </p>
           )}
-          {executions.length > 0 && (
-            <p className="mt-2 text-xs text-gray-500">
-              {executions.length} execution-phase audit record(s) on file.
+          <h2 className="mb-1 mt-4 text-sm font-bold text-gray-300">
+            Execution records ({executions.length}, audit-sourced)
+          </h2>
+          {executions.length === 0 ? (
+            <p data-testid="exec-records-empty" className="mb-4 text-sm text-gray-400">
+              No execution-phase audit records on file yet.
             </p>
+          ) : (
+            <ol data-testid="exec-records" className="mb-4 text-sm">
+              {executions.map((record, index) => {
+                const seq =
+                  typeof record.seq === "number" ? record.seq : null;
+                const frm =
+                  typeof record.frm === "string" ? record.frm : "?";
+                const to = typeof record.to === "string" ? record.to : "?";
+                const reason =
+                  typeof record.reason === "string" ? record.reason : "";
+                const refs = Array.isArray(record.refs)
+                  ? record.refs.filter(
+                      (r: unknown): r is string => typeof r === "string",
+                    )
+                  : [];
+                return (
+                  <li
+                    key={seq ?? `row-${String(index)}`}
+                    className="border-t border-gray-800 py-1"
+                  >
+                    <span className="text-gray-500">#{seq ?? "—"}</span>{" "}
+                    {frm} → {to}
+                    {reason !== "" && (
+                      <span className="text-gray-400"> — {reason}</span>
+                    )}
+                    {refs.length > 0 && (
+                      <span className="ml-2">
+                        {refs.map((ref) => (
+                          <span
+                            key={ref}
+                            className="mr-1 rounded bg-gray-800 px-1 text-xs text-sky-300"
+                          >
+                            {ref}
+                          </span>
+                        ))}
+                      </span>
+                    )}
+                  </li>
+                );
+              })}
+            </ol>
           )}
         </>
       )}
