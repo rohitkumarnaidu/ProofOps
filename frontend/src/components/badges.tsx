@@ -8,8 +8,10 @@ const COLORS: Record<Mode, string> = {
 };
 
 /** Operating-mode badge (M19.8): always visible, always truthful.
-    LIVE = backend /healthz answers. OFFLINE = unreachable (never faked).
-    REPLAY/MOCK variants render when the backend reports those tiers (M22). */
+    Tier-aware via probeMode() over GET /meta: MOCK = backend reports the
+    mock executor tier; LIVE = backend confirms the real docker tier (never
+    claimed without tier confirmation); REPLAY = backend reports replay;
+    OFFLINE = unreachable or unrecognized tier (never faked). */
 export function ModeBadge({ mode }: { mode: Mode }) {
   return (
     <span

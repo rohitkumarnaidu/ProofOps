@@ -2,11 +2,11 @@ import { useEffect, useState } from "react";
 import {
   ApiError,
   approvalsApi,
-  probeMode,
+  hasApiKey,
   type ApprovalView,
-  type Mode,
 } from "../api";
 import { ModeBadge } from "../components/badges";
+import { useMode } from "../components/useMode";
 
 const EMPTY_ACTION = JSON.stringify(
   {
@@ -32,7 +32,7 @@ const EMPTY_ACTION = JSON.stringify(
 /** View 3 — Safety Gate (M19.4): request + approve/deny + TTL countdown.
     Every field server-verified; client state never authorizes anything. */
 export function SafetyGate() {
-  const [mode, setMode] = useState<Mode>("OFFLINE");
+  const mode = useMode();
   const [actionText, setActionText] = useState(EMPTY_ACTION);
   const [actor, setActor] = useState("sre-1");
   const [role, setRole] = useState("approver");
@@ -44,9 +44,12 @@ export function SafetyGate() {
   const [token, setToken] = useState("");
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    void probeMode().then(setMode);
-  }, []);
+  // Decision guardrail: past TTL (or non-pending) the server will 410/403,
+  // so the buttons disable here first — the UI never invites a dead click.
+  const decidable =
+    view !== null &&
+    view.status === "pending" &&
+    view.seconds_remaining > 0;
 
   useEffect(() => {
     if (view === null || view.status !== "pending") return;
@@ -95,11 +98,26 @@ export function SafetyGate() {
     <div className="p-6">
       <div className="mb-4 flex items-center gap-3">
         <h1 className="text-xl font-bold">Safety Gate</h1>
-        <ModeBadge mode={mode} />
+        <ModeBadge mode={mode ?? "OFFLINE"} />
+        {mode === null && (
+          <span
+            data-testid="mode-probing"
+            aria-busy="true"
+            className="text-xs text-gray-500"
+          >
+            probing backend…
+          </span>
+        )}
       </div>
       {error !== "" && (
         <p data-testid="gate-error" className="mb-3 text-sm text-red-300">
           {error}
+        </p>
+      )}
+      {!hasApiKey() && (
+        <p data-testid="api-key-notice" className="mb-3 text-sm text-amber-300">
+          No API key configured — approve actions will 401. Set
+          VITE_PROOFOPS_API_KEY to enable approvals (server-verified only).
         </p>
       )}
       <div className="grid gap-6 md:grid-cols-2">
@@ -159,6 +177,15 @@ export function SafetyGate() {
               <p className="text-gray-400">
                 Expires: {view.expires_at}
               </p>
+              {!decidable && view.status === "pending" && (
+                <p
+                  data-testid="ttl-expired"
+                  className="mt-1 text-xs text-amber-300"
+                >
+                  Approval TTL elapsed — request a fresh approval. The server
+                  will 410 this one.
+                </p>
+              )}
               <div className="mt-2 flex flex-col gap-2">
                 <input
                   aria-label="Approval token"
@@ -180,13 +207,15 @@ export function SafetyGate() {
                 <div className="flex gap-2">
                   <button
                     onClick={() => void decide("approve")}
-                    className="rounded bg-green-700 px-3 py-1 text-sm font-bold hover:bg-green-600"
+                    disabled={!decidable}
+                    className="rounded bg-green-700 px-3 py-1 text-sm font-bold hover:bg-green-600 disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     Approve
                   </button>
                   <button
                     onClick={() => void decide("reject")}
-                    className="rounded bg-red-700 px-3 py-1 text-sm font-bold hover:bg-red-600"
+                    disabled={!decidable}
+                    className="rounded bg-red-700 px-3 py-1 text-sm font-bold hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     Deny
                   </button>

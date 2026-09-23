@@ -6,6 +6,17 @@ const API_URL =
   (import.meta.env.VITE_API_URL as string | undefined) ??
   "http://localhost:8000";
 
+/* Auth (M21b demo-key gate): empty = unauthenticated demo mode. Mutating
+   calls without a key fail closed server-side (401); nothing here authorizes
+   anything — the key is only attached so the server can verify it. */
+const API_KEY =
+  (import.meta.env.VITE_PROOFOPS_API_KEY as string | undefined)?.trim() ?? "";
+
+/** True when an API key is configured; false = unauthenticated demo mode. */
+export function hasApiKey(): boolean {
+  return API_KEY !== "";
+}
+
 export type Mode = "LIVE" | "REPLAY" | "MOCK" | "OFFLINE";
 
 export class ApiError extends Error {
@@ -18,10 +29,16 @@ export class ApiError extends Error {
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response;
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (hasApiKey()) {
+    headers["X-API-Key"] = API_KEY;
+  }
   try {
     response = await fetch(`${API_URL}${path}`, {
-      headers: { "Content-Type": "application/json" },
       ...init,
+      headers: { ...headers, ...init?.headers },
     });
   } catch (err) {
     throw new ApiError(0, `backend unreachable: ${String(err)}`);
@@ -82,11 +99,30 @@ export interface ApprovalIssued {
   scope: string;
 }
 
-/** Backend reachability probe: LIVE when /healthz answers, else OFFLINE. */
+export interface Meta {
+  service: string;
+  spec: string;
+  executor_tier: string;
+  mode: string;
+}
+
+/** Liveness probe (kept for diagnostics; mode display uses probeMode). */
+export function fetchHealth(): Promise<Healthz> {
+  return request<Healthz>("/healthz");
+}
+
+/** Backend reachability + tier probe (tier-aware): GET /meta and map the
+    server-reported executor_tier — "mock"→MOCK, "docker"→LIVE (docker tier
+    is real execution), explicit "replay"→REPLAY if a backend ever reports
+    it. Unreachable backend, or any unrecognized tier, → OFFLINE. NEVER
+    reports LIVE unless the backend confirms a real execution tier. */
 export async function probeMode(): Promise<Mode> {
   try {
-    const health = await request<Healthz>("/healthz");
-    return health.status === "ok" ? "LIVE" : "OFFLINE";
+    const meta = await request<Meta>("/meta");
+    if (meta.executor_tier === "docker") return "LIVE";
+    if (meta.executor_tier === "mock") return "MOCK";
+    if (meta.executor_tier === "replay") return "REPLAY";
+    return "OFFLINE";
   } catch {
     return "OFFLINE";
   }

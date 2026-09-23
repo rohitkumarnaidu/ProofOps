@@ -4,11 +4,10 @@ import {
   ApiError,
   auditApi,
   evalApi,
-  probeMode,
-  type Mode,
   type SmokeResult,
 } from "../api";
 import { ModeBadge } from "../components/badges";
+import { useMode } from "../components/useMode";
 
 /** View 5 — RCA/Evaluation (M19.6 + M19.10): audit chain viewer with
     validity badge, plus six-gate cards from a live harness-smoke run.
@@ -16,7 +15,7 @@ import { ModeBadge } from "../components/badges";
     chain is the incident's own export. Nothing estimated. */
 export function RCAView() {
   const { id } = useParams<{ id: string }>();
-  const [mode, setMode] = useState<Mode>("OFFLINE");
+  const mode = useMode();
   const [events, setEvents] = useState<Array<Record<string, unknown>>>([]);
   const [valid, setValid] = useState<boolean | null>(null);
   const [origin, setOrigin] = useState("");
@@ -25,7 +24,6 @@ export function RCAView() {
 
   useEffect(() => {
     async function load() {
-      setMode(await probeMode());
       if (id === undefined) return;
       try {
         const chain = await auditApi.view(id);
@@ -55,7 +53,16 @@ export function RCAView() {
     <div className="p-6">
       <div className="mb-4 flex items-center gap-3">
         <h1 className="text-xl font-bold">RCA {id}</h1>
-        <ModeBadge mode={mode} />
+        <ModeBadge mode={mode ?? "OFFLINE"} />
+        {mode === null && (
+          <span
+            data-testid="mode-probing"
+            aria-busy="true"
+            className="text-xs text-gray-500"
+          >
+            probing backend…
+          </span>
+        )}
         {valid !== null && (
           <span
             data-testid="audit-valid-badge"
@@ -106,7 +113,8 @@ export function RCAView() {
           </p>
           <p>
             Rubric total: <strong>{smoke.rubric.total_100}</strong> (mock
-            systems; pipeline numbers arrive with M20/M21)
+            systems; pipeline-system numbers land in runs/*.jsonl and are
+            never mixed into this demo response)
           </p>
         </div>
       )}

@@ -1,22 +1,22 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
-import { ApiError, probeMode, runsApi, type Mode, type RunView } from "../api";
+import { ApiError, runsApi, type RunView } from "../api";
 import { ModeBadge } from "../components/badges";
 import { StateDiff } from "../components/StateDiff";
+import { useMode } from "../components/useMode";
 
 /** View 4 — Execution/Verification (M19.5): FSM execution-phase timeline,
     audit-sourced execution evidence, rollback eligibility from run flags.
-    No execution records yet = honest empty state (execution endpoints land
-    with the M21 guard matrix; this view never invents diffs). */
+    Mutating endpoints sit behind the M21 key matrix; this view is read-only.
+    No execution records yet = honest empty state (never invents diffs). */
 export function ExecutionView() {
   const { id } = useParams<{ id: string }>();
-  const [mode, setMode] = useState<Mode>("OFFLINE");
+  const mode = useMode();
   const [run, setRun] = useState<RunView | null>(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
     async function load() {
-      setMode(await probeMode());
       if (id === undefined) return;
       try {
         setRun(await runsApi.get(id));
@@ -53,7 +53,16 @@ export function ExecutionView() {
     <div className="p-6">
       <div className="mb-4 flex items-center gap-3">
         <h1 className="text-xl font-bold">Execution {id}</h1>
-        <ModeBadge mode={mode} />
+        <ModeBadge mode={mode ?? "OFFLINE"} />
+        {mode === null && (
+          <span
+            data-testid="mode-probing"
+            aria-busy="true"
+            className="text-xs text-gray-500"
+          >
+            probing backend…
+          </span>
+        )}
         {run !== null && (
           <span
             data-testid="exec-state"
@@ -105,8 +114,9 @@ export function ExecutionView() {
           </h2>
           {rollbackEligible ? (
             <p data-testid="rollback-eligible" className="text-sm">
-              Rollback eligible: one auto-rollback attempt available (control
-              plane executes it — endpoint lands with M21).
+              Rollback eligible: the control plane auto-executes one rollback
+              attempt on verification failure (this view is read-only — it
+              never triggers execution itself).
             </p>
           ) : (
             <p data-testid="rollback-ineligible" className="text-sm text-gray-400">

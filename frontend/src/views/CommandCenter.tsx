@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { ApiError, probeMode, runsApi, type Mode } from "../api";
+import { ApiError, runsApi } from "../api";
 import { ModeBadge } from "../components/badges";
+import { useMode } from "../components/useMode";
 
 /** View 1 — Command Center (M19.2): live run queue, no fabricated rows.
     Empty backend = empty table with guidance. Unreachable = OFFLINE. */
 export function CommandCenter() {
-  const [mode, setMode] = useState<Mode>("OFFLINE");
+  const mode = useMode();
   const [runs, setRuns] = useState<
     Array<{ incident_id: string; state: string; history_len: number }>
   >([]);
@@ -15,7 +16,6 @@ export function CommandCenter() {
   const [newId, setNewId] = useState("");
 
   async function refresh() {
-    setMode(await probeMode());
     try {
       setRuns(await runsApi.list());
       setError("");
@@ -45,7 +45,16 @@ export function CommandCenter() {
     <div className="p-6">
       <div className="mb-4 flex items-center gap-3">
         <h1 className="text-xl font-bold">Command Center</h1>
-        <ModeBadge mode={mode} />
+        <ModeBadge mode={mode ?? "OFFLINE"} />
+        {mode === null && (
+          <span
+            data-testid="mode-probing"
+            aria-busy="true"
+            className="text-xs text-gray-500"
+          >
+            probing backend…
+          </span>
+        )}
       </div>
       {error !== "" && (
         <p data-testid="queue-error" className="mb-3 text-sm text-red-300">

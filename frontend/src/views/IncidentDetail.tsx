@@ -1,19 +1,19 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
-import { ApiError, probeMode, runsApi, type Mode, type RunView } from "../api";
+import { ApiError, runsApi, type RunView } from "../api";
 import { ModeBadge } from "../components/badges";
+import { useMode } from "../components/useMode";
 
 /** View 2 — Incident Detail, part 1 (M19.3): live timeline + run state.
     Evidence-chip drill-down lands in commit B with the audit viewer. */
 export function IncidentDetail() {
   const { id } = useParams<{ id: string }>();
-  const [mode, setMode] = useState<Mode>("OFFLINE");
+  const mode = useMode();
   const [run, setRun] = useState<RunView | null>(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
     async function load() {
-      setMode(await probeMode());
       if (id === undefined) return;
       try {
         setRun(await runsApi.get(id));
@@ -30,7 +30,16 @@ export function IncidentDetail() {
     <div className="p-6">
       <div className="mb-4 flex items-center gap-3">
         <h1 className="text-xl font-bold">Incident {id}</h1>
-        <ModeBadge mode={mode} />
+        <ModeBadge mode={mode ?? "OFFLINE"} />
+        {mode === null && (
+          <span
+            data-testid="mode-probing"
+            aria-busy="true"
+            className="text-xs text-gray-500"
+          >
+            probing backend…
+          </span>
+        )}
         {run !== null && (
           <span
             data-testid="run-state"
