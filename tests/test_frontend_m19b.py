@@ -37,10 +37,22 @@ def test_smoke_measured_and_labeled():
     assert "mock" in out["note"]
 
 
-def test_smoke_http_guard():
-    with pytest.raises(Exception):
-        eval_router.http_smoke(eval_router.SmokeBody(confirm=False))
-    out = eval_router.http_smoke(eval_router.SmokeBody(confirm=True))
+def test_smoke_http_guard(monkeypatch):
+    import app.config as cfg
+    from types import SimpleNamespace
+    monkeypatch.setattr(
+        cfg, "get_settings",
+        lambda: SimpleNamespace(PROOFOPS_API_KEY="test-key-123",
+                                APPROVAL_SECRET="test-secret-123"))
+    with pytest.raises(Exception) as exc:
+        eval_router.http_smoke(eval_router.SmokeBody(confirm=True))
+    assert exc.value.status_code == 401  # key gate first (P1: no open compute)
+    with pytest.raises(Exception) as exc:
+        eval_router.http_smoke(eval_router.SmokeBody(confirm=False),
+                               x_api_key="test-key-123")
+    assert exc.value.status_code == 400
+    out = eval_router.http_smoke(eval_router.SmokeBody(confirm=True),
+                                 x_api_key="test-key-123")
     assert out["cases"] == 5
 
 
@@ -59,9 +71,11 @@ def test_main_wires_eval_router():
 
 def test_five_routes_wired():
     app = _src("App.tsx")
-    assert app.count("<Route ") == 5
+    # 5 MVP + explicit 404 (no fake pages); '<Routes>' excluded by matching
+    # 'path="' (nav Links use 'to=', never 'path=').
+    assert app.count('path="') == 6
     for path in ('path="/"', 'path="/incidents/:id"', 'path="/safety"',
-                 'path="/execution/:id"', 'path="/rca/:id"'):
+                 'path="/execution/:id"', 'path="/rca/:id"', 'path="*"'):
         assert path in app
 
 
@@ -130,3 +144,25 @@ def test_no_stub_content_in_src():
         for marker in banned:
             assert marker.lower() not in text.lower(), path.name
         assert not _re.search(r"sk-(live|proj)-[A-Za-z0-9]{8,}", text)
+
+
+# ---------------------------------------------------------------------------
+# Tier-aware probe honesty: LIVE only on backend-confirmed real tier
+# ---------------------------------------------------------------------------
+
+def test_probe_never_claims_live_without_tier():
+    api = _src("api.ts")
+    # docker (real execution) is the only tier mapping to LIVE; anything
+    # unrecognized — including unreachable — falls through to OFFLINE.
+    assert 'meta.executor_tier === "docker"' in api
+    assert 'meta.executor_tier === "mock"' in api
+    assert 'meta.executor_tier === "replay"' in api
+    tail = api.split("export async function probeMode")[1]
+    body = tail.split("}\n", 1)[0]  # probeMode body only (fail-closed catch)
+    assert "catch" in body and "OFFLINE" in body
+    assert "OFFLINE" in tail
+
+
+def test_mode_badge_documents_tier_source():
+    badges = _src("components/badges.tsx")
+    assert "GET /meta" in badges or "/meta" in badges

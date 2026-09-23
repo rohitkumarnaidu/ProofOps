@@ -183,3 +183,40 @@ def test_no_hardcoded_real_secrets_in_module():  # SECURITY
     # The module must contain patterns, never credential values.
     assert "hunter2" not in src
     assert logging_setup.REDACTED == "<REDACTED>"
+
+
+def test_uvicorn_loggers_use_redacting_formatter():  # SECURITY
+    # P1 closure: uvicorn access/error loggers bypass the root handler, so
+    # request lines (URLs/tokens) must pass through RedactingFormatter too.
+    configure_logging("INFO", secrets=(FAKE_SECRET,))
+    try:
+        for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+            logger = logging.getLogger(name)
+            assert any(isinstance(h.formatter, RedactingFormatter)
+                       for h in logger.handlers), name
+            stream = io.StringIO()
+            probe = logging.StreamHandler(stream)
+            probe.setFormatter(logger.handlers[0].formatter)
+            record = logging.LogRecord(
+                name, logging.INFO, __file__, 1,
+                f"GET /runs?token={FAKE_SECRET} 200", (), None)
+            probe.handle(record)
+            assert FAKE_SECRET not in stream.getvalue()
+    finally:
+        configure_logging("INFO", secrets=())
+
+
+def test_secret_rotation_refreshes_uvicorn_scrub():  # SECURITY
+    other = "rotation-fake-secret-value"
+    configure_logging("INFO", secrets=(FAKE_SECRET,))
+    configure_logging("INFO", secrets=(other,))
+    try:
+        logger = logging.getLogger("uvicorn.access")
+        formatters = [h.formatter for h in logger.handlers
+                      if isinstance(h.formatter, RedactingFormatter)]
+        assert len(formatters) == 1  # replaced, never stacked
+        assert formatters[0].redact(FAKE_SECRET) == FAKE_SECRET  # rotated out
+        assert other not in formatters[0].redact(other)  # rotated in
+        assert "plain-ok" in formatters[0].redact("plain-ok")
+    finally:
+        configure_logging("INFO", secrets=())

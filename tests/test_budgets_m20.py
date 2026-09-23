@@ -73,6 +73,10 @@ def test_assert_budgets_strict_bounds():
     for _ in range(11):
         ledger.add_io("q", "a")
     assert ledger.llm_calls == 12
+    # Spec bound is inclusive (<=12 permitted): exactly 12 passes (P1 fix).
+    assert B.assert_budgets(ledger)["checks"]["calls"] is True
+    ledger.add_io("q", "a")
+    assert ledger.llm_calls == 13
     assert B.assert_budgets(ledger)["checks"]["calls"] is False
 
 

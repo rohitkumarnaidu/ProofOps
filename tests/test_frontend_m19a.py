@@ -114,3 +114,87 @@ def test_list_runs_queue():
     rows = runs_router.list_runs()
     assert rows == [{"incident_id": "inc-1", "state": "TRIAGING",
                      "history_len": 1}]
+
+
+# ---------------------------------------------------------------------------
+# Tier-aware mode probe + API key surface (M19 honesty hardening)
+# ---------------------------------------------------------------------------
+
+def test_meta_route_static_and_healthz_untouched():
+    # STATIC (mirrors test_healthz_contract_static): /meta is additive; the
+    # frozen /healthz body must stay byte-identical.
+    text = (ROOT / "backend" / "app" / "main.py").read_text(encoding="utf-8")
+    assert '@app.get("/meta")' in text
+    assert "executor_tier" in text
+    assert "PS03_FINAL_SPEC_V2" in text
+    assert text.count('@app.get("/healthz")') == 1
+    assert ('return {"status": "ok", "service": "proofops-api", '
+            '"spec": "PS03_FINAL_SPEC_V2"}') in text
+
+
+def test_api_key_surface():
+    api = _src("api.ts")
+    for marker in ("VITE_PROOFOPS_API_KEY", "X-API-Key", "hasApiKey"):
+        assert marker in api
+    assert "unauthenticated demo mode" in api
+
+
+def test_probe_mode_tier_mapping():
+    api = _src("api.ts")
+    assert '"/meta"' in api
+    assert '"MOCK"' in api and '"LIVE"' in api and '"REPLAY"' in api
+    assert '"OFFLINE"' in api
+    assert "executor_tier" in api
+
+
+def test_safety_gate_key_notice():
+    gate = _src("views/SafetyGate.tsx")
+    assert "hasApiKey" in gate
+    assert "api-key-notice" in gate
+    assert "401" in gate
+
+
+def test_frontend_env_example():
+    example = ROOT / "frontend" / ".env.example"
+    assert example.exists(), "frontend/.env.example must exist"
+    text = example.read_text(encoding="utf-8")
+    assert "VITE_API_URL=" in text
+    assert "VITE_PROOFOPS_API_KEY=" in text
+    assert "sk-" not in text
+
+
+# ---------------------------------------------------------------------------
+# Nav + loading honesty + decision guardrails (loop-2 UX)
+# ---------------------------------------------------------------------------
+
+def test_nav_lists_all_five_routes_plus_404():
+    app = _src("App.tsx")
+    for route in ('to="/"', 'to="/incidents/', 'to="/safety"',
+                  'to="/execution/', 'to="/rca/'):
+        assert route in app, route
+    assert 'path="*"' in app and "route-404" in app
+
+
+def test_views_use_honest_loading_hook():
+    hook = (UI / "components" / "useMode.ts").read_text(encoding="utf-8")
+    assert "probeMode" in hook and "null" in hook
+    for name in ("CommandCenter.tsx", "IncidentDetail.tsx",
+                 "ExecutionView.tsx", "RCAView.tsx", "SafetyGate.tsx"):
+        view = _src(f"views/{name}")
+        assert "useMode" in view, name
+        assert "mode-probing" in view, name
+        assert 'useState<Mode>("OFFLINE")' not in view, name
+
+
+def test_safety_gate_ttl_guardrail():
+    gate = _src("views/SafetyGate.tsx")
+    assert "decidable" in gate
+    assert "seconds_remaining > 0" in gate
+    assert "ttl-expired" in gate
+    assert "disabled={!decidable}" in gate
+
+
+def test_execution_view_readonly_rollback():
+    view = _src("views/ExecutionView.tsx")
+    assert "read-only" in view
+    assert "endpoint lands with M21" not in view

@@ -24,16 +24,39 @@ NOW = 1700000000.0
 
 @pytest.fixture(autouse=True)
 def _clean():
+    from app.routers import approvals as _ap
     runs.reset_demo_state()
+    _ap.reset_demo_state()
     yield
     runs.reset_demo_state()
+    _ap.reset_demo_state()
 
 
-def _permit_dict(**over):
-    base = {"action_id": "a1", "params_hash": "p1",
-            "expires_at": NOW + 3600.0, "token_ref": "tok-1"}
+SECRET = "m14-test-secret"
+
+
+def _action(**over):
+    base = {"incident_id": "inc-1", "agent_id": "planner",
+            "action_type": "rollback_deployment",
+            "resource_type": "deployment", "resource_id": "web",
+            "environment": "mock", "parameters": {"to_version": "v22"},
+            "reason": "Roll back web to v22.", "evidence_ids": ["ev-1"],
+            "runbook_id": "bad-deploy-rollback", "runbook_version": "1.2.0",
+            "expected_outcome": "Spike clears.",
+            "verification_plan": ["deployment_version_expected"],
+            "rollback_action": {"action_type": "rollback_deployment"}}
     base.update(over)
     return base
+
+
+def _bound_approval(secret=SECRET, actor="sre-1", **over):
+    """Real HMAC-bound credential: request -> human approve -> bind."""
+    from app.routers import approvals as _ap
+    issued = _ap.request_approval(_action(**over), actor, secret)
+    _ap.approve_approval(issued["approval_id"], actor, issued["token"],
+                         "approver", secret)
+    return {"approval_id": issued["approval_id"], "token": issued["token"],
+            "actor": actor}
 
 
 def _to_policy(incident="inc-1"):
@@ -77,18 +100,53 @@ def test_advance_no_skip_maps_409():
 
 def test_advance_permit_flow_and_expiry_410():
     _to_policy()
-    view = runs.advance_run("inc-1", "APPROVED", permit=_permit_dict(),
-                            now=NOW)
+    view = runs.advance_run("inc-1", "APPROVED",
+                            approval=_bound_approval(),
+                            approval_secret=SECRET, now=NOW)
     assert view["permit_pending"] is True
     view = runs.advance_run("inc-1", "EXECUTING", now=NOW)
     assert view["state"] == "EXECUTING"
 
+    # Forged client permits are never accepted (P0-1: no self-authorization).
     _to_policy("inc-2")
     with pytest.raises(Exception) as exc:
         runs.advance_run("inc-2", "APPROVED",
-                         permit=_permit_dict(expires_at=NOW - 1), now=NOW)
+                         approval={"action_id": "a1", "params_hash": "p1",
+                                   "expires_at": NOW + 3600.0,
+                                   "token_ref": "tok-1"},
+                         approval_secret=SECRET, now=NOW)
     assert isinstance(exc.value, PermitRejected)
-    assert runs.http_status(exc.value) == 410
+    assert runs.http_status(exc.value) == 403
+
+    # No secret, no APPROVED.
+    with pytest.raises(Exception) as exc:
+        runs.advance_run("inc-2", "APPROVED",
+                         approval=_bound_approval(), now=NOW)
+    assert isinstance(exc.value, PermitRejected)
+
+    # Unapproved (pending) requests cannot bind permits.
+    from app.routers import approvals as _ap
+    issued = _ap.request_approval(_action(), "sre-1", SECRET)
+    with pytest.raises(Exception) as exc:
+        runs.advance_run("inc-2", "APPROVED",
+                         approval={"approval_id": issued["approval_id"],
+                                   "token": issued["token"], "actor": "sre-1"},
+                         approval_secret=SECRET, now=NOW)
+    assert isinstance(exc.value, PermitRejected)
+
+    # One approval mints at most one permit (derived-nonce single-use).
+    bound = _bound_approval()
+    _to_policy("inc-3")
+    runs.advance_run("inc-3", "APPROVED", approval=bound,
+                     approval_secret=SECRET, now=NOW)
+    _to_policy("inc-4")
+    with pytest.raises(Exception) as exc:
+        runs.advance_run("inc-4", "APPROVED", approval=bound,
+                         approval_secret=SECRET, now=NOW)
+    assert isinstance(exc.value, PermitRejected)
+
+    # Expired permits still map to 410 at the HTTP boundary.
+    assert runs.http_status(PermitRejected("approval expired")) == 410
 
 
 def test_advance_idempotency_cached():
@@ -118,7 +176,11 @@ def test_error_mapping():
 def test_permit_shape_rejected():
     runs.create_run("inc-1", now=NOW)
     with pytest.raises(Exception):
-        runs.advance_run("inc-1", "TRIAGING", permit={"nope": 1}, now=NOW)
+        runs.advance_run("inc-1", "TRIAGING", approval={"nope": 1}, now=NOW)
+    _to_policy("inc-9")
+    with pytest.raises(Exception):
+        runs.advance_run("inc-9", "APPROVED", approval=None,
+                         approval_secret=SECRET, now=NOW)
 
 
 # ---------------------------------------------------------------------------

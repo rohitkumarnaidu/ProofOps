@@ -6,6 +6,7 @@ with model re-validation (the same shape an attacker would need to beat).
 """
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -18,6 +19,17 @@ from app.services import audit as A  # noqa: E402 (M15 chain)
 from app.services import fsm as fsm_svc  # noqa: E402 (M14 records)
 
 ROOT = Path(__file__).resolve().parents[1]
+
+KEY = "test-key-123"
+
+
+@pytest.fixture
+def _keys(monkeypatch):
+    import app.config as cfg
+    monkeypatch.setattr(
+        cfg, "get_settings",
+        lambda: SimpleNamespace(PROOFOPS_API_KEY=KEY,
+                                APPROVAL_SECRET="test-secret-123"))
 
 
 @pytest.fixture(autouse=True)
@@ -254,9 +266,10 @@ def test_adapter_rejects_unknown_record():
 # Router pure fns + wiring
 # ---------------------------------------------------------------------------
 
-def test_router_emit_view_verify_export():
+def test_router_emit_view_verify_export(_keys):
     event = audit_router.http_emit("inc-1", audit_router.EmitBody(
-        event_type="transition", actor="s", result="a->b"))
+        event_type="transition", actor="s", result="a->b"),
+        x_api_key=KEY)
     assert event["seq"] == 1
     view = audit_router.http_view("inc-1")
     assert view["valid"] is True and len(view["events"]) == 1
@@ -267,7 +280,14 @@ def test_router_emit_view_verify_export():
         audit_router.http_view("inc-nope")
     with pytest.raises(Exception):
         audit_router.http_emit("inc-1", audit_router.EmitBody(
-            event_type="transition", actor=" ", result="x"))
+            event_type="transition", actor=" ", result="x"), x_api_key=KEY)
+
+
+def test_router_emit_requires_key(_keys):
+    with pytest.raises(Exception) as exc:
+        audit_router.http_emit("inc-1", audit_router.EmitBody(
+            event_type="transition", actor="s", result="a->b"))
+    assert exc.value.status_code == 401
 
 
 def test_main_wires_audit_router():

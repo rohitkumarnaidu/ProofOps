@@ -6,6 +6,7 @@ pool exhaustion by rescaling); degradation spends zero LLM calls.
 """
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -270,3 +271,91 @@ def test_mutating_handlers_call_guard():
     assert "guard_http" in runs_src and "x_api_key" in runs_src
     assert "guard_http" in approvals
     assert approvals.count("_require_key(") >= 2
+
+
+# ---------------------------------------------------------------------------
+# P0 closures: mandatory chain, gated publish, DENY emit
+# ---------------------------------------------------------------------------
+
+def _ev_map(ids):
+    from app.contracts.enums import SourceType, TrustLevel
+    from app.contracts.evidence import Evidence
+    return {i: Evidence(evidence_id=i, incident_id="inc-1",
+                       source_type=SourceType.LOG, source_id="s", ref="r",
+                       hash="h" * 16, freshness_s=10.0, relevance=0.9,
+                       trust=TrustLevel.MED) for i in ids}
+
+
+def _rca_claims(ids):
+    from app.contracts.enums import ClaimClass
+    return [Claim(text="v23 caused it", evidence_ids=list(ids),
+                  claim_class=ClaimClass.MUST_CITE)]
+
+
+def _publish_args(ids, evm, **over):
+    base = dict(incident_id="inc-1", claims=_rca_claims(ids),
+                evidence_by_id=evm, valid_evidence_ids=set(ids),
+                timeline_rows=["t0 triage"], root_cause="v23 did it",
+                remediation_log=["rollback"],
+                prevention=["canary"], client=Scripted(None),
+                store=session_mod.SessionStore())
+    base.update(over)
+    return base
+
+
+def test_publish_rca_hardened_ok():
+    ids = {"ev-1"}
+    out = P.publish_rca(**_publish_args(ids, _ev_map(ids)))
+    assert out.gated is False
+
+
+def test_publish_rca_denies_stale_low_unsealed():
+    from app.contracts.enums import TrustLevel
+    good = _ev_map({"ev-1"})["ev-1"]
+    # NOTE: empty-hash evidence cannot be constructed (contract min_length=1
+    # rejects it at the boundary); stale/LOW are the live bypass shapes here.
+    # The unsealed branch is proven in test_evidence_m05_hardening.py.
+    # freshness 100000s: stale (>900s) but inside the contract max (10y).
+    bad_kinds = {
+        "stale": good.model_copy(update={"freshness_s": 100000.0}),
+        "low": good.model_copy(update={"trust": TrustLevel.LOW}),
+    }
+    for name, ev in bad_kinds.items():
+        chain = AuditChain(incident_id="inc-1")
+        with pytest.raises(P.RcaDenied):
+            P.publish_rca(**_publish_args({"ev-1"}, {"ev-1": ev},
+                                          chain=chain))
+        assert any(e.event_type == "rca.publish" and "DENIED" in e.result
+                   for e in chain.events), name
+        assert chain.verify()["valid"] is True
+
+
+def test_publish_rca_requires_hardened_mapping():
+    with pytest.raises(P.PipelineFailed):
+        P.publish_rca(**_publish_args({"ev-1"}, None))
+
+
+def test_pipeline_autochain_on_stall():
+    disabled = {agent: Scripted(None)
+                for agent in ("triage", "diagnostic", "planner")}
+    with pytest.raises(P.PipelineStalled) as exc:
+        P.run_pipeline("inc-1", _alerts(), _tele(), "web", "prod",
+                       _resource(), disabled, session_mod.SessionStore())
+    chain = exc.value.audit_chain
+    assert any(e.event_type == "transition" for e in chain.events)
+    assert chain.verify()["valid"] is True
+
+
+def test_policy_deny_emits_decision(monkeypatch):
+    from app.services import policy as policy_svc
+    monkeypatch.setattr(policy_svc, "evaluate", lambda *a, **k:
+                        SimpleNamespace(decision="DENY"))
+    chain = AuditChain(incident_id="inc-1")
+    with pytest.raises(P.PipelineBlocked):
+        P.run_pipeline("inc-1", _alerts(), _tele(), "web", "prod",
+                       _resource(), _clients(), session_mod.SessionStore(),
+                       approval=_approval(), chain=chain)
+    assert any(e.event_type == "policy.decision" and "DENY" in e.result
+               for e in chain.events)
+    assert any("BLOCKED" in e.result for e in chain.events
+               if e.event_type == "transition")

@@ -38,8 +38,10 @@ from agents.schemas import (  # noqa: E402 (M13.6 envelopes)
 @pytest.fixture(autouse=True)
 def _providers():
     tools.clear_providers()
+    tools.reset_tool_counts()
     yield
     tools.clear_providers()
+    tools.reset_tool_counts()
 
 
 def _hyp(text="h", conf=0.7):
@@ -430,3 +432,34 @@ def test_fetch_runbook_provider_real():
 def test_cannot_register_server_side_tool():
     with pytest.raises(ToolDenied):
         tools.register_provider("execute_action", lambda a: a)
+
+
+# ---------------------------------------------------------------------------
+# Budgets enforced live (P1 closures, not harness-only)
+# ---------------------------------------------------------------------------
+
+def test_tool_budget_enforced_per_agent():
+    tools.reset_tool_counts()
+    for _ in range(5):
+        tools.invoke("diagnostic", "fetch_runbook",
+                     {"runbook_id": "bad-deploy-rollback"})
+    assert tools.tool_calls("diagnostic") == 5
+    with pytest.raises(ToolDenied):
+        tools.invoke("diagnostic", "fetch_runbook",
+                     {"runbook_id": "bad-deploy-rollback"})
+    tools.reset_tool_counts()
+    assert tools.tool_calls("diagnostic") == 0
+    out = tools.invoke("diagnostic", "fetch_runbook",
+                       {"runbook_id": "bad-deploy-rollback"})
+    assert out["runbook_id"] == "bad-deploy-rollback"
+
+
+def test_incident_budget_aggregates_across_agents():
+    store = sess.SessionStore()
+    for agent in ("triage", "diagnostic", "planner"):
+        session = store.get_or_create("inc-1", agent)
+        for _ in range(4):
+            session.record_call()
+    assert store.incident_calls("inc-1") == 12
+    with pytest.raises(BudgetExceeded):
+        store.get_or_create("inc-1", "reporter").record_call()

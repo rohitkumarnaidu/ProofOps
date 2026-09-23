@@ -184,3 +184,73 @@ def test_main_wires_approvals_router():
     tree = _ast.parse(src)
     assert sum(1 for n in _ast.walk(tree) if isinstance(n, _ast.Call)
                and getattr(n.func, "attr", "") == "include_router") >= 3
+
+
+# ---------------------------------------------------------------------------
+# P0/P1 closures: HMAC-bound permits, rejection audit, durable nonces
+# ---------------------------------------------------------------------------
+
+def test_verified_permit_binds_stored_approval():
+    out = _request()
+    AP.approve_approval(out["approval_id"], "sre-1", out["token"],
+                        "approver", SECRET)
+    permit = AP.verified_permit(out["approval_id"], out["token"], "sre-1",
+                                SECRET, now=time.time())
+    assert permit.token_ref == out["approval_id"]
+    assert permit.auto is False
+    # Same approval never mints twice (derived-nonce single-use).
+    with pytest.raises(AP.ApprovalReplayed):
+        AP.verified_permit(out["approval_id"], out["token"], "sre-1",
+                           SECRET, now=time.time())
+
+
+def test_verified_permit_rejects_forgery_and_pending():
+    out = _request()
+    with pytest.raises(AP.ApprovalDenied):
+        # Pending (not human-approved) requests cannot bind permits.
+        AP.verified_permit(out["approval_id"], out["token"], "sre-1",
+                           SECRET, now=time.time())
+    AP.approve_approval(out["approval_id"], "sre-1", out["token"],
+                        "approver", SECRET)
+    with pytest.raises(AP.ApprovalDenied):
+        AP.verified_permit(out["approval_id"], out["token"] + "x", "sre-1",
+                           SECRET, now=time.time())
+    with pytest.raises(AP.ApprovalDenied):
+        AP.verified_permit(out["approval_id"], out["token"], "intruder",
+                           SECRET, now=time.time())
+
+
+def test_rejected_verify_emits_audit():
+    chain = AuditChain(incident_id="inc-1")
+    out = _request(chain=chain)
+    with pytest.raises(AP.ApprovalDenied):
+        AP.approve_approval(out["approval_id"], "sre-1", out["token"] + "x",
+                            "approver", SECRET, chain=chain)
+    kinds = [e.event_type for e in chain.events]
+    assert "approval.rejected" in kinds
+    assert chain.verify()["valid"] is True
+
+
+def test_nonce_store_file_roundtrip(tmp_path):
+    from app.services import approval as svc
+    path = tmp_path / "nonces.jsonl"
+    first = svc.NonceStore(path)
+    assert first.persistent is True
+    assert first.degraded is False
+    assert first.consume("n1") is True
+    second = svc.NonceStore(path)
+    assert second.consume("n1") is False  # burn survives restart
+    assert svc.NonceStore().persistent is False
+    assert svc.NonceStore().consume("n1") is True  # memory-only default
+
+
+def test_nonce_store_evicts_oldest_first(tmp_path, monkeypatch):
+    from app.services import approval as svc
+    monkeypatch.setattr(svc.NonceStore, "MAX_NONCES", 3)
+    path = tmp_path / "nonces.jsonl"
+    store = svc.NonceStore(path)
+    for nonce in ("n1", "n2", "n3", "n4"):
+        assert store.consume(nonce) is True
+    revived = svc.NonceStore(path)
+    assert revived.consume("n1") is True  # oldest evicted, replayable again
+    assert revived.consume("n4") is False  # newest retained
