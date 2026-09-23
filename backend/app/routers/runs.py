@@ -172,7 +172,8 @@ def advance_run(incident_id: str, to: str, *, reason: str = "",
             return cached
     permit: Permit | None = None
     if to == "APPROVED":
-        permit = _bound_permit(approval, approval_secret, now)
+        permit = _bound_permit(approval, approval_secret, now,
+                               expected_incident=incident_id)
     elif approval is not None:
         raise PermitRejected("approval credential only valid on APPROVED")
     state = fsm_svc.advance(run, to, reason=reason, refs=list(refs),
@@ -186,8 +187,15 @@ def advance_run(incident_id: str, to: str, *, reason: str = "",
 
 
 def _bound_permit(approval: Mapping[str, Any] | None,
-                  secret: str | None, now: float | None) -> Permit:
-    """Resolve an APPROVED credential via the stored M07 approval (P0-1)."""
+                  secret: str | None, now: float | None,
+                  expected_incident: str | None = None) -> Permit:
+    """Resolve an APPROVED credential via the stored M07 approval (P0-1).
+
+    Every APPROVED edge binds to its own run's incident (P1): the target
+    ``incident_id`` is threaded through as ``expected_incident`` so an
+    approval minted for incident A cannot authorize incident B.
+    ``None`` keeps the legacy unbound behavior for pure-helper callers.
+    """
     from app.routers import approvals as approvals_router
     if not isinstance(approval, Mapping):
         raise PermitRejected(
@@ -205,7 +213,8 @@ def _bound_permit(approval: Mapping[str, Any] | None,
         raise PermitRejected("APPROVED requires the server approval secret")
     try:
         return approvals_router.verified_permit(
-            approval_id, token, actor, secret, now)
+            approval_id, token, actor, secret, now,
+            expected_incident=expected_incident)
     except Exception as exc:
         raise PermitRejected(f"approval binding failed: {exc}") from exc
 

@@ -88,7 +88,7 @@ Whitespace policy (Escape 4):
 from __future__ import annotations
 
 import copy
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from datetime import datetime
 from typing import Any, NoReturn, Optional, Self
 
@@ -205,7 +205,7 @@ class FrozenDict(Mapping):
     def __getitem__(self, key: str) -> Any:
         return self._data[key]
 
-    def __iter__(self):  # type: ignore[override]
+    def __iter__(self) -> Iterator[str]:  # type: ignore[override]
         return iter(self._data)
 
     def __len__(self) -> int:

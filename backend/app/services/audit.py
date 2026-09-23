@@ -19,8 +19,11 @@ store assigns seq (callers cannot order the past).
 """
 from __future__ import annotations
 
+import json
+import os
 import re
 import sys
+import tempfile
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -66,6 +69,26 @@ MAX_RESULT_CLIP = 1024
 
 class AuditError(Exception):
     """Base for audit rejections (fail-closed, never silent)."""
+
+
+#: File-persistence identity rule: the caller passes the path, but the
+#: incident id embedded in the filename must match this (no traversal,
+#: no spaces, bounded). Rejected ids raise AuditError (fail-closed).
+_INCIDENT_FILE_RE = re.compile(r"[A-Za-z0-9_-]{1,128}")
+
+
+def sanitize_incident_id(incident_id: str) -> str:
+    """Validate an incident id for file persistence (P1: no traversal).
+
+    Returns the id unchanged when it matches ``[A-Za-z0-9_-]{1,128}``,
+    else raises AuditError. Memory-only chains keep the looser
+    non-blank rule; only the file layer enforces this.
+    """
+    if not isinstance(incident_id, str) \
+            or not _INCIDENT_FILE_RE.fullmatch(incident_id):
+        raise AuditError(
+            "incident_id must match [A-Za-z0-9_-]{1,128} for file use")
+    return incident_id
 
 
 def _clip(value: str, limit: int = MAX_RESULT_CLIP) -> str:
@@ -173,6 +196,79 @@ class AuditChain:
             "checked": verdict["checked"],
             "events": [e.model_dump(mode="json") for e in self._events],
         }
+
+    def save(self, path: str | Path) -> Path:
+        """Persist the chain to a JSONL file (P1: survive restarts).
+
+        One ``model_dump(mode="json")`` object per line. The caller passes
+        the path (this service never hardcodes locations); the incident id
+        is sanitized to ``[A-Za-z0-9_-]{1,128}`` first. Writes atomically
+        via tmp+rename (chains are small, full rewrite is simplest).
+        """
+        sanitize_incident_id(self.incident_id)
+        out = Path(path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        lines = [json.dumps(e.model_dump(mode="json"), sort_keys=True)
+                 for e in self._events]
+        tmp = tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=str(out.parent),
+            prefix=out.name + ".", suffix=".tmp", delete=False)
+        try:
+            tmp.write("".join(line + "\n" for line in lines))
+            tmp.flush()
+            os.fsync(tmp.fileno())
+            tmp.close()
+            os.replace(tmp.name, out)
+        except OSError:
+            try:
+                os.unlink(tmp.name)
+            except OSError:
+                pass
+            raise
+        return out
+
+    @classmethod
+    def load(cls, incident_id: str, path: str | Path) -> AuditChain:
+        """Reload a persisted chain (P1: tamper-evident reload).
+
+        Re-validates every event via the contract, requires all events to
+        belong to ``incident_id``, then recomputes ``verify()``. Raises
+        AuditError on any invalid content (corrupt/tampered files never
+        silently become empty chains). Missing file raises
+        FileNotFoundError for the caller to distinguish.
+        """
+        sanitize_incident_id(incident_id)
+        try:
+            text = Path(path).read_text(encoding="utf-8")
+        except FileNotFoundError:
+            raise
+        except OSError as exc:
+            raise AuditError(f"audit file unreadable: {exc}") from exc
+        chain = cls(incident_id=incident_id)
+        for lineno, line in enumerate(text.splitlines(), start=1):
+            if not line.strip():
+                continue
+            try:
+                payload = json.loads(line)
+            except ValueError as exc:
+                raise AuditError(
+                    f"audit file corrupt at line {lineno}: {exc}") from exc
+            try:
+                event = AuditEvent.model_validate(payload)
+            except Exception as exc:
+                raise AuditError(
+                    f"audit file event invalid at line {lineno}: {exc}"
+                ) from exc
+            if event.incident_id != incident_id:
+                raise AuditError(
+                    f"audit file event owner mismatch at line {lineno}")
+            chain._events.append(event)
+        verdict = chain.verify()
+        if not verdict["valid"]:
+            raise AuditError(
+                f"audit file failed verification: {verdict['reason']} "
+                f"at seq {verdict['first_bad_seq']}")
+        return chain
 
     def by_action(self, action_id: str) -> list[AuditEvent]:
         return [e for e in self._events if e.action_id == action_id]

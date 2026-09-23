@@ -41,7 +41,9 @@ from app.services.validator import validate_action  # noqa: E402 (M06.1 gate)
 PROMPT_NAME = "planner.md"
 
 #: Shell/command tokens that must never appear in planner free text or
-#: string parameters (case-sensitive: prose rarely shouts these, shells do).
+#: string parameters (matched case-insensitively: SHOUTED variants such as
+#: KUBECTL/Drop/Rm -rf are shells too, and legit prose never contains these
+#: tokens in any case).
 SHELL_TOKENS = ("`", "$(", "${", "&&", "||", ";--", "rm -rf", "kubectl",
                 "DROP", "DELETE FROM", "chmod", "curl", "wget", "ssh ")
 
@@ -52,13 +54,18 @@ def prompt_text() -> str:
 
 
 def scan_free_text(fields: Mapping[str, Any]) -> list[str]:
-    """Return 'field:token' hits for shell vocabulary (M13.4)."""
+    """Return 'field:token' hits for shell vocabulary (M13.4).
+
+    Matching is case-insensitive (both sides casefolded) so SHOUTED
+    variants cannot slip past; the SHELL_TOKENS list itself is unchanged.
+    """
     hits: list[str] = []
 
     def _walk(name: str, value: Any) -> None:
         if isinstance(value, str):
+            folded = value.casefold()
             hits.extend(f"{name}:{token}" for token in SHELL_TOKENS
-                        if token in value)
+                        if token.casefold() in folded)
         elif isinstance(value, Mapping):
             for key, item in value.items():
                 _walk(f"{name}.{key}", item)

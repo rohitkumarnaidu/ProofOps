@@ -39,6 +39,28 @@ except Exception:  # host-only drift (AGENTS.md S13.2)
 
 CHAINS: dict[str, audit_svc.AuditChain] = {}
 
+#: Persisted-chain directory (repo ``var/``, gitignored). Filenames are
+#: ``audit-<incident_id>.jsonl`` with the id sanitized by the service;
+#: unsanitizable ids stay memory-only (no traversal, fail-closed files).
+_VAR_DIR = Path(__file__).resolve().parents[3] / "var"
+
+
+def _chain_path(incident_id: str) -> Path | None:
+    """File for one incident's chain, or None when unpersistable."""
+    try:
+        safe = audit_svc.sanitize_incident_id(incident_id)
+    except (audit_svc.AuditError, TypeError, ValueError):
+        return None
+    return _VAR_DIR / f"audit-{safe}.jsonl"
+
+
+def persist_chain(chain: audit_svc.AuditChain) -> None:
+    """Rewrite one router-managed chain to disk (atomic tmp+rename)."""
+    path = _chain_path(chain.incident_id)
+    if path is None:
+        return
+    chain.save(path)
+
 
 class AuditMissing(Exception):
     """Unknown incident chain (HTTP 404)."""
@@ -70,7 +92,21 @@ def export_view(incident_id: str) -> dict[str, Any]:
 
 
 def reset_demo_state() -> None:
+    """Clear memory AND persisted chain files (demo/test-only).
+
+    Test isolation depends on both layers clearing together: without file
+    deletion, one test's ``var/audit-*.jsonl`` would leak into the next
+    test's ``get_or_create_chain`` load. Never call in production.
+    """
     CHAINS.clear()
+    try:
+        for path in _VAR_DIR.glob("audit-*.jsonl*"):
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
+    except OSError:
+        pass
 
 
 class EmitBody(BaseModel):
@@ -95,7 +131,7 @@ def _guarded(fn: Any, *args: Any, **kwargs: Any) -> Any:
     except audit_svc.AuditError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 def _chain_of(incident_id: str) -> audit_svc.AuditChain:
@@ -103,9 +139,21 @@ def _chain_of(incident_id: str) -> audit_svc.AuditChain:
 
 
 def get_or_create_chain(incident_id: str) -> audit_svc.AuditChain:
-    """Serving-path chain accessor (P0-2: HTTP layers chain, never None)."""
+    """Serving-path chain accessor (P0-2: HTTP layers chain, never None).
+
+    Loads from ``var/audit-<incident_id>.jsonl`` when memory misses (P1:
+    chains survive restarts). A corrupt/tampered file raises AuditError --
+    never silently starts empty. Missing file (or unpersistable id) starts
+    a fresh in-memory chain.
+    """
     if incident_id not in CHAINS:
-        CHAINS[incident_id] = audit_svc.AuditChain(incident_id=incident_id)
+        path = _chain_path(incident_id)
+        if path is not None and path.is_file():
+            # AuditError (corrupt/tampered) propagates: fail-closed reload.
+            CHAINS[incident_id] = audit_svc.AuditChain.load(
+                incident_id, path)
+        else:
+            CHAINS[incident_id] = audit_svc.AuditChain(incident_id=incident_id)
     return CHAINS[incident_id]
 
 
@@ -123,6 +171,7 @@ def http_emit(incident_id: str, body: EmitBody,
                      evidence_ids=body.evidence_ids, policy=body.policy,
                      action_id=body.action_id, approval_id=body.approval_id,
                      execution_id=body.execution_id, result=body.result)
+    _guarded(persist_chain, _chain_of(incident_id))
     return event.model_dump(mode="json")
 
 

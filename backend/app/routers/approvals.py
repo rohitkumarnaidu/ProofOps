@@ -252,7 +252,8 @@ def sweep_approvals(now: float, chain: Any = None) -> list[str]:
 
 def verified_permit(approval_id: str, token: str, actor: str,
                     secret: str, now: float | None = None,
-                    chain: Any = None) -> Permit:
+                    chain: Any = None,
+                    expected_incident: str | None = None) -> Permit:
     """HMAC-bound FSM credential for an APPROVED edge (P0-1 fix).
 
     The runs router must never mint permits from client JSON. This binds
@@ -261,6 +262,12 @@ def verified_permit(approval_id: str, token: str, actor: str,
     hash, scope, expiry, nonce burn) must verify via M07. Expiry is capped
     at now + PERMIT_FRESHNESS_S (invariant 19). Raises ApprovalMissing /
     ApprovalDenied / ApprovalReplayed / ApprovalExpired (=> 404/403/409/410).
+
+    Incident binding (P1): when ``expected_incident`` is provided
+    (non-blank), the stored request's incident must equal it, else
+    ApprovalDenied("incident mismatch..."). This stops an approval minted
+    for incident A from authorizing a run for incident B. ``None`` (or
+    blank) keeps the legacy unbound behavior for pure-helper callers.
     """
     entry = _entry(approval_id)
     if entry["status"] != "approved":
@@ -268,6 +275,14 @@ def verified_permit(approval_id: str, token: str, actor: str,
             f"approval is {entry['status']}, not approved (human decision "
             "required before APPROVED)")
     req, action = entry["request"], entry["action"]
+    if isinstance(expected_incident, str) and expected_incident.strip():
+        if req.incident_id != expected_incident:
+            _emit(chain, "approval.rejected", entry, actor,
+                  f"incident mismatch: approval for {req.incident_id!r} "
+                  f"cannot authorize {expected_incident!r}")
+            raise ApprovalDenied(
+                f"incident mismatch: approval for {req.incident_id!r} "
+                f"cannot authorize run {expected_incident!r}")
     try:
         # Crypto/binding check only: the approve step already burned the
         # approval nonce. Minting burns its own derived nonce below, so one

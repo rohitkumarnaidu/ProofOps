@@ -204,6 +204,21 @@ class SessionStore:
         for (incident_id, _), session in self._sessions.items():
             self._incident_calls[incident_id] = \
                 self._incident_calls.get(incident_id, 0) + session.llm_calls
+        # Fail-closed on inflated files (P2): rehydration must respect the
+        # same LLM-call budgets as live use, per session and per incident.
+        for session in self._sessions.values():
+            if session.llm_calls > MAX_LLM_CALLS_PER_INCIDENT:
+                raise ValueError(
+                    "session file exceeds LLM call budget: "
+                    f"{session.incident_id}/{session.agent} holds "
+                    f"{session.llm_calls} calls "
+                    f"(max {MAX_LLM_CALLS_PER_INCIDENT})")
+        for incident_id, total in self._incident_calls.items():
+            if total > MAX_LLM_CALLS_PER_INCIDENT:
+                raise ValueError(
+                    "session file exceeds incident LLM call budget: "
+                    f"{incident_id} holds {total} calls "
+                    f"(max {MAX_LLM_CALLS_PER_INCIDENT})")
         return count
 
     def to_plain(self) -> dict[str, Any]:

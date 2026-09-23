@@ -193,7 +193,8 @@ def run_pipeline(incident_id: str, alerts: Sequence[Mapping[str, Any]],
             raise _stop(PipelineStalled("ESCALATE without approval config "
                                         "(caller escalates)"))
         secret, actor = approval["secret"], approval["actor"]
-        permit = _hitl_permit(action, secret, actor, ts, chain)
+        permit = _hitl_permit(action, secret, actor, ts, chain,
+                              incident_id=incident_id)
         fsm_svc.advance(run, "AWAITING_APPROVAL", now=ts)
         fsm_svc.advance(run, "APPROVED", permit=permit, now=ts)
     else:
@@ -238,27 +239,69 @@ def run_pipeline(incident_id: str, alerts: Sequence[Mapping[str, Any]],
         except ValueError:
             rb_action = None
         if rb_action is not None:
-            rolled_back = True
-            fsm_svc.advance(run, "ROLLBACK",
-                            reason=f"auto-rollback on {verdict_name}", now=ts)
+            # P1 gate (Lane A): the auto-rollback is pre-authorized as part
+            # of the approved action's rollback plan, so no fresh HITL token
+            # is minted here -- but validator + policy still gate execution.
+            # An unvalidated or DENY'd rollback never reaches the executor:
+            # it is refused on the audit chain and the run escalates.
+            rb_issues = validator_svc.validate_action(rb_action, runbook)
+            # Terminal-rollback exemption: auto-rollback is single-attempt
+            # (MAX_AUTO_ROLLBACKS=1), so it carries no nested rollback_action
+            # of its own. That one structural issue is exempt; every other
+            # validator issue still refuses the rollback.
+            rb_issues = [issue for issue in rb_issues
+                         if "requires rollback_action" not in issue]
+            rb_refusal = ""
+            if rb_issues:
+                rb_refusal = f"validator rejected rollback: {rb_issues[0]}"
+            else:
+                rb_eval = policy_svc.evaluate(
+                    rb_action, dict(APPROVER),
+                    {"environment": resource.get("environment", env)},
+                    str(triage.severity), blast, bundle, matrix)
+                if str(rb_eval.decision) == "DENY":
+                    rb_refusal = (
+                        "policy DENY rollback "
+                        f"(rule {getattr(rb_eval, 'rule_id', '?')})")
             rb_execution_id = f"{execution_id}-rb1"
-            (rb_applied, _) = fsm_svc.execute_once(
-                run, rb_action.action_id, rb_execution_id,
-                sandbox_svc.apply, rb_action, after)
-            _, after_rb = rb_applied
-            after_err = float(after_rb.get("error_rate", 1.0))
-            fsm_svc.advance(run, "VERIFYING", now=ts)
-            expected_rb = {}
-            if "to_version" in plain_params and isinstance(
-                    before.get("deployment_version"), str):
-                expected_rb = {"version": before["deployment_version"]}
-            verdict2 = verifier_svc.verify(
-                rb_execution_id, after, after_rb, slo, expected_rb).verdict
-            verdict_name = str(verdict2.value
-                               if hasattr(verdict2, "value") else verdict2)
-            verdicts.append(verdict_name)
-            chain.emit("verification.verdict", actor="control-plane",
-                       execution_id=rb_execution_id, result=verdict_name)
+            if rb_refusal:
+                chain.emit("rollback.finish", actor="control-plane",
+                           action_id=rb_action.action_id,
+                           execution_id=rb_execution_id,
+                           result=f"rollback refused: {rb_refusal}")
+                # rolled_back stays False; verdict stays non-RESOLVED, so the
+                # run falls through to ESCALATED below (never resolves).
+            else:
+                chain.emit("rollback.start", actor="control-plane",
+                           action_id=rb_action.action_id,
+                           execution_id=rb_execution_id,
+                           result=f"auto-rollback on {verdict_name}")
+                rolled_back = True
+                fsm_svc.advance(run, "ROLLBACK",
+                                reason=f"auto-rollback on {verdict_name}",
+                                now=ts)
+                (rb_applied, _) = fsm_svc.execute_once(
+                    run, rb_action.action_id, rb_execution_id,
+                    sandbox_svc.apply, rb_action, after)
+                _, after_rb = rb_applied
+                after_err = float(after_rb.get("error_rate", 1.0))
+                fsm_svc.advance(run, "VERIFYING", now=ts)
+                expected_rb = {}
+                if "to_version" in plain_params and isinstance(
+                        before.get("deployment_version"), str):
+                    expected_rb = {"version": before["deployment_version"]}
+                verdict2 = verifier_svc.verify(
+                    rb_execution_id, after, after_rb, slo,
+                    expected_rb).verdict
+                verdict_name = str(verdict2.value
+                                   if hasattr(verdict2, "value") else verdict2)
+                verdicts.append(verdict_name)
+                chain.emit("verification.verdict", actor="control-plane",
+                           execution_id=rb_execution_id, result=verdict_name)
+                chain.emit("rollback.finish", actor="control-plane",
+                           action_id=rb_action.action_id,
+                           execution_id=rb_execution_id,
+                           result=verdict_name)
     if verdict_name != "RESOLVED":
         _walk("ESCALATED")
         report = _report(incident_id, "escalated", run, triage, decision,
@@ -403,12 +446,14 @@ def to_eval_trace(report: Mapping[str, Any], tele_public: Mapping[str, Any],
 
 
 def _hitl_permit(action: Any, secret: str, actor: str,
-                 now: float, chain: Any = None) -> Permit:
+                 now: float, chain: Any = None,
+                 incident_id: str | None = None) -> Permit:
     """Request + approve through the approvals router pure fns (M19a).
 
     The FSM credential comes from verified_permit (R2 closure): bound to the
     STORED human-approved request with derived-nonce single-use and the
-    TTL/freshness cap -- never constructed by hand here.
+    TTL/freshness cap -- never constructed by hand here. expected_incident
+    binds the permit to this run's incident (cross-incident reuse denied).
     """
     from app.routers import approvals as approvals_router
     dumped = action.model_dump(mode="json")
@@ -420,4 +465,4 @@ def _hitl_permit(action: Any, secret: str, actor: str,
     assert view["status"] == "approved"
     return approvals_router.verified_permit(
         issued["approval_id"], issued["token"], actor, secret, now,
-        chain=chain)
+        chain=chain, expected_incident=incident_id)

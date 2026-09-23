@@ -62,8 +62,16 @@ def meta() -> dict:
     # app/services/sandbox.py (DOCKER_CONSTRAINTS + fail-closed
     # apply_docker). mode is the deployment mode (APP_ENV). Public values
     # only — never secrets. /healthz body above is untouched (byte-frozen).
+    # Lane A (P2): surface nonce-store durability (R1 fail-LOUD) so the
+    # degraded flag is visible instead of silent. Lazy import avoids cycles;
+    # the approvals router already exposes NONCES.
+    from app.routers import approvals as approvals_router  # noqa: E402 (lazy)
+    nonces = getattr(approvals_router, "NONCES", None)
     return {"service": "proofops-api", "spec": "PS03_FINAL_SPEC_V2",
-            "executor_tier": settings.EXECUTOR, "mode": settings.APP_ENV}
+            "executor_tier": settings.EXECUTOR, "mode": settings.APP_ENV,
+            "nonce_store_durable": bool(
+                getattr(nonces, "persistent", False)),
+            "nonce_store_degraded": bool(getattr(nonces, "degraded", False))}
 
 
 @app.get("/readyz")

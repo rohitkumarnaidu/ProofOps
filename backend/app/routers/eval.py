@@ -101,7 +101,9 @@ def http_smoke(body: SmokeBody,
     try:
         return smoke_eval()
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=500,
+            detail="smoke run failed (see server logs)") from exc
 
 
 if router is not None:  # container path; host asserts wiring via AST
