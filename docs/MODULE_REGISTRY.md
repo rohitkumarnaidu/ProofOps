@@ -256,7 +256,13 @@ registry tracks unit-level status only.
 | M17.6 | variants | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | NORMAL/NOISY/INCOMPLETE/CONTRADICTORY/ADVERSARIAL ×5 tests |
 | M17.7 | stub seven scenarios | IMPLEMENTED_TESTED (build-first; hardening pending) | S | N | N | N | minimal-fixture tests |
 
-## PHASE 18 — Adversarial (10)
+## PHASE 18 — Adversarial (10 units; 14-attack suite)
+
+> The suite executes 14 attacks (`evaluation/attacks/*.json`, count asserted
+> in `tests/test_adversarial_m18.py`): the 10 units below plus
+> policy-bypass, duplicate-execution, verification-spoofing, and
+> prompt-injection-direct. Per-unit row mapping for the extra 4 is PENDING
+> (tracked here, not silently merged into neighboring rows).
 
 | ID | Unit | Status | Safety | Ground | Hall | Retr | Verify method |
 |---|---|---|---|---|---|---|---|

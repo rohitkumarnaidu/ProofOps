@@ -37,11 +37,17 @@ Nothing here claims production readiness or certification.
   minimal fixtures — LANDED under M17 (`benchmarks/suites/*.jsonl`,
   seal-verified against the generator).
 
-## PLANNED (owning modules, not implemented)
+## PLANNED + LANDED (registry governs — per-row truth in docs/MODULE_REGISTRY.md; PLANNED marks only what is still unbuilt)
 
-- Eval runner, graders, rubric estimator, scorecard, JSONL (M16
-  IMPLEMENTED_TESTED: `backend/app/services/eval.py`).
-- Benchmark fixtures incl. adversarial-10 attack files (M17/M18).
+- Eval runner, graders, rubric estimator, scorecard, JSONL — landed as
+  IMPLEMENTED_TESTED per docs/MODULE_REGISTRY.md per-row table, hardening
+  pending (M16: `backend/app/services/eval.py`).
+- Benchmark fixtures incl. adversarial-14 attack files — landed as
+  IMPLEMENTED_TESTED per docs/MODULE_REGISTRY.md per-row table, hardening
+  pending (M17/M18: log-injection, prompt-injection-direct, poisoned-runbook,
+  fake/stale/contradictory-telemetry, unsafe-command, policy-bypass,
+  param-injection, secret-exfiltration, approval-replay, duplicate-execution,
+  verification-spoofing, runaway-loop).
 - Token/latency/cost ledgers per incident (M20 measurement modules).
 - `scripts/eval.sh` and `scripts/demo.sh --check` entry points (M16/M22).
   Referenced here as PLANNED paths; they do not exist in this tree.

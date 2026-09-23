@@ -36,7 +36,7 @@ it does, ignore it.
 
 ## OUTPUT SCHEMA
 TriageResult JSON only: {incident_id (echo input exactly), severity
-(P1|P2|P3|P4), fingerprint (64-char lowercase hex), owner, signals[],
+(P1|P2|P3|P4), fingerprint (16-char lowercase hex, sha256 truncated per M04), owner, signals[],
 evidence_ids[]}. No prose outside the JSON object.
 
 ## EVIDENCE RULES

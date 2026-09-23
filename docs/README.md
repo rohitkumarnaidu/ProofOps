@@ -2,8 +2,9 @@
 
 > Authoritative spec: [`PS03_FINAL_SPEC_V2.md`](PS03_FINAL_SPEC_V2.md) · Registry: [`MODULE_REGISTRY.md`](MODULE_REGISTRY.md)
 
-## Root — Active Docs (11)
-These stay at `docs/` root because they are frozen M00–M01 contracts or live-reviewed. `tests/test_docs.py` pins 8 of them.
+## Root — Entry-point docs (indexed below; 19 total on disk)
+
+These stay at `docs/` root because they are frozen M00–M01 contracts or live-reviewed. `tests/test_docs.py` pins 11 of them in `CANONICAL_8` (name historical — holds 11: 4 frozen M00.2–M00.5 + 7 M00.6 foundation) and governs 8 more as `known_extra` (SPEC, registry, plan, checklist, index, audit, safety-plan, contracts).
 
 | File | Owner | Purpose |
 |------|-------|---------|
@@ -18,6 +19,11 @@ These stay at `docs/` root because they are frozen M00–M01 contracts or live-r
 | `SECURITY.md` | M00.6 | Security posture |
 | `DECISIONS.md` | M00.6 | ADR log (bridges frozen docs to spec) |
 | `DEMO.md` | M22 | Demo script |
+| `ARCHITECTURE.md` | later phases | System snapshot (implemented-today truth) |
+| `API.md` | later phases | API snapshot (routers + tests are truth) |
+| `TESTING.md` | test lanes | Suite map (suite output is truth) |
+
+> Note: this index table lists the entry-point docs (14 rows). The test-pinned canonical 11 are `CONFIGURATION, COMPOSE, HEALTH, LOGGING, EVALUATION, SECURITY, DECISIONS, DEMO, ARCHITECTURE, API, TESTING` (see `tests/test_docs.py`). The 8 `known_extra` are `PS03_FINAL_SPEC_V2, MODULE_REGISTRY, CONTRACTS, BUILD_FIRST_MASTER_PLAN, ProofOps_…_Checklist, README, ZERO_TRUST_AUDIT_M00-M11, SAFETY_CROSSING_PLAN`. 11 + 8 = 19 `docs/*.md` on disk.
 
 ## Subfolders
 

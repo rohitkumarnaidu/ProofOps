@@ -17,8 +17,8 @@
 ### 0.1 Source hierarchy — never silently override a higher source
 
 1. **Current official HiDevs / challenge submission UI and current organizer instructions** — operational source of truth for submission state, current limits, required fields, and any late changes.
-2. **`PS03_FINAL_SPEC_V2.md` / `PS03_FINAL_SPEC_V2(1).md`** — authoritative implementation specification for this project; it supersedes V1 Part B where conflicts exist.
-3. **`PS03_FINAL_SPEC.md` / `PS03_FINAL_SPEC(1).md`** — background, research, and prior implementation specification where V2 does not conflict.
+2. **`PS03_FINAL_SPEC_V2.md`** — authoritative implementation specification for this project; it supersedes V1 Part B where conflicts exist. (Ghost `PS03_FINAL_SPEC_V2(1).md` download-dedup name seen in an earlier draft — no such file exists; use the real name.)
+3. **`PS03_FINAL_SPEC.md` (in `docs/archive/`)** — background, research, and prior implementation specification where V2 does not conflict. (Ghost `PS03_FINAL_SPEC(1).md` download-dedup name — no such file exists; use the real name.)
 4. **Official PS03 rules/evaluation document** — official problem requirements, rubric, repository expectations, and stated MVP/stretch scope.
 5. **Project research reports** — engineering strategy, winning patterns, competitive analysis, threat models, and recommended controls.
 6. **Project module registry and audit reports** — current implementation state, trusted commits, scores, residual findings, and human approval state.
@@ -1465,7 +1465,7 @@ Measure:
 
 ---
 
-# 9. Six Global Production Quality Gates
+# 9B. Six Global Production Quality Gates (originally mis-numbered as a second `# 9.` — relabeled 9B to preserve all later section numbers)
 
 ## C1 — Hallucination Mitigation
 
@@ -2171,7 +2171,7 @@ live snapshot, this section records the same baseline for audit continuity):
 - [ ] M12 → M22 (90 units: retrieval, agents, orchestration, audit, eval,
   benchmarks, adversarial, frontend, performance, integration, demo) —
   NOT STARTED (Waves 4–7 untouched).
-- Total with implementation: 87/183. Overall project score: NOT COMPUTED.
+- Total with implementation: 87/183 (superseded snapshot — preserved forensic history; live truth is the `docs/MODULE_REGISTRY.md` per-row table + `docs/BUILD_FIRST_MASTER_PLAN.md` §1). Overall project score: NOT COMPUTED.
 
 ### Historical record (preserved forensic history — superseded, do not act on)
 
@@ -2300,17 +2300,17 @@ Prioritize:
 
 # 27. Evidence Sources Used to Build This Checklist
 
-Primary project sources supplied for this plan:
+Primary project sources supplied for this plan (real on-disk names; `(1)`/`(2)` suffixed variants below were download-dedup artifacts and do not exist as files):
 
-- `AI_Quest_2026_PS03_Hackathon_Rules_and_Evaluation(1).md`
-- `AI_Quest_2026_PS03_Master_Research(1).md`
-- `PS03_FINAL_SPEC(1).md`
-- `PS03_FINAL_SPEC_V2(1).md`
-- `Beyond the Wrapper_ A Blueprint for Verifiable Autonomous SRE in the AI Quest 2026 Hackathon(1).md`
-- `From Code to Confidence_ An Engineering Framework for Verifying Trust in Autonomous SRE Systems(1).md`
-- `From Hallucination to Verifiable Action_ A Comparative Analysis of Lyzr's Regulated Agent Challenges(2).md`
-- `The Minimalist Safeguard_ A Hybrid Architecture for Production AI Agents Combining Lyzr's Capabilities with a Critical Deterministic Control Layer(1).md`
-- `Why Action Safety is the Winning Hackathon Strategy_ A Feasibility Study for Building Credible, Governed Autonomous Agents(2).md`
+- `docs/research/AI_Quest_2026_PS03_Hackathon_Rules_and_Evaluation.md` (draft cited `AI_Quest_2026_PS03_Hackathon_Rules_and_Evaluation(1).md`)
+- `docs/research/AI_Quest_2026_PS03_Master_Research.md` (draft cited `AI_Quest_2026_PS03_Master_Research(1).md`)
+- `docs/archive/PS03_FINAL_SPEC.md` (draft cited `PS03_FINAL_SPEC(1).md`)
+- `docs/PS03_FINAL_SPEC_V2.md` (draft cited `PS03_FINAL_SPEC_V2(1).md`)
+- `docs/research/Beyond the Wrapper_ A Blueprint for Verifiable Autonomous SRE in the AI Quest 2026 Hackathon.md` (draft cited the `(1).md` variant)
+- `docs/research/From Code to Confidence_ An Engineering Framework for Verifying Trust in Autonomous SRE Systems.md` (draft cited the `(1).md` variant)
+- `docs/research/From Hallucination to Verifiable Action_ A Comparative Analysis of Lyzr's Regulated Agent Challenges.md` (draft cited the `(2).md` variant)
+- `docs/research/The Minimalist Safeguard_ A Hybrid Architecture for Production AI Agents Combining Lyzr's Capabilities with a Critical Deterministic Control Layer.md` (draft cited the `(1).md` variant)
+- `docs/research/Why Action Safety is the Winning Hackathon Strategy_ A Feasibility Study for Building Credible, Governed Autonomous Agents.md` (draft cited the `(2).md` variant)
 - Prior ProofOps module audit/forensic/hardening reports supplied in the conversation.
 
 **Conflict rule:** Where the final V2 specification explicitly supersedes V1 implementation details, V2 wins. Where a capability or submission condition can change, re-check the current official platform before acting.

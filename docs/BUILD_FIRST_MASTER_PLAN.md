@@ -39,6 +39,10 @@ never presented as official organizer rules.
 
 ## 1. Where we are today — measured baseline `[PROVISIONAL: refresh on each wave landing]`
 
+> Snapshot governance: numbers below are the wave-landing snapshot. The
+> `docs/MODULE_REGISTRY.md` per-row table governs on any conflict (known drift
+> risk: registry header vs this snapshot vs checklist §23).
+
 Registry count (verified against `docs/MODULE_REGISTRY.md` per-row table):
 
 - **60 APPROVED** (human verdict, locked): M00.1–M00.7, M01.1–M01.15,
@@ -124,7 +128,7 @@ hardened.
 - **M17 Benchmarks (7).** 12 categories; deep-5 × 5 variants with expected root
   cause + allowed/forbidden remediation + verification criteria; stub-7 minimal.
   Ground truth never leaks into model prompts. Owner: eval lane.
-- **M18 Adversarial (10).** Minimum 14 attacks, each with attack / expected /
+- **M18 Adversarial (14).** Minimum 14 attacks, each with attack / expected /
   control / metric / audit-assertion; expected BLOCK/DENY/ESCALATE/CONTAIN/AUDIT.
   Owner: security lane.
 - **Exit criteria:** eval runner grades a Wave-4 trace end-to-end; adversarial

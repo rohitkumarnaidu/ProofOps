@@ -38,19 +38,24 @@ Nothing here claims production readiness or certification.
   Anything unlisted FAILS. Repro: `python scripts/freeze.py --audit`
   (needs `pip-audit`; fails closed without it).
 
-## PLANNED (owning modules, not implemented)
+## PLANNED + LANDED (registry governs — per-row truth in docs/MODULE_REGISTRY.md; PLANNED marks only what is still unbuilt)
 
-- Policy engine ALLOW/ESCALATE/DENY plus default deny (M06); action validator
-  rejecting shell/DROP shapes pre-policy (M06.1).
-- HMAC HITL: single-use nonce, TTL, scope/actor binding, replay deny (M07).
-  Today's approval settings are the trust-boundary inputs only.
+- Policy engine ALLOW/ESCALATE/DENY plus default deny (M06 HUMAN_APPROVED);
+  action validator rejecting shell/DROP shapes pre-policy (M06.1 HUMAN_APPROVED).
+- HMAC HITL: single-use nonce, TTL, scope/actor binding, replay deny (M07
+  IMPLEMENTED_TESTED, hardening pending). Today's approval settings are the
+  trust-boundary inputs only.
 - Sandbox isolation: unprivileged, no secret mounts, network-isolated, with a
-  zero-diff block guarantee (M08).
-- Independent verifier plus one-auto-attempt rollback (M09/M10); runbook
-  version pin plus hash validation (M11).
-- Adversarial-10 suite: log injection, poisoned runbook, fake/stale/
-  contradictory telemetry, unsafe command, parameter injection, secret
-  exfiltration, approval replay, runaway loop (M18).
+  zero-diff block guarantee (M08 IMPLEMENTED_TESTED, hardening pending).
+- Independent verifier plus one-auto-attempt rollback (M09/M10
+  IMPLEMENTED_TESTED, hardening pending); runbook version pin plus hash
+  validation (M11 IMPLEMENTED_TESTED, hardening pending).
+- Adversarial-14 suite: log injection, prompt-injection-direct, poisoned
+  runbook, fake/stale/contradictory telemetry, unsafe command, policy-bypass,
+  parameter injection, secret exfiltration, approval replay,
+  duplicate-execution, verification-spoofing, runaway loop (M18
+  IMPLEMENTED_TESTED, hardening pending; per-row truth in
+  docs/MODULE_REGISTRY.md).
 - FUTURE, post-hackathon, never claimed: SSO/RBAC approvals, SIEM export,
   managed secrets, confidential-compute executors.
 
@@ -59,8 +64,9 @@ Nothing here claims production readiness or certification.
 The contract direction, quoted from the spec, not claimed as code today:
 unvalidated Action never reaches the executor; RED never executes; YELLOW
 needs a valid unused unexpired scoped token; telemetry is DATA, never
-instructions; every block emits audit. Code enforcement arrives with M06–M10,
-each with its own gate tests.
+instructions; every block emits audit. Code enforcement landed (M06
+HUMAN_APPROVED, M07–M10 IMPLEMENTED_TESTED per docs/MODULE_REGISTRY.md
+per-row table, hardening pending), each with its own gate tests.
 
 ## Repro (host-safe)
 

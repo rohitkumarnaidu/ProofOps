@@ -45,7 +45,7 @@ python scripts/secret_scan.py
   install on Windows — ADR-010); the freeze `--check` gate itself runs
   identically everywhere. `pip check` gates the starlette upper bound in CI.
 
-## PLANNED (owning modules, not implemented)
+## PLANNED + LANDED (registry governs — per-row truth in docs/MODULE_REGISTRY.md; PLANNED marks only what is still unbuilt)
 
 - Integration (3 paths: happy/block/rollback) + no-skip
   `POLICY_CHECK→EXECUTING` + tamper tests (M14/M21).
@@ -54,10 +54,18 @@ python scripts/secret_scan.py
   gates (M16/M22). NOT in CI today: the unit job is host-safe only by design;
   runtime proofs live in `tests/test_*_runtime.py` + the M00.3 matrix.
 - Eval runner CASE→RUN→TRACE→GRADE→SCORE→COMPARE→REPORT + JSONL + scorecard,
-  six gates C1–C6 (`[PROVISIONAL]`, revise after 20 baseline runs) (M16).
-- Golden benchmarks deep-5×5 + stub-7 (M17); adversarial-10 (M18);
-  token/latency/cost ledgers + budget asserts (M20); `scripts/eval.sh` +
-  `scripts/demo.sh --check` (M16/M22).
+  six gates C1–C6 (`[PROVISIONAL]`, revise after 20 baseline runs) — landed as
+  IMPLEMENTED_TESTED per docs/MODULE_REGISTRY.md per-row table, hardening
+  pending (M16).
+- Golden benchmarks deep-5×5 + stub-7 — landed as IMPLEMENTED_TESTED per
+  docs/MODULE_REGISTRY.md per-row table, hardening pending (M17);
+  adversarial-14 — landed as IMPLEMENTED_TESTED per docs/MODULE_REGISTRY.md
+  per-row table, hardening pending (M18: log-injection,
+  prompt-injection-direct, poisoned-runbook, fake/stale/contradictory-telemetry,
+  unsafe-command, policy-bypass, param-injection, secret-exfiltration,
+  approval-replay, duplicate-execution, verification-spoofing, runaway-loop);
+  token/latency/cost ledgers + budget asserts (M20 PLANNED); `scripts/eval.sh` +
+  `scripts/demo.sh --check` (M16/M22 PLANNED paths).
 - Honesty rules (binding): every number links to its run JSONL; raw tokens
   first, dollars second; skipped evals report SKIP, never PASS; no
   benchmark-free percentages.
