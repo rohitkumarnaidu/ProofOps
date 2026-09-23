@@ -112,16 +112,121 @@ def test_rollback_once_then_escalated():
                        runbook="db-pool-saturation", version="1.1.0",
                        plan=plan)
     report = P.run_pipeline("inc-1", _alerts("api", "db_pool_exhausted",
-                                             0.07),
-                            tele, "api", "prod", _resource("api"), clients,
-                            session_mod.SessionStore(),
-                            approval=_approval())
+                                              0.07),
+                             tele, "api", "prod", _resource("api"), clients,
+                             session_mod.SessionStore(),
+                             approval=_approval())
     assert report["path"] == "escalated"
     assert report["rolled_back"] is True
     assert report["verdicts"] == ["ROLLBACK_REQUIRED", "ROLLBACK_REQUIRED"]
     assert report["states"].count("ROLLBACK") == 1
     assert report["states"].count("VERIFYING") == 2
     assert report["states"][-1] == "ESCALATED"
+
+
+def test_rollback_emits_start_and_finish():
+    # Lane A: an executed rollback brackets execution with rollback.start
+    # (execution_id) and rollback.finish (re-verify verdict) audit events.
+    chain = AuditChain(incident_id="inc-1")
+    tele = _tele("db-exhaust")
+    plan = _plan(action="scale_deployment", params={"replicas": 4})
+    plan["verification_plan"] = ["pool_wait_drained"]
+    clients = _clients(scenario="db-exhaust", service="api",
+                       signature="db_pool_exhausted", severity="P2",
+                       runbook="db-pool-saturation", version="1.1.0",
+                       plan=plan)
+    report = P.run_pipeline("inc-1", _alerts("api", "db_pool_exhausted",
+                                             0.07),
+                            tele, "api", "prod", _resource("api"), clients,
+                            session_mod.SessionStore(),
+                            approval=_approval(), chain=chain)
+    assert report["path"] == "escalated"
+    assert report["rolled_back"] is True
+    rb_id = f"{report['execution_id']}-rb1"
+    starts = [e for e in chain.events
+              if e.event_type == "rollback.start"
+              and e.execution_id == rb_id]
+    finishes = [e for e in chain.events
+                if e.event_type == "rollback.finish"
+                and e.execution_id == rb_id]
+    assert len(starts) == 1
+    assert len(finishes) == 1 and finishes[0].result == report["verdict"]
+    assert chain.verify()["valid"] is True
+
+
+def _rollback_clients():
+    tele = _tele("db-exhaust")
+    plan = _plan(action="scale_deployment", params={"replicas": 4})
+    plan["verification_plan"] = ["pool_wait_drained"]
+    clients = _clients(scenario="db-exhaust", service="api",
+                       signature="db_pool_exhausted", severity="P2",
+                       runbook="db-pool-saturation", version="1.1.0",
+                       plan=plan)
+    alerts = _alerts("api", "db_pool_exhausted", 0.07)
+    return tele, alerts, clients
+
+
+def test_rollback_refused_when_validator_rejects(monkeypatch):
+    # Lane A P1: a rollback the validator rejects is never executed -- the
+    # run escalates with rolled_back False and a "rollback refused" audit.
+    import app.services.rollback as rollback_mod
+    real_for = rollback_mod.rollback_for
+
+    def _poisoned(action, before):
+        good = real_for(action, before)
+        # Contract-valid shape, validator-rejected value (";" metachar).
+        return good.model_copy(
+            update={"parameters": {"replicas": 3, "note": "x;evil"}})
+
+    monkeypatch.setattr(P, "rollback_for", _poisoned)
+    chain = AuditChain(incident_id="inc-1")
+    tele, alerts, clients = _rollback_clients()
+    report = P.run_pipeline("inc-1", alerts, tele, "api", "prod",
+                            _resource("api"), clients,
+                            session_mod.SessionStore(),
+                            approval=_approval(), chain=chain)
+    assert report["path"] == "escalated"
+    assert report["rolled_back"] is False
+    assert "ROLLBACK" not in report["states"]
+    assert report["verdicts"] == ["ROLLBACK_REQUIRED"]
+    refused = [e for e in chain.events
+               if e.event_type == "rollback.finish"
+               and "rollback refused" in e.result]
+    assert len(refused) == 1 and "validator" in refused[0].result
+    assert chain.verify()["valid"] is True
+
+
+def test_rollback_refused_when_policy_denies(monkeypatch):
+    # Lane A P1: a rollback the policy DENYs is never executed -- the
+    # forward decision stays intact (only the rollback call is denied).
+    from app.contracts.policy import PolicyDecision
+    from app.services import policy as policy_svc
+    real_evaluate = policy_svc.evaluate
+
+    def _gated(action, *args, **kwargs):
+        if getattr(action, "agent_id", "") == "rollback-controller":
+            return PolicyDecision(decision="DENY",
+                                  rule_id="DENY-test-rollback",
+                                  policy_version="v1", effective_risk="RED",
+                                  message="test: rollback denied")
+        return real_evaluate(action, *args, **kwargs)
+
+    monkeypatch.setattr(policy_svc, "evaluate", _gated)
+    chain = AuditChain(incident_id="inc-1")
+    tele, alerts, clients = _rollback_clients()
+    report = P.run_pipeline("inc-1", alerts, tele, "api", "prod",
+                            _resource("api"), clients,
+                            session_mod.SessionStore(),
+                            approval=_approval(), chain=chain)
+    assert report["decision"] == "ALLOW"  # forward decision intact
+    assert report["path"] == "escalated"
+    assert report["rolled_back"] is False
+    assert "ROLLBACK" not in report["states"]
+    refused = [e for e in chain.events
+               if e.event_type == "rollback.finish"
+               and "rollback refused" in e.result]
+    assert len(refused) == 1 and "DENY-test-rollback" in refused[0].result
+    assert chain.verify()["valid"] is True
 
 
 # ---------------------------------------------------------------------------

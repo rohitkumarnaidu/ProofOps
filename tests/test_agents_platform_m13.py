@@ -320,6 +320,36 @@ def test_corrupt_session_file_rejected(tmp_path):
         sess.SessionStore().load_json(bad)
 
 
+def test_load_rejects_over_budget_files(tmp_path):
+    def _blob(entries):
+        return {"sessions": [
+            {"incident_id": i, "agent": a, "messages": [],
+             "llm_calls": n, "compacted": 0, "compacted_head": ""}
+            for (i, a, n) in entries]}
+
+    # Single session over the per-incident cap fails closed.
+    over = tmp_path / "over.json"
+    over.write_text(json.dumps(_blob([("inc-1", "triage", 13)])),
+                    encoding="utf-8")
+    with pytest.raises(ValueError):
+        sess.SessionStore().load_json(over)
+    # Split across agents still exceeds the incident aggregate.
+    split = tmp_path / "split.json"
+    split.write_text(json.dumps(_blob([("inc-1", "triage", 7),
+                                       ("inc-1", "diagnostic", 6)])),
+                     encoding="utf-8")
+    with pytest.raises(ValueError):
+        sess.SessionStore().load_json(split)
+    # At-cap files still load.
+    ok = tmp_path / "ok.json"
+    ok.write_text(json.dumps(_blob([("inc-1", "triage", 7),
+                                    ("inc-1", "diagnostic", 5)])),
+                  encoding="utf-8")
+    fresh = sess.SessionStore()
+    assert fresh.load_json(ok) == 2
+    assert fresh.incident_calls("inc-1") == 12
+
+
 # ---------------------------------------------------------------------------
 # M13.8 RAI
 # ---------------------------------------------------------------------------

@@ -166,3 +166,29 @@ def test_probe_never_claims_live_without_tier():
 def test_mode_badge_documents_tier_source():
     badges = _src("components/badges.tsx")
     assert "GET /meta" in badges or "/meta" in badges
+
+
+# ---------------------------------------------------------------------------
+# Lane D: execution records list + RCA per-gate cards (response data only)
+# ---------------------------------------------------------------------------
+
+def test_execution_view_renders_audit_records():
+    view = _src("views/ExecutionView.tsx")
+    assert "exec-records" in view
+    assert "executions.map" in view
+    assert "audit_records" in view
+    for field in ("record.seq", "record.frm", "record.to",
+                  "record.reason", "record.refs"):
+        assert field in view
+    assert "diff={null}" in view  # null only: no snapshot on run_view
+
+
+def test_rca_per_gate_cards_from_smoke():
+    api = _src("api.ts")
+    assert "gates_rate" in api
+    view = _src("views/RCAView.tsx")
+    assert "per-gate-cards" in view
+    assert "gate-card-" in view
+    assert "gates_rate" in view  # cards read response data, invent nothing
+    for gate in ("C1", "C2", "C3", "C4", "C5", "C6"):
+        assert gate in view

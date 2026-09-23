@@ -49,9 +49,11 @@ def _action(**over):
     return base
 
 
-def _bound_approval(secret=SECRET, actor="sre-1", **over):
+def _bound_approval(secret=SECRET, actor="sre-1", incident_id="inc-1",
+                    **over):
     """Real HMAC-bound credential: request -> human approve -> bind."""
     from app.routers import approvals as _ap
+    over.setdefault("incident_id", incident_id)
     issued = _ap.request_approval(_action(**over), actor, secret)
     _ap.approve_approval(issued["approval_id"], actor, issued["token"],
                          "approver", secret)
@@ -101,7 +103,7 @@ def test_advance_no_skip_maps_409():
 def test_advance_permit_flow_and_expiry_410():
     _to_policy()
     view = runs.advance_run("inc-1", "APPROVED",
-                            approval=_bound_approval(),
+                            approval=_bound_approval(incident_id="inc-1"),
                             approval_secret=SECRET, now=NOW)
     assert view["permit_pending"] is True
     view = runs.advance_run("inc-1", "EXECUTING", now=NOW)
@@ -121,12 +123,14 @@ def test_advance_permit_flow_and_expiry_410():
     # No secret, no APPROVED.
     with pytest.raises(Exception) as exc:
         runs.advance_run("inc-2", "APPROVED",
-                         approval=_bound_approval(), now=NOW)
+                         approval=_bound_approval(incident_id="inc-2"),
+                         now=NOW)
     assert isinstance(exc.value, PermitRejected)
 
     # Unapproved (pending) requests cannot bind permits.
     from app.routers import approvals as _ap
-    issued = _ap.request_approval(_action(), "sre-1", SECRET)
+    issued = _ap.request_approval(_action(incident_id="inc-2"), "sre-1",
+                                  SECRET)
     with pytest.raises(Exception) as exc:
         runs.advance_run("inc-2", "APPROVED",
                          approval={"approval_id": issued["approval_id"],
@@ -135,7 +139,7 @@ def test_advance_permit_flow_and_expiry_410():
     assert isinstance(exc.value, PermitRejected)
 
     # One approval mints at most one permit (derived-nonce single-use).
-    bound = _bound_approval()
+    bound = _bound_approval(incident_id="inc-3")
     _to_policy("inc-3")
     runs.advance_run("inc-3", "APPROVED", approval=bound,
                      approval_secret=SECRET, now=NOW)
@@ -147,6 +151,27 @@ def test_advance_permit_flow_and_expiry_410():
 
     # Expired permits still map to 410 at the HTTP boundary.
     assert runs.http_status(PermitRejected("approval expired")) == 410
+
+
+def test_approved_edge_binds_incident():
+    """P1: approval for inc-A cannot authorize inc-B (PermitRejected)."""
+    _to_policy("inc-A")
+    _to_policy("inc-B")
+    bound_a = _bound_approval(incident_id="inc-A")
+    view = runs.advance_run("inc-A", "APPROVED", approval=bound_a,
+                            approval_secret=SECRET, now=NOW)
+    assert view["permit_pending"] is True
+    with pytest.raises(Exception) as exc:
+        runs.advance_run("inc-B", "APPROVED", approval=bound_a,
+                         approval_secret=SECRET, now=NOW)
+    assert isinstance(exc.value, PermitRejected)
+    assert "mismatch" in str(exc.value).lower()
+    assert runs.http_status(exc.value) == 403
+    # Same-incident flow still works on the other run.
+    view_b = runs.advance_run("inc-B", "APPROVED",
+                              approval=_bound_approval(incident_id="inc-B"),
+                              approval_secret=SECRET, now=NOW)
+    assert view_b["permit_pending"] is True
 
 
 def test_advance_idempotency_cached():

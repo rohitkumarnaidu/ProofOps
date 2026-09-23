@@ -126,6 +126,8 @@ def test_meta_route_static_and_healthz_untouched():
     text = (ROOT / "backend" / "app" / "main.py").read_text(encoding="utf-8")
     assert '@app.get("/meta")' in text
     assert "executor_tier" in text
+    assert "nonce_store_durable" in text  # Lane A P2: durability surfaced
+    assert "nonce_store_degraded" in text  # Lane A P2: degraded flag surfaced
     assert "PS03_FINAL_SPEC_V2" in text
     assert text.count('@app.get("/healthz")') == 1
     assert ('return {"status": "ok", "service": "proofops-api", '
@@ -198,3 +200,38 @@ def test_execution_view_readonly_rollback():
     view = _src("views/ExecutionView.tsx")
     assert "read-only" in view
     assert "endpoint lands with M21" not in view
+
+
+# ---------------------------------------------------------------------------
+# Lane D: SSE-subscribed mode hook + PROBING badge + viewer guardrail
+# ---------------------------------------------------------------------------
+
+def test_usemode_subscribes_to_sse():
+    hook = (UI / "components" / "useMode.ts").read_text(encoding="utf-8")
+    assert "subscribeStream" in hook
+    assert "unsubscribe" in hook
+    assert "probeMode" in hook  # initial fetch + fallback truth kept
+    assert "/stream/incidents/" in hook  # spec control-plane stream shape
+    for name in ("CommandCenter.tsx", "IncidentDetail.tsx",
+                 "ExecutionView.tsx", "RCAView.tsx", "SafetyGate.tsx"):
+        assert "ModeBadge" in _src(f"views/{name}"), name
+
+
+def test_mode_badge_probing_and_no_offline_fallback():
+    badges = _src("components/badges.tsx")
+    assert '"PROBING"' in badges
+    assert "Mode | null" in badges
+    assert '?? "OFFLINE"' not in badges  # probing-null never equals OFFLINE
+    for name in ("CommandCenter.tsx", "IncidentDetail.tsx",
+                 "ExecutionView.tsx", "RCAView.tsx", "SafetyGate.tsx"):
+        view = _src(f"views/{name}")
+        assert '?? "OFFLINE"' not in view, name
+        assert "<ModeBadge mode={mode}" in view, name
+
+
+def test_safety_gate_viewer_guardrail():
+    gate = _src("views/SafetyGate.tsx")
+    assert "viewer-cannot-approve" in gate
+    assert 'role === "viewer"' in gate
+    assert "disabled={!decidable}" in gate  # Deny keeps the TTL-only guard
+    assert "403" in gate  # server remains the enforcer, noted in UI copy

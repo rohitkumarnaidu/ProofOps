@@ -298,3 +298,82 @@ def test_main_wires_audit_router():
                and getattr(n.func, "attr", "") == "include_router"
                for n in _ast.walk(tree))
     assert "audit" in src
+
+
+# ---------------------------------------------------------------------------
+# P1: file persistence (chains survive restarts, tamper-evident reload)
+# ---------------------------------------------------------------------------
+
+def test_chain_save_load_roundtrip(tmp_path):
+    chain = A.AuditChain(incident_id="inc-1")
+    chain.emit("transition", actor="s", result="a->b")
+    chain.emit("transition", actor="s", result="b->c")
+    path = tmp_path / "audit-inc-1.jsonl"
+    chain.save(path)
+    assert path.is_file()
+    revived = A.AuditChain.load("inc-1", path)
+    assert [e.curr_hash for e in revived.events] == \
+        [e.curr_hash for e in chain.events]
+    assert revived.verify()["valid"] is True
+
+
+def test_chain_file_rejects_bad_identity(tmp_path):
+    with pytest.raises(A.AuditError):
+        A.AuditChain(incident_id="../evil").save(tmp_path / "x.jsonl")
+    with pytest.raises(A.AuditError):
+        A.AuditChain.load("../evil", tmp_path / "x.jsonl")
+    chain = A.AuditChain(incident_id="inc-1")
+    chain.emit("transition", actor="s", result="a->b")
+    path = tmp_path / "audit-inc-1.jsonl"
+    chain.save(path)
+    with pytest.raises(A.AuditError):
+        A.AuditChain.load("inc-2", path)  # owner mismatch
+
+
+def test_chain_file_tamper_rejected(tmp_path):
+    import json as _json
+    chain = A.AuditChain(incident_id="inc-1")
+    chain.emit("transition", actor="s", result="a->b")
+    chain.emit("transition", actor="s", result="b->c")
+    path = tmp_path / "audit-inc-1.jsonl"
+    chain.save(path)
+    rows = [_json.loads(line) for line in
+            path.read_text(encoding="utf-8").splitlines()]
+    rows[0]["result"] = "forged"
+    path.write_text("\n".join(_json.dumps(r) for r in rows) + "\n",
+                    encoding="utf-8")
+    with pytest.raises(A.AuditError):
+        A.AuditChain.load("inc-1", path)
+    path.write_text("{not json\n", encoding="utf-8")
+    with pytest.raises(A.AuditError):
+        A.AuditChain.load("inc-1", path)
+
+
+def test_router_file_persistence_and_reset(_keys):
+    incident = "inc-filepersist"
+    event = audit_router.http_emit(incident, audit_router.EmitBody(
+        event_type="transition", actor="s", result="a->b"),
+        x_api_key=KEY)
+    assert event["seq"] == 1
+    path = audit_router._chain_path(incident)
+    assert path is not None and path.is_file()
+    # Simulate restart: drop memory only, reload must recover from disk.
+    audit_router.CHAINS.clear()
+    assert incident not in audit_router.CHAINS
+    reloaded = audit_router.get_or_create_chain(incident)
+    assert [e.curr_hash for e in reloaded.events] == [event["curr_hash"]]
+    assert reloaded.verify()["valid"] is True
+    # Tampered file never silently starts empty.
+    import json as _json
+    rows = [_json.loads(line) for line in
+            path.read_text(encoding="utf-8").splitlines()]
+    rows[0]["result"] = "forged"
+    path.write_text("\n".join(_json.dumps(r) for r in rows) + "\n",
+                    encoding="utf-8")
+    audit_router.CHAINS.clear()
+    with pytest.raises(A.AuditError):
+        audit_router.get_or_create_chain(incident)
+    # Reset clears both layers (memory + files).
+    audit_router.reset_demo_state()
+    assert incident not in audit_router.CHAINS
+    assert not path.is_file()

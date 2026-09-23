@@ -29,7 +29,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DOCS = ROOT / "docs"
 
 # Canonical 11-docs set: 4 frozen (M00.2-M00.5) + 7 foundation (M00.6).
-CANONICAL_8 = [
+CANONICAL_DOCS = [
     "CONFIGURATION.md",  # M00.2 frozen
     "COMPOSE.md",  # M00.3 frozen (+ authorized M00.6 line edits, see ADR-007)
     "HEALTH.md",  # M00.4 frozen
@@ -105,11 +105,11 @@ def _db_down_line(text: str) -> str:
 
 
 class TestPresence:
-    @pytest.mark.parametrize("name", CANONICAL_8)
+    @pytest.mark.parametrize("name", CANONICAL_DOCS)
     def test_doc_exists(self, name):  # STATIC
         assert (DOCS / name).is_file(), f"missing canonical doc: {name}"
 
-    @pytest.mark.parametrize("name", CANONICAL_8)
+    @pytest.mark.parametrize("name", CANONICAL_DOCS)
     def test_doc_nontrivial(self, name):  # STATIC
         body = _read(name)
         assert len(body.strip()) > 300, f"{name} too small to be real: {len(body)}"
@@ -119,8 +119,8 @@ class TestPresence:
         present = {"a.md", "b.md"}
         required = {"a.md", "b.md", "c.md"}
         assert required - present == {"c.md"}
-        assert len(CANONICAL_8) == 11  # 4 frozen + 7 foundation (ADR-007)
-        assert len(set(CANONICAL_8)) == 11
+        assert len(CANONICAL_DOCS) == 11  # 4 frozen + 7 foundation (ADR-007)
+        assert len(set(CANONICAL_DOCS)) == 11
 
     def test_tree_has_no_ungoverned_docs(self):  # STATIC
         # LACK-6 fix: the canonical pin used to cover only the list constant,
@@ -138,9 +138,9 @@ class TestPresence:
             # the crossing campaign; SUPERSEDED, never deleted, on completion)
         }
         actual = {p.name for p in DOCS.glob("*.md")}
-        assert set(CANONICAL_8) <= actual, \
-            f"canonical missing: {sorted(set(CANONICAL_8) - actual)}"
-        ungoverned = actual - set(CANONICAL_8) - known_extra
+        assert set(CANONICAL_DOCS) <= actual, \
+            f"canonical missing: {sorted(set(CANONICAL_DOCS) - actual)}"
+        ungoverned = actual - set(CANONICAL_DOCS) - known_extra
         assert not ungoverned, f"ungoverned docs: {sorted(ungoverned)}"
 
     def test_presence_detector_fires_on_fixture_gap(self, tmp_path):  # UNIT
@@ -178,13 +178,13 @@ class TestSpecLinks:
         assert _has_spec_ref("see docs/PS03_FINAL_SPEC.md") is False
         assert _has_spec_ref("see PS03_FINAL_SPEC_V3.md") is False
 
-    @pytest.mark.parametrize("name", CANONICAL_8)
+    @pytest.mark.parametrize("name", CANONICAL_DOCS)
     def test_every_doc_names_owning_module(self, name):  # STATIC
         assert "M00." in _read(name), f"{name} must name its owning module"
 
 
 class TestNoFabrication:
-    @pytest.mark.parametrize("name", CANONICAL_8)
+    @pytest.mark.parametrize("name", CANONICAL_DOCS)
     def test_no_readiness_or_compliance_claims(self, name):  # STATIC
         hits = _forbidden_claims(_read(name))
         assert not hits, f"{name} contains fabrication markers: {hits}"

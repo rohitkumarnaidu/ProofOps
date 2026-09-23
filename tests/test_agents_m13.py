@@ -326,6 +326,33 @@ def test_shell_vocab_rejected(field, value):
                     sess.SessionStore(), ("ev-1",))
 
 
+@pytest.mark.parametrize("field,value", [
+    ("reason", "Run KUBECTL rollout restart now"),
+    ("reason", "Please Drop TABLE x first"),
+    ("expected_outcome", "Then Rm -rf /tmp/cache cleans up"),
+    ("reason", "Curl the endpoint and Wget the bundle via SSH now"),
+])
+def test_shell_vocab_case_insensitive_rejected(field, value):
+    # Lane A: SHOUTED/capitalized shell tokens are blocked too (casefolded).
+    with pytest.raises(OutputRejected):
+        A3.run_plan("inc-1", _diagnosis(), _resource(),
+                    FakeClient(_plan_payload(**{field: value})),
+                    sess.SessionStore(), ("ev-1",))
+
+
+@pytest.mark.parametrize("field,value", [
+    ("reason", "The shelled peas deployment is healthy and steady"),
+    ("reason", "The cmd is not present in the runbook output"),
+])
+def test_shell_scan_legit_prose_passes(field, value):
+    # Lane A: legit prose with shell-adjacent substrings still plans fine
+    # (verified: no SHELL_TOKEN appears in these strings in any case).
+    out = A3.run_plan("inc-1", _diagnosis(), _resource(),
+                      FakeClient(_plan_payload(**{field: value})),
+                      sess.SessionStore(), ("ev-1",))
+    assert str(out.action.action_type) == "rollback_deployment"
+
+
 def test_happy_path_builds_action():
     out = A3.run_plan("inc-1", _diagnosis(), _resource(),
                       FakeClient(_plan_payload()), sess.SessionStore(),

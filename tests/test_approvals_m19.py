@@ -254,3 +254,46 @@ def test_nonce_store_evicts_oldest_first(tmp_path, monkeypatch):
     revived = svc.NonceStore(path)
     assert revived.consume("n1") is True  # oldest evicted, replayable again
     assert revived.consume("n4") is False  # newest retained
+
+
+# ---------------------------------------------------------------------------
+# P1: incident-bound permits (approval for A cannot authorize run B)
+# ---------------------------------------------------------------------------
+
+def test_verified_permit_rejects_incident_mismatch():
+    out = _request(incident_id="inc-A")
+    AP.approve_approval(out["approval_id"], "sre-1", out["token"],
+                        "approver", SECRET)
+    with pytest.raises(AP.ApprovalDenied) as exc:
+        AP.verified_permit(out["approval_id"], out["token"], "sre-1",
+                           SECRET, now=time.time(),
+                           expected_incident="inc-B")
+    assert "incident mismatch" in str(exc.value)
+    # Mismatch burns nothing: the same-incident mint still works after.
+    permit = AP.verified_permit(out["approval_id"], out["token"], "sre-1",
+                                SECRET, now=time.time(),
+                                expected_incident="inc-A")
+    assert permit.token_ref == out["approval_id"]
+
+
+def test_verified_permit_same_incident_ok_and_unbound_compat():
+    out = _request(incident_id="inc-A")
+    AP.approve_approval(out["approval_id"], "sre-1", out["token"],
+                        "approver", SECRET)
+    permit = AP.verified_permit(out["approval_id"], out["token"], "sre-1",
+                                SECRET, now=time.time(),
+                                expected_incident="inc-A")
+    assert permit.token_ref == out["approval_id"]
+    # Blank/None expected_incident keeps legacy unbound behavior.
+    out2 = _request(incident_id="inc-B")
+    AP.approve_approval(out2["approval_id"], "sre-1", out2["token"],
+                        "approver", SECRET)
+    for blank in (None, "", "   "):
+        permit2 = AP.verified_permit(
+            out2["approval_id"], out2["token"], "sre-1", SECRET,
+            now=time.time(), expected_incident=blank)
+        assert permit2.token_ref == out2["approval_id"]
+        # Each approval mints once; re-mint needs a fresh approval.
+        out2 = _request(incident_id="inc-B")
+        AP.approve_approval(out2["approval_id"], "sre-1", out2["token"],
+                            "approver", SECRET)
