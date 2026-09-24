@@ -83,6 +83,18 @@ export interface RunView {
   }>;
   handoffs: Array<Record<string, unknown>>;
   audit_records: Array<Record<string, unknown>>;
+  /** Verification-relevant history slice (Lane 3: projected by run_view,
+      never invented). Optional: tolerates older backends. */
+  verification_verdicts?: Array<{
+    seq: number;
+    frm: string;
+    to: string;
+    reason: string;
+    refs: string[];
+    at: number;
+  }>;
+  /** Rollback projection (Lane 3: eligible/attempted from banked flags). */
+  rollback?: { eligible: boolean; attempted: boolean };
 }
 
 export interface ApprovalView {
@@ -190,10 +202,16 @@ export const approvalsApi = {
     actor: string,
     role: string,
     reason?: string,
+    idempotency_key?: string,
   ) =>
     request<ApprovalView>(`/approvals/${approval_id}/reject`, {
       method: "POST",
-      body: JSON.stringify({ actor, role, reason: reason ?? "" }),
+      body: JSON.stringify({
+        actor,
+        role,
+        reason: reason ?? "",
+        idempotency_key: idempotency_key ?? null,
+      }),
     }),
 };
 

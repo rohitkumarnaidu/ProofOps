@@ -14,16 +14,20 @@ export function ExecutionView() {
   const mode = useMode(id);
   const [run, setRun] = useState<RunView | null>(null);
   const [error, setError] = useState("");
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     async function load() {
       if (id === undefined) return;
+      setIsLoading(true);
       try {
         setRun(await runsApi.get(id));
         setError("");
       } catch (err) {
         setRun(null);
         setError(err instanceof ApiError ? err.message : String(err));
+      } finally {
+        setIsLoading(false);
       }
     }
     void load();
@@ -35,10 +39,21 @@ export function ExecutionView() {
         h.to,
       ),
     ) ?? [];
+  // Server rollback projection (run_view) wins where present; the local
+  // flag derivation is the fallback for older backends (same rule).
   const rollbackEligible =
-    run !== null &&
-    (run.state === "VERIFYING" || run.state === "ROLLBACK") &&
-    !run.rolled_back;
+    run?.rollback !== undefined
+      ? run.rollback.eligible
+      : run !== null &&
+        (run.state === "VERIFYING" || run.state === "ROLLBACK") &&
+        !run.rolled_back;
+  const rollbackAttempted =
+    run?.rollback !== undefined ? run.rollback.attempted : run?.rolled_back === true;
+  // Server verification slice (run_view) wins where present; the local
+  // phase-history filter is the fallback (same VERIFYING/ROLLBACK cut).
+  const verdicts =
+    run?.verification_verdicts ??
+    phaseHistory.filter((h) => h.to === "VERIFYING" || h.to === "ROLLBACK");
   const executions = (run?.audit_records ?? []).filter(
     (r) =>
       typeof r === "object" &&
@@ -77,11 +92,20 @@ export function ExecutionView() {
           {error}
         </p>
       )}
-      {run !== null && (
-        <>
-          <h2 className="mb-1 text-sm font-bold text-gray-300">
-            Execution-phase timeline
-          </h2>
+      {isLoading ? (
+        <p
+          data-testid="exec-loading"
+          aria-busy="true"
+          className="text-sm text-gray-400"
+        >
+          Loading execution…
+        </p>
+      ) : (
+        run !== null && (
+          <>
+            <h2 className="mb-1 text-sm font-bold text-gray-300">
+              Execution-phase timeline
+            </h2>
           {phaseHistory.length === 0 ? (
             <p
               data-testid="exec-empty"
@@ -123,8 +147,32 @@ export function ExecutionView() {
           ) : (
             <p data-testid="rollback-ineligible" className="text-sm text-gray-400">
               Rollback not available in state {run.state}
-              {run.rolled_back ? " (already attempted once)" : ""}.
+              {rollbackAttempted ? " (already attempted once)" : ""}.
             </p>
+          )}
+          <h2 className="mb-1 mt-4 text-sm font-bold text-gray-300">
+            Verification verdicts ({verdicts.length}, run_view slice)
+          </h2>
+          {verdicts.length === 0 ? (
+            <p
+              data-testid="verdicts-empty"
+              className="mb-4 text-sm text-gray-400"
+            >
+              No verification transitions recorded yet — verdicts appear here
+              once the run reaches VERIFYING.
+            </p>
+          ) : (
+            <ol data-testid="verdicts-list" className="mb-4 text-sm">
+              {verdicts.map((v) => (
+                <li key={v.seq} className="border-t border-gray-800 py-1">
+                  <span className="text-gray-500">#{v.seq}</span> {v.frm} →{" "}
+                  {v.to}
+                  {v.reason !== "" && (
+                    <span className="text-gray-400"> — {v.reason}</span>
+                  )}
+                </li>
+              ))}
+            </ol>
           )}
           <h2 className="mb-1 mt-4 text-sm font-bold text-gray-300">
             Execution records ({executions.length}, audit-sourced)
@@ -175,7 +223,8 @@ export function ExecutionView() {
               })}
             </ol>
           )}
-        </>
+          </>
+        )
       )}
     </div>
   );

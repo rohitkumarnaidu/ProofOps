@@ -4,6 +4,7 @@ import {
   ApiError,
   auditApi,
   evalApi,
+  hasApiKey,
   type SmokeResult,
 } from "../api";
 import { ModeBadge } from "../components/badges";
@@ -33,10 +34,12 @@ export function RCAView() {
   const [origin, setOrigin] = useState("");
   const [smoke, setSmoke] = useState<SmokeResult | null>(null);
   const [error, setError] = useState("");
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     async function load() {
       if (id === undefined) return;
+      setIsLoading(true);
       try {
         const chain = await auditApi.view(id);
         setEvents(chain.events);
@@ -47,6 +50,8 @@ export function RCAView() {
         setEvents([]);
         setValid(null);
         setError(err instanceof ApiError ? err.message : String(err));
+      } finally {
+        setIsLoading(false);
       }
     }
     void load();
@@ -105,10 +110,25 @@ export function RCAView() {
           {error}
         </p>
       )}
+      {!hasApiKey() && (
+        <p data-testid="api-key-notice" className="mb-3 text-sm text-amber-300">
+          No API key configured — smoke eval will 401. Set
+          VITE_PROOFOPS_API_KEY to enable it (server-verified only; the audit
+          chain above stays openly readable).
+        </p>
+      )}
       <h2 className="mb-1 text-sm font-bold text-gray-300">
         Audit chain {origin !== "" && <span>({origin})</span>}
       </h2>
-      {events.length === 0 ? (
+      {isLoading ? (
+        <p
+          data-testid="rca-loading"
+          aria-busy="true"
+          className="mb-4 text-sm text-gray-400"
+        >
+          Loading audit chain…
+        </p>
+      ) : events.length === 0 ? (
         <p data-testid="audit-empty" className="mb-4 text-sm text-gray-400">
           No audit events recorded for this incident yet.
         </p>

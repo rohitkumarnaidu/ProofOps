@@ -82,6 +82,11 @@ export function SafetyGate() {
   async function decide(kind: "approve" | "reject") {
     if (view === null) return;
     setError("");
+    // Per-decision idempotency: each human click mints a fresh key so
+    // double-clicks/retries replay the same decision instead of forking it
+    // (the server cache key is approval_id + key; the backend DecideBody
+    // already accepts it for both approve and reject).
+    const idempotency_key = crypto.randomUUID();
     try {
       const next =
         kind === "approve"
@@ -90,8 +95,15 @@ export function SafetyGate() {
               actor,
               token,
               role,
+              idempotency_key,
             )
-          : await approvalsApi.reject(view.approval_id, actor, role);
+          : await approvalsApi.reject(
+              view.approval_id,
+              actor,
+              role,
+              "",
+              idempotency_key,
+            );
       setView(next);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));
@@ -174,6 +186,10 @@ export function SafetyGate() {
                   {Math.max(0, Math.round(view.seconds_remaining))}s remaining
                 </span>
               </p>
+              <p className="text-gray-400">
+                Incident: {view.incident_id} · Action: {view.action_id}
+              </p>
+              <p className="text-gray-400">Actor: {view.actor}</p>
               <p className="text-gray-400">Scope: {view.scope}</p>
               <p className="text-gray-400">
                 Params hash: {view.params_hash}

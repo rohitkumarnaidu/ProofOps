@@ -11,16 +11,20 @@ export function IncidentDetail() {
   const mode = useMode(id);
   const [run, setRun] = useState<RunView | null>(null);
   const [error, setError] = useState("");
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     async function load() {
       if (id === undefined) return;
+      setIsLoading(true);
       try {
         setRun(await runsApi.get(id));
         setError("");
       } catch (err) {
         setRun(null);
         setError(err instanceof ApiError ? err.message : String(err));
+      } finally {
+        setIsLoading(false);
       }
     }
     void load();
@@ -54,9 +58,18 @@ export function IncidentDetail() {
           {error}
         </p>
       )}
-      {run !== null && (
-        <>
-          <p className="mb-2 text-sm text-gray-400">
+      {isLoading ? (
+        <p
+          data-testid="detail-loading"
+          aria-busy="true"
+          className="text-sm text-gray-400"
+        >
+          Loading run…
+        </p>
+      ) : (
+        run !== null && (
+          <>
+            <p className="mb-2 text-sm text-gray-400">
             Re-plans: {run.replans} · Rolled back:{" "}
             {run.rolled_back ? "yes" : "no"} · Permit pending:{" "}
             {run.permit_pending ? "yes" : "no"}
@@ -99,7 +112,7 @@ export function IncidentDetail() {
           </ol>
           )}
         </>
-      )}
+      ))}
     </div>
   );
 }

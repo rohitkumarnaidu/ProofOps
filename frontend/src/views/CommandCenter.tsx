@@ -14,14 +14,18 @@ export function CommandCenter() {
   const [error, setError] = useState("");
   const [creating, setCreating] = useState("");
   const [newId, setNewId] = useState("");
+  const [isLoading, setIsLoading] = useState(true);
 
   async function refresh() {
+    setIsLoading(true);
     try {
       setRuns(await runsApi.list());
       setError("");
     } catch (err) {
       setRuns([]);
       setError(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      setIsLoading(false);
     }
   }
 
@@ -79,7 +83,15 @@ export function CommandCenter() {
           <span className="text-sm text-red-300">{creating}</span>
         )}
       </div>
-      {runs.length === 0 ? (
+      {isLoading ? (
+        <p
+          data-testid="queue-loading"
+          aria-busy="true"
+          className="text-sm text-gray-400"
+        >
+          Loading runs…
+        </p>
+      ) : runs.length === 0 ? (
         <p data-testid="queue-empty" className="text-sm text-gray-400">
           No open runs. Create one above, or seed the demo backend first.
         </p>
