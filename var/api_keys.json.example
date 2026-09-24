@@ -1,0 +1,16 @@
+[
+  {
+    "key_id": "sre-alice-laptop",
+    "key_sha256": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+    "owner": "sre-alice",
+    "roles": ["approver"],
+    "note": "FAKE placeholder hash - replace with the SHA256 hex of the real key. Generate with: python -c \"import hashlib; print(hashlib.sha256(b'<paste-key-here>').hexdigest())\". NEVER store raw keys in this file."
+  },
+  {
+    "key_id": "sre-bob-desktop",
+    "key_sha256": "cafef00dcafef00dcafef00dcafef00dcafef00dcafef00dcafef00dcafef00d",
+    "owner": "sre-bob",
+    "roles": ["approver", "admin"],
+    "note": "FAKE placeholder hash - same generation rule as above. Copy this file to var/api_keys.json and replace every key_sha256 before use. While var/api_keys.json is absent the server uses the single-key bootstrap fallback (see backend/app/routers/auth.py)."
+  }
+]

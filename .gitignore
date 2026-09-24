@@ -5,7 +5,10 @@ __pycache__/
 venv/
 .env
 .env.local
-var/
+# Runtime state (approvals/runs/audit/nonces/keys) — never committed.
+# Exception: *.example templates ARE tracked so operators know the shape.
+var/*
+!var/*.example
 *.egg-info/
 .pytest_cache/
 .ruff_cache/

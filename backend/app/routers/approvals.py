@@ -316,8 +316,27 @@ def _idem(approval_id: str, key: str | None,
 
 def approve_approval(approval_id: str, actor: str, token: str, role: str,
                      secret: str, idempotency_key: str | None = None,
-                     chain: Any = None) -> dict[str, Any]:
-    """Approve (role-gated, token-verified, single-use) (M19a approve)."""
+                     chain: Any = None, *, enforce_sod: bool = False,
+                     requester: str | None = None,
+                     allow_self_approval: bool = False) -> dict[str, Any]:
+    """Approve (role-gated, token-verified, single-use) (M19a approve).
+
+    Lane 1 separation of duties (opt-in): pass ``enforce_sod=True`` to deny
+    (ApprovalDenied, HTTP 403) when the approver ``actor`` equals the
+    original requester, unless ``allow_self_approval=True`` explicitly
+    overrides. The requester defaults to the stored request actor
+    (``entry["request"].actor``); pass ``requester`` explicitly when the
+    request was raised under a different identity (e.g. the API-key owner
+    at request time). Default ``enforce_sod=False`` preserves the legacy
+    self-approval behavior so existing tests/demo keep working.
+
+    HMAC note: tokens stay approver-bound (M07 ``verify`` requires the
+    approving actor to equal the stored request actor), so a distinct
+    approver end-to-end needs a token issued for that approver plus the
+    original requester supplied via ``requester``. SoD denials emit
+    ``approval.rejected`` audit and happen BEFORE token verification, so a
+    denied attempt never burns the nonce.
+    """
     def _produce() -> dict[str, Any]:
         entry = _entry(approval_id)
         if entry["status"] == "expired":
@@ -329,6 +348,17 @@ def approve_approval(approval_id: str, actor: str, token: str, role: str,
             raise ApprovalDenied(f"role {role!r} may not approve "
                                  f"(M21 owns the guard matrix)")
         req, action = entry["request"], entry["action"]
+        if enforce_sod:
+            sod_requester = requester.strip() \
+                if isinstance(requester, str) and requester.strip() \
+                else req.actor
+            if actor == sod_requester and not allow_self_approval:
+                _emit(chain, "approval.rejected", entry, actor,
+                      f"separation of duties: approver {actor!r} "
+                      f"is the requester {sod_requester!r}")
+                raise ApprovalDenied(
+                    "separation of duties: approver must differ from "
+                    "requester (pass allow_self_approval=True to override)")
         try:
             approval_svc.verify(token, req, action, actor, secret, NONCES)
         except approval_svc.ApprovalError as exc:
