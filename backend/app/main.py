@@ -1,6 +1,9 @@
 """ProofOps control-plane API (T01 skeleton; routes land per T02+)."""
-from fastapi import FastAPI
-from fastapi.responses import JSONResponse
+import time  # noqa: E402  (Lane 2: middleware latency clock)
+from collections.abc import Awaitable, Callable  # noqa: E402  (Lane 2)
+
+from fastapi import FastAPI, Request  # noqa: E402  (Lane 2: Request shape)
+from fastapi.responses import JSONResponse, PlainTextResponse, Response  # noqa: E402  (Lane 2)
 
 from app.config import get_settings  # noqa: E402  (M00.2 trust boundary)
 from app.health import readiness  # noqa: E402  (M00.4 readiness probes)
@@ -9,6 +12,7 @@ from app.routers import runs as runs_router  # noqa: E402 (M14b runs router)
 from app.routers import audit as audit_router  # noqa: E402 (M15b audit router)
 from app.routers import approvals as approvals_router  # noqa: E402 (M19a)
 from app.routers import eval as eval_router  # noqa: E402 (M19b smoke)
+from app.services import metrics  # noqa: E402 (Lane 2 observability registry)
 
 # M00.2: load typed config at startup. Missing/invalid required values raise
 # ConfigurationError here (fail-closed) instead of failing mid-request later.
@@ -42,6 +46,19 @@ if approvals_router.router is not None:
 # M19b: eval smoke router (harness numbers on demand for the RCA view).
 if eval_router.router is not None:
     app.include_router(eval_router.router)
+# Lane 2 (SSE stream router, owned by another lane): include IF it exists at
+# integration time -- this lane and the stream lane may land in either order.
+# Honest guard: a missing module means "no SSE routes yet", NOT an error.
+# NOTE: an ImportError raised INSIDE an existing stream.py would also land
+# here; that failure surfaces in the stream lane's own tests, not silently
+# here -- this guard only covers module absence at integration time.
+try:
+    from app.routers import stream as stream_router  # noqa: E402
+except ImportError:
+    stream_router = None  # type: ignore[assignment]
+if stream_router is not None and \
+        getattr(stream_router, "router", None) is not None:
+    app.include_router(stream_router.router)
 # Public values only (APP_ENV/LOG_LEVEL/EXECUTOR are non-secret by contract).
 logger.info("proofops api starting env=%s level=%s executor=%s",
             settings.APP_ENV, settings.LOG_LEVEL, settings.EXECUTOR)
@@ -81,3 +98,50 @@ def readyz() -> JSONResponse:
     body = readiness(settings.DATABASE_URL)
     return JSONResponse(status_code=200 if body["status"] == "ready" else 503,
                         content=body)
+
+
+@app.middleware("http")
+async def metrics_middleware(
+    request: Request, call_next: Callable[[Request], Awaitable[Response]]
+) -> Response:
+    # LANE 2 (observability): measure route/code/latency into the stdlib
+    # registry. Fail-OPEN by design: metrics must never break the request
+    # path (the fail-CLOSED half is SLO loading at /alerts below). The route
+    # template (not the raw path) keeps label cardinality low. Router-fed
+    # counters (approvals/policy/LLM/tool) stay future work -- this middleware
+    # never edits routers/ for instrumentation.
+    start = time.perf_counter()
+    response = await call_next(request)
+    try:
+        route = request.url.path
+        template = getattr(request.scope.get("route"), "path", None)
+        if isinstance(template, str) and template:
+            route = template
+        metrics.observe_http(route, response.status_code,
+                             time.perf_counter() - start)
+    except Exception:
+        pass
+    return response
+
+
+@app.get("/metrics")
+def metrics_endpoint() -> PlainTextResponse:
+    # LANE 2: Prometheus-text exposition (stdlib-only render, no client lib).
+    return PlainTextResponse(content=metrics.render_prometheus(),
+                             media_type="text/plain; version=0.0.4")
+
+
+@app.get("/alerts")
+def alerts_endpoint() -> JSONResponse:
+    # LANE 2: current SLO alert states (firing/ok, pure evaluation over the
+    # registry snapshot). Read-only; paging needs an external webhook
+    # (documented future work -- NOT built, no fake paging). Malformed SLO
+    # fails CLOSED with a static message (never stack traces).
+    try:
+        slo = metrics.load_slo()
+        states = metrics.evaluate_alerts(metrics.snapshot(), slo)
+    except Exception:
+        return JSONResponse(status_code=500,
+                            content={"error": "SLO configuration unavailable"})
+    return JSONResponse(status_code=200,
+                        content={"alerts": [a.to_dict() for a in states]})

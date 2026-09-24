@@ -1,0 +1,81 @@
+# ProofOps service SLOs (Lane 2 observability, versioned).
+#
+# Shape is pinned by backend/app/services/metrics.py load_slo() (fail-closed:
+# any malformed field raises MetricsError; GET /alerts maps that to a static
+# 500, never a stack trace). Fields per objective: name (unique), kind,
+# metric (snapshot key), op (gte|lte|is_true), target (number; omitted for
+# is_true), window (<int>[smhd]), owner, burn_rate_alerts (non-empty; each
+# with severity, burn_rate, long_window, short_window).
+#
+# Thresholds are INITIAL values ([PROVISIONAL] per project policy -- revise
+# after 20 baseline runs). Severity labels route NOWHERE yet: there is no
+# paging infrastructure; firing alerts need an external webhook
+# (PagerDuty/Opsgenie/etc., future work). Do NOT treat this file as paging.
+version: "v1"
+effective_from: "2026-09-24"
+objectives:
+  - name: api-availability
+    kind: availability
+    metric: availability
+    op: gte
+    target: 0.999
+    window: 30d
+    owner: sre
+    burn_rate_alerts:
+      - severity: critical
+        burn_rate: 14.4
+        long_window: 1h
+        short_window: 5m
+      - severity: warning
+        burn_rate: 6.0
+        long_window: 6h
+        short_window: 30m
+  - name: api-p95-latency
+    kind: latency
+    metric: latency_p95
+    op: lte
+    target: 1.0
+    window: 7d
+    owner: sre
+    burn_rate_alerts:
+      - severity: critical
+        burn_rate: 14.4
+        long_window: 1h
+        short_window: 5m
+      - severity: warning
+        burn_rate: 6.0
+        long_window: 6h
+        short_window: 30m
+  - name: approval-decision-latency
+    kind: latency
+    metric: approval_latency_p95
+    op: lte
+    # 600s == the 10m approval TTL (control-plane timeout -> ESCALATED):
+    # a decision slower than its own TTL is a breach by definition.
+    target: 600.0
+    window: 7d
+    owner: sre
+    burn_rate_alerts:
+      - severity: critical
+        burn_rate: 14.4
+        long_window: 1h
+        short_window: 5m
+      - severity: warning
+        burn_rate: 6.0
+        long_window: 6h
+        short_window: 30m
+  - name: readiness
+    kind: readiness
+    metric: ready
+    op: is_true
+    window: 5m
+    owner: sre
+    burn_rate_alerts:
+      - severity: critical
+        burn_rate: 14.4
+        long_window: 5m
+        short_window: 1m
+      - severity: warning
+        burn_rate: 6.0
+        long_window: 30m
+        short_window: 5m
