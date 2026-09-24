@@ -365,3 +365,67 @@ def test_reset_clears_memory_and_file():
     assert not AP.STORE_PATH.exists()
     with pytest.raises(AP.ApprovalMissing):
         AP.approval_view(out["approval_id"])
+
+
+# ---------------------------------------------------------------------------
+# Lane 1 (identity): separation of duties in approve_approval (opt-in)
+# ---------------------------------------------------------------------------
+
+def test_sod_self_approval_denied_when_enforced():
+    out = _request(actor="alice-requester")
+    with pytest.raises(AP.ApprovalDenied) as exc:
+        AP.approve_approval(out["approval_id"], "alice-requester",
+                            out["token"], "approver", SECRET,
+                            enforce_sod=True)
+    assert "separation" in str(exc.value).lower()
+    assert AP.http_status(AP.ApprovalDenied("x")) == 403
+    # Denied, not consumed: the request is still pending.
+    assert AP.approval_view(out["approval_id"])["status"] == "pending"
+
+
+def test_sod_distinct_requester_allows_approver_bound_token():
+    # HMAC tokens stay approver-bound (M07 verify binds the approving actor
+    # to the stored request actor), so a distinct-approver approval issues
+    # the request for the approver and names the original requester via
+    # ``requester``: separation holds AND the 200 path still works.
+    out = _request(actor="bob-approver")
+    view = AP.approve_approval(out["approval_id"], "bob-approver",
+                               out["token"], "approver", SECRET,
+                               enforce_sod=True,
+                               requester="alice-requester")
+    assert view["status"] == "approved"
+
+
+def test_sod_disabled_legacy_self_approval_still_ok():
+    # Default enforce_sod=False preserves pre-Lane-1 behavior (existing
+    # same-actor demo/test flows keep working).
+    out = _request(actor="sre-1")
+    view = AP.approve_approval(out["approval_id"], "sre-1", out["token"],
+                               "approver", SECRET)
+    assert view["status"] == "approved"
+
+
+def test_sod_override_allows_self_when_explicit():
+    out = _request(actor="sre-1")
+    view = AP.approve_approval(out["approval_id"], "sre-1", out["token"],
+                               "approver", SECRET, enforce_sod=True,
+                               allow_self_approval=True)
+    assert view["status"] == "approved"
+
+
+def test_sod_deny_emits_audit_and_preserves_token():
+    chain = AuditChain(incident_id="inc-1")
+    out = _request(actor="sre-1", chain=chain)
+    with pytest.raises(AP.ApprovalDenied):
+        AP.approve_approval(out["approval_id"], "sre-1", out["token"],
+                            "approver", SECRET, enforce_sod=True,
+                            chain=chain)
+    kinds = [event.event_type for event in chain.events]
+    assert "approval.rejected" in kinds
+    assert chain.verify()["valid"] is True
+    # Deny precedes verification: the nonce is unburned, so an explicit
+    # override still approves on the SAME token afterwards.
+    view = AP.approve_approval(out["approval_id"], "sre-1", out["token"],
+                               "approver", SECRET, enforce_sod=True,
+                               allow_self_approval=True, chain=chain)
+    assert view["status"] == "approved"

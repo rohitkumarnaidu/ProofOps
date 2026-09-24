@@ -427,3 +427,58 @@ def test_reset_clears_memory_and_file():
     assert not runs.STORE_PATH.exists()
     with pytest.raises(runs.RepoMissing):
         runs.get_run("inc-1")
+
+
+# ---------------------------------------------------------------------------
+# Lane 3: run_view verification_verdicts + rollback (projections only)
+# ---------------------------------------------------------------------------
+
+def _to_verifying(incident):
+    _to_approved(incident)
+    runs.advance_run(incident, "EXECUTING", now=NOW)
+    return runs.advance_run(incident, "VERIFYING", reason="check",
+                           now=NOW)
+
+
+def test_run_view_verdicts_empty_before_execution():
+    runs.create_run("inc-vw", now=NOW)
+    view = runs.run_view(runs.get_run("inc-vw"))
+    assert view["verification_verdicts"] == []
+    assert view["rollback"] == {"eligible": False, "attempted": False}
+
+
+def test_run_view_verdicts_and_rollback_flow():
+    view = _to_verifying("inc-vf")
+    assert view["rollback"] == {"eligible": True, "attempted": False}
+    assert [(v["frm"], v["to"]) for v in view["verification_verdicts"]] \
+        == [("EXECUTING", "VERIFYING")]
+    assert view["verification_verdicts"][0]["reason"] == "check"
+
+    rolled = runs.advance_run("inc-vf", "ROLLBACK", reason="bad",
+                              now=NOW)
+    assert rolled["rollback"] == {"eligible": False, "attempted": True}
+    assert [(v["frm"], v["to"]) for v in rolled["verification_verdicts"]] \
+        == [("EXECUTING", "VERIFYING"), ("VERIFYING", "ROLLBACK")]
+
+    reverified = runs.advance_run("inc-vf", "VERIFYING", now=NOW)
+    assert reverified["rollback"] == {"eligible": False, "attempted": True}
+    resolved = runs.advance_run("inc-vf", "RESOLVED", now=NOW)
+    assert resolved["rollback"] == {"eligible": False, "attempted": True}
+    assert ("VERIFYING", "RESOLVED") in [
+        (v["frm"], v["to"])
+        for v in resolved["verification_verdicts"]]
+
+
+def test_run_view_verdicts_are_projections_not_inventions():
+    _to_verifying("inc-vp")
+    run = runs.get_run("inc-vp")
+    view = runs.run_view(run)
+    assert len(view["verification_verdicts"]) == 1
+    row = view["verification_verdicts"][0]
+    rec = run.history[-1]
+    assert (row["seq"], row["frm"], row["to"], row["reason"]) == \
+        (rec.seq, rec.frm, rec.to, rec.reason)
+    assert set(row) == {"seq", "frm", "to", "reason", "refs", "at"}
+    # Pre-execution transitions never leak into the slice.
+    assert all(v["to"] in ("VERIFYING", "ROLLBACK", "RESOLVED", "ESCALATED")
+               for v in view["verification_verdicts"])

@@ -493,3 +493,15 @@ def test_incident_budget_aggregates_across_agents():
     assert store.incident_calls("inc-1") == 12
     with pytest.raises(BudgetExceeded):
         store.get_or_create("inc-1", "reporter").record_call()
+
+
+# ---------------------------------------------------------------------------
+# Lane 4: model pinning (expected Studio model per agent, routing untouched)
+# ---------------------------------------------------------------------------
+
+def test_model_ids_shape():
+    from agents import MODEL_IDS  # noqa: E402 (Lane 4 pinning)
+
+    assert set(MODEL_IDS) == set(AGENTS)
+    assert set(MODEL_IDS) == {"triage", "diagnostic", "planner", "reporter"}
+    assert all(isinstance(v, str) for v in MODEL_IDS.values())

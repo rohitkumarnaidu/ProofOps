@@ -192,3 +192,40 @@ def test_rca_per_gate_cards_from_smoke():
     assert "gates_rate" in view  # cards read response data, invent nothing
     for gate in ("C1", "C2", "C3", "C4", "C5", "C6"):
         assert gate in view
+
+
+# ---------------------------------------------------------------------------
+# Lane 3: loading states, key notice, run_view verdicts/rollback
+# ---------------------------------------------------------------------------
+
+def test_execution_view_loading_state():
+    view = _src("views/ExecutionView.tsx")
+    assert "isLoading" in view
+    assert "exec-loading" in view
+    assert 'aria-busy="true"' in view
+
+
+def test_rca_view_loading_state():
+    view = _src("views/RCAView.tsx")
+    assert "isLoading" in view
+    assert "rca-loading" in view
+    assert 'aria-busy="true"' in view
+
+
+def test_rca_view_copies_key_notice():
+    view = _src("views/RCAView.tsx")
+    assert "hasApiKey" in view  # SafetyGate notice pattern, copied
+    assert "api-key-notice" in view
+    assert "401" in view  # smoke eval is key-gated; the audit chain is open
+
+
+def test_run_view_verdicts_and_rollback_typed():
+    api = _src("api.ts")
+    assert "verification_verdicts" in api
+    assert "rollback" in api
+    view = _src("views/ExecutionView.tsx")
+    assert "verdicts-list" in view
+    assert "verdicts-empty" in view
+    assert "verification_verdicts" in view  # server slice wins where present
+    assert "rollback.eligible" in view or "rollback" in view
+    assert "diff={null}" in view  # still no snapshot source: never invented

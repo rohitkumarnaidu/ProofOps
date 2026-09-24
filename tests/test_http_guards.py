@@ -4,6 +4,8 @@ Pure functions stay key-free (unit-testable); the http_* translation layer
 enforces auth_mod.guard_http. Settings are monkeypatched so no env is read.
 """
 import sys
+import hashlib
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -14,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 
 from app.routers import approvals as AP  # noqa: E402
 from app.routers import audit as audit_router  # noqa: E402
+from app.routers import auth as auth_mod  # noqa: E402 (Lane 1 identity)
 from app.routers import eval as eval_router  # noqa: E402
 from app.routers import runs  # noqa: E402
 
@@ -135,3 +138,129 @@ def test_advance_approve_reject_require_key(_keys):
     assert _exc_status(exc) == 401
     ok = AP.http_approve(issued["approval_id"], deny_body, x_api_key=KEY)
     assert ok["status"] == "approved"
+
+
+# ---------------------------------------------------------------------------
+# Lane 1 (identity): per-key store, bootstrap fallback, server-side roles
+# ---------------------------------------------------------------------------
+
+def _store_entry(key, key_id="key-1", owner="sre-alice",
+                 roles=("approver",)):
+    return {"key_id": key_id,
+            "key_sha256": hashlib.sha256(key.encode("utf-8")).hexdigest(),
+            "owner": owner, "roles": list(roles)}
+
+
+def _write_store(path, entries):
+    path.write_text(json.dumps(entries), encoding="utf-8")
+    return path
+
+
+def test_identity_store_known_resolves_unknown_rejected(tmp_path, _keys):
+    store = _write_store(tmp_path / "api_keys.json",
+                         [_store_entry("real-key-abc")])
+    ident = auth_mod.resolve_identity("real-key-abc", KEY, store_path=store)
+    assert ident == {"key_id": "key-1", "owner": "sre-alice",
+                     "roles": ["approver"]}
+    with pytest.raises(auth_mod.KeyRejected):
+        auth_mod.resolve_identity("no-such-key", KEY, store_path=store)
+    assert auth_mod.http_status(auth_mod.KeyRejected("x")) == 403
+
+
+def test_identity_fallback_bootstrap_when_store_absent(tmp_path, _keys):
+    missing = tmp_path / "no-such-store.json"
+    ident = auth_mod.resolve_identity(KEY, KEY, store_path=missing)
+    assert ident == {"key_id": "bootstrap", "owner": "bootstrap",
+                     "roles": []}
+    with pytest.raises(auth_mod.KeyRejected):
+        auth_mod.resolve_identity("wrong", KEY, store_path=missing)
+    with pytest.raises(auth_mod.KeyMissing):
+        auth_mod.resolve_identity(None, KEY, store_path=missing)
+    with pytest.raises(auth_mod.KeyMissing):
+        auth_mod.resolve_identity("   ", KEY, store_path=missing)
+
+
+def test_identity_corrupt_store_fails_closed(tmp_path, _keys):
+    bad = tmp_path / "api_keys.json"
+    bad.write_text("{not json", encoding="utf-8")
+    with pytest.raises(ValueError):
+        auth_mod.resolve_identity("anything", KEY, store_path=bad)
+    bad.write_text(json.dumps(
+        [{"key_id": "k1", "owner": "sre-alice"}]), encoding="utf-8")
+    with pytest.raises(ValueError):
+        auth_mod.resolve_identity("anything", KEY, store_path=bad)
+    bad.write_text(json.dumps({"not": "a list"}), encoding="utf-8")
+    with pytest.raises(ValueError):
+        auth_mod.load_key_store(bad)
+
+
+def test_identity_example_shape_loads_and_gates(tmp_path, _keys):
+    root = Path(__file__).resolve().parents[1]
+    example = root / "var" / "api_keys.json.example"
+    assert example.is_file(), "var/api_keys.json.example template missing"
+    assert "FAKE" in example.read_text(encoding="utf-8"), \
+        "placeholder hashes must be loudly marked FAKE"
+    copy = tmp_path / "api_keys.json"
+    copy.write_bytes(example.read_bytes())
+    entries = auth_mod.load_key_store(copy)
+    assert isinstance(entries, list) and len(entries) >= 1
+    owners = [entry["owner"] for entry in entries]
+    assert any("sre-alice" in owner for owner in owners)
+    for entry in entries:
+        assert len(entry["key_sha256"]) == 64
+        assert isinstance(entry["roles"], list)
+    # Fake hashes match nothing: unknown key -> 403 against example shape.
+    with pytest.raises(auth_mod.KeyRejected):
+        auth_mod.resolve_identity("any-presented-key", KEY, store_path=copy)
+    # Same shape with a real entry: known key -> identity resolved.
+    live = list(entries) + [_store_entry("live-key-9", key_id="live-9",
+                                         owner="sre-live")]
+    _write_store(copy, live)
+    ident = auth_mod.resolve_identity("live-key-9", KEY, store_path=copy)
+    assert (ident["key_id"], ident["owner"]) == ("live-9", "sre-live")
+
+
+def test_guard_http_returns_identity_and_keeps_matrix(tmp_path, _keys,
+                                                     monkeypatch):
+    class HTTPExc(Exception):
+        def __init__(self, status_code=500, detail=""):
+            super().__init__(detail)
+            self.status_code = status_code
+            self.detail = detail
+
+    # Hermetic: force the bootstrap fallback regardless of repo var/ state.
+    monkeypatch.setattr(auth_mod, "KEY_STORE_PATH",
+                        tmp_path / "absent.json")
+    ident = auth_mod.guard_http(KEY, lambda: KEY, HTTPExc)
+    assert ident == {"key_id": "bootstrap", "owner": "bootstrap",
+                     "roles": []}
+    with pytest.raises(HTTPExc) as exc:
+        auth_mod.guard_http(None, lambda: KEY, HTTPExc)
+    assert exc.value.status_code == 401
+    with pytest.raises(HTTPExc) as exc:
+        auth_mod.guard_http("wrong", lambda: KEY, HTTPExc)
+    assert exc.value.status_code == 403
+    # Blank keys never touch config (M21b host-safe pin still holds).
+    def _boom():
+        raise AssertionError("settings must not load for blank keys")
+    with pytest.raises(HTTPExc) as exc:
+        auth_mod.guard_http("  ", _boom, HTTPExc)
+    assert exc.value.status_code == 401
+
+
+def test_key_role_subset_gate():
+    # Bootstrap (no roles): legacy behavior, any asserted role passes here
+    # (per-endpoint gates still apply downstream).
+    auth_mod.check_key_role([], "approver")
+    auth_mod.check_key_role([], "viewer")
+    auth_mod.check_key_role(None, "admin")
+    # Key with roles: claimed role must be a subset (element) of them.
+    auth_mod.check_key_role(["approver"], "approver")
+    auth_mod.check_key_role(["approver", "admin"], "admin")
+    with pytest.raises(auth_mod.KeyRejected):
+        auth_mod.check_key_role(["approver"], "admin")
+    with pytest.raises(auth_mod.KeyRejected):
+        auth_mod.check_key_role(["approver", "viewer"], "admin")
+    with pytest.raises(auth_mod.KeyRejected):
+        auth_mod.check_key_role(["approver"], "Viewer")  # exact match only
+    assert auth_mod.http_status(auth_mod.KeyRejected("x")) == 403

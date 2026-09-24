@@ -20,6 +20,7 @@ from agents import memory as mem  # noqa: E402 (M13.10 memory)
 from agents import planner as A3  # noqa: E402 (M13.4)
 from agents import reporter as A4  # noqa: E402 (M13.5)
 from agents import session as sess  # noqa: E402 (M13.7 sessions)
+from agents import tools as tools_mod  # noqa: E402 (M13 ACL, Lane 4 L1)
 from agents import triage as A1  # noqa: E402 (M13.2)
 from agents.memory import GLOBAL_CONTEXT  # noqa: E402
 from agents.schemas import BudgetExceeded, OutputRejected  # noqa: E402
@@ -482,3 +483,131 @@ def test_reporter_denies_legacy_by_default():
                       _disabled(), sess.SessionStore())
     assert "legacy_draft" in str(exc.value) or "evidence_by_id" in str(
         exc.value)
+
+
+# ---------------------------------------------------------------------------
+# Lane 4: agent power L0->L1 (self-initiated READS) + triage verdict
+# ---------------------------------------------------------------------------
+
+def _pinned_payload(known, **over):
+    base = {"incident_id": "inc-1",
+            "hypotheses": [_hyp("deploy v23 regression", 0.9, tuple(known)),
+                           _hyp("traffic surge", 0.3, tuple(known))],
+            "runbook_id": "bad-deploy-rollback",
+            "runbook_version": "1.2.0", "verdict": "PINNED"}
+    base.update(over)
+    return base
+
+
+def test_l1_diagnostic_folds_runbook_excerpt():
+    tools_mod.clear_providers()
+    tools_mod.reset_tool_counts()
+    pack = _pack()
+    known = [e["evidence_id"] for e in pack["evidence"]][:2]
+    store = sess.SessionStore()
+    out = A2.run_diagnose("inc-1", "web", "prod", pack,
+                          FakeClient(_pinned_payload(known)), store)
+    assert out.verdict == "PINNED"
+    for h in out.hypotheses:
+        assert h.test_tool == "fetch_runbook"
+        assert dict(h.test_args) == {"runbook_id": "bad-deploy-rollback"}
+        assert "bad-deploy-rollback@1.2.0" in h.test_result
+        assert len(h.test_result) <= A2.RUNBOOK_EXCERPT_CHARS
+    # Budgets: exactly 1 LLM call (the chat) + 1 tool call (the self-read).
+    assert store.get("inc-1", "diagnostic").llm_calls == 1
+    assert tools_mod.tool_calls("diagnostic") == 1
+    tools_mod.reset_tool_counts()
+
+
+def test_l1_diagnostic_degrades_without_provider(monkeypatch):
+    from agents.schemas import ToolUnavailable  # noqa: E402 (Lane 4 L1)
+
+    def _no_provider(agent, tool, args):
+        raise ToolUnavailable(
+            f"no provider registered for {tool!r} (not hallucinated)")
+
+    monkeypatch.setattr(tools_mod, "invoke", _no_provider)
+    pack = _pack()
+    known = [e["evidence_id"] for e in pack["evidence"]][:2]
+    out = A2.run_diagnose("inc-1", "web", "prod", pack,
+                          FakeClient(_pinned_payload(known)),
+                          sess.SessionStore())
+    # Degraded but valid: validated model output lands unchanged, untested.
+    assert out.verdict == "PINNED" and len(out.hypotheses) == 2
+    assert all(h.test_tool == "" and h.test_result == ""
+               for h in out.hypotheses)
+
+
+def test_l1_diagnostic_degrades_on_tool_budget():
+    tools_mod.clear_providers()
+    tools_mod.reset_tool_counts()
+    for _ in range(5):
+        tools_mod.invoke("diagnostic", "fetch_runbook",
+                         {"runbook_id": "bad-deploy-rollback"})
+    pack = _pack()
+    known = [e["evidence_id"] for e in pack["evidence"]][:2]
+    store = sess.SessionStore()
+    out = A2.run_diagnose("inc-1", "web", "prod", pack,
+                          FakeClient(_pinned_payload(known)), store)
+    # Budget-denied read degrades: diagnosis still lands, chat still counted.
+    assert out.verdict == "PINNED"
+    assert all(h.test_tool == "" and h.test_result == ""
+               for h in out.hypotheses)
+    assert store.get("inc-1", "diagnostic").llm_calls == 1
+    assert tools_mod.tool_calls("diagnostic") == 5  # denial consumes none
+    tools_mod.reset_tool_counts()
+
+
+def test_l1_diagnostic_preserves_model_tests():
+    tools_mod.clear_providers()
+    tools_mod.reset_tool_counts()
+    pack = _pack()
+    known = [e["evidence_id"] for e in pack["evidence"]][:2]
+    probed = _hyp("probed cause", 0.6, tuple(known))
+    probed.update({"test_tool": "get_logs",
+                   "test_args": {"service": "web", "window": "15m",
+                                 "limit": 5},
+                   "test_result": "saw 5xx in window"})
+    payload = _pinned_payload(known, hypotheses=[
+        probed, _hyp("traffic surge", 0.3, tuple(known))])
+    out = A2.run_diagnose("inc-1", "web", "prod", pack, FakeClient(payload),
+                          sess.SessionStore())
+    # Model-run test untouched; untested hypothesis enriched.
+    assert out.hypotheses[0].test_tool == "get_logs"
+    assert out.hypotheses[0].test_result == "saw 5xx in window"
+    assert out.hypotheses[1].test_tool == "fetch_runbook"
+    assert "bad-deploy-rollback@1.2.0" in out.hypotheses[1].test_result
+    tools_mod.reset_tool_counts()
+
+
+def test_l1_diagnostic_skips_without_pin():
+    tools_mod.clear_providers()
+    tools_mod.reset_tool_counts()
+    fake = FakeClient({"incident_id": "inc-1", "hypotheses": [],
+                       "runbook_id": "", "runbook_version": "",
+                       "verdict": "INSUFFICIENT_EVIDENCE"})
+    out = A2.run_diagnose("inc-1", "web", "prod", _pack(), fake,
+                          sess.SessionStore())
+    assert out.verdict == "INSUFFICIENT_EVIDENCE"
+    assert tools_mod.tool_calls("diagnostic") == 0  # no id: no fetch
+    tools_mod.reset_tool_counts()
+
+
+def test_l1_triage_blocked_no_provider_no_carrier():
+    # BLOCKED (reported, not implemented): triage has no pinned runbook_id
+    # (it proposes severity/owner, never pins), so fetch_runbook has nothing
+    # fitting to fetch; its natural reads have no providers...
+    from agents.schemas import ToolUnavailable  # noqa: E402 (Lane 4 L1)
+    from agents.schemas import TriageResult  # noqa: E402 (Lane 4 L1)
+
+    tools_mod.clear_providers()
+    tools_mod.reset_tool_counts()
+    with pytest.raises(ToolUnavailable):
+        tools_mod.invoke("triage", "fetch_alerts", {"incident_id": "inc-1"})
+    # ...and TriageResult (extra=forbid) offers no honest carrier for a
+    # runbook excerpt: signals are observables, evidence_ids are ID links.
+    assert set(TriageResult.model_fields) == {
+        "incident_id", "severity", "fingerprint", "owner", "signals",
+        "evidence_ids", "fallback", "agent", "model_tier"}
+    assert TriageResult.model_config.get("extra") == "forbid"
+    tools_mod.reset_tool_counts()

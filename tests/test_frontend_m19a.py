@@ -235,3 +235,48 @@ def test_safety_gate_viewer_guardrail():
     assert 'role === "viewer"' in gate
     assert "disabled={!decidable}" in gate  # Deny keeps the TTL-only guard
     assert "403" in gate  # server remains the enforcer, noted in UI copy
+
+
+# ---------------------------------------------------------------------------
+# Lane 3: production gaps (loading, idempotency, server-field card)
+# ---------------------------------------------------------------------------
+
+def test_command_center_loading_state():
+    view = _src("views/CommandCenter.tsx")
+    assert "isLoading" in view
+    assert "queue-loading" in view
+    assert 'aria-busy="true"' in view
+
+
+def test_incident_detail_loading_state():
+    view = _src("views/IncidentDetail.tsx")
+    assert "isLoading" in view
+    assert "detail-loading" in view
+    assert 'aria-busy="true"' in view
+
+
+def test_safety_gate_sends_idempotency_keys():
+    gate = _src("views/SafetyGate.tsx")
+    assert "idempotency_key" in gate
+    assert "randomUUID" in gate  # per-decision uuid
+    api = _src("api.ts")
+    # Backend DecideBody already accepts the key on both decisions; the
+    # client must forward it on both (approve already did, reject is new).
+    approve_body = api.split("approve:")[1].split("reject:")[0]
+    reject_body = api.split("reject:")[1].split("auditApi")[0]
+    assert "idempotency_key" in approve_body
+    assert "idempotency_key" in reject_body
+
+
+def test_safety_gate_card_renders_server_fields_only():
+    gate = _src("views/SafetyGate.tsx")
+    # approval_view returns approval/incident/action/actor/scope/params_hash
+    # + status/TTL/expiry: the card renders them, nothing else.
+    for field in ("view.incident_id", "view.action_id", "view.actor",
+                  "view.scope", "view.params_hash"):
+        assert field in gate, field
+    # approval_view returns NO risk/blast/policy-rule: inventing them here
+    # would fabricate safety data, so they must stay absent.
+    for invented in ("blast_radius", "risk_level", "policy_rule",
+                     "policy-rule"):
+        assert invented not in gate, invented
