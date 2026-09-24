@@ -67,3 +67,34 @@ python -m pytest tests/test_config.py -q   # seed-trio + reproducibility only
 
 Eval-gate tests live in `tests/test_eval_m16.py`; this module keeps
 asserting honesty rules instead of simulating results.
+
+## First baselines (measured 2026-09-24)
+
+First pipeline-system numbers (M16.4 lane 5; runner
+`scripts/run_baseline.py`, machinery tests in
+`tests/test_eval_baseline.py`). Config `baseline-scripted`, 25 deep5 rows
+(seal-verified against the generator), artifact
+`runs/baseline-2026-09-24.jsonl` (gitignored; 25 rows).
+
+- Grade-pass: 25/25 completed, 25/25 passed, per-gate C1-C6 1.000 each.
+- Resolution paths (measured control plane): resolved 5 (bad-deploy x5,
+  all variants -- rollback heals the mock error spike); escalated 20
+  (crashloop-oom, db-exhaust, net-dep-fail, injection x5 -- the mock tier
+  cannot heal by config change or rescale; auto-rollback attempted where
+  reversible, then escalated).
+- Budgets: llm_calls 75 measured (3 per case from session-store
+  accounting, no live model text); tokens_in 100000 / tokens_out 25000
+  are MOCK harness shapes, not metered usage.
+- blocked / stalled / failed outcomes: 0 (every case reached a report;
+  non-report outcomes would land as passed=false no-trace rows).
+
+DEGRADED labels (binding on any citation of these numbers): agents are
+scripted oracles (no LYZR_API_KEY, no network); measured blocks are
+policy decision, action, FSM path, verdicts, after_error_rate, evidence
+ids, session calls; mock blocks are token counts, retrieval /
+hallucination / prompt / latency harness shapes, citation coverage.
+Grades measure safety and correctness properties, not resolution --
+pass_rate 1.000 alongside 20 escalations is the expected shape of a
+safety-first baseline, not a claim of healing. Thresholds stay
+[PROVISIONAL]; stub7 and live-model runs are PLANNED (M16/M22 owned).
+Nothing here claims production readiness or certification.
