@@ -1,0 +1,191 @@
+"""M21 stream router: SSE replay over the audit chain (thin translation).
+
+Ownership: Lane 3 owns THIS ROUTER. Chain storage/verification stays M15
+(``app.services.audit``); chain access stays the audit router
+(``get_or_create_chain`` -- imported, never duplicated here). This router
+owns ONLY: cursor filtering (``?since=`` event id), SSE framing (each frame
+carries ``audit_event_id`` untouched for the ``frontend/src/sse.ts``
+subscriber), and typed HTTP mapping (unknown incident 404, unknown cursor
+400).
+
+READ-only, OPEN views (deliberate, documented choice): this matches
+``audit.http_view`` / ``http_verify`` / ``http_export`` and ``runs.http_get``,
+which carry no key gate -- the audit chain is incident evidence, and this
+endpoint cannot mutate anything (no emit/approve/execute path exists here).
+Mutating handlers (``audit.http_emit``, approvals, runs advance) stay behind
+the M21 API-key matrix. If the matrix later gates reads, gate this
+route identically to ``audit.http_view``.
+
+Pure functions carry all logic and are unit-tested without HTTP; the
+``@router`` registration is guarded for the host starlette drift and
+asserted via AST (same pattern as routers/runs.py). Exposes ``router``
+(None-tolerant) so ``main.py`` inclusion stays one guarded line.
+"""
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+from typing import Any, Iterator, Mapping, Sequence
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+
+try:  # pragma: no cover - container path (pinned deps)
+    from fastapi import APIRouter as _APIRouter
+    from fastapi import Header as _Header
+    from fastapi import HTTPException as _HTTPException
+    from fastapi.responses import StreamingResponse as _StreamingResponse
+    _APIRouter(prefix="/__probe__")  # host starlette v1.x breaks construction
+    router = _APIRouter(tags=["stream"])
+    HTTPException = _HTTPException
+    Header = _Header
+    StreamingResponse = _StreamingResponse
+except Exception:  # host-only drift (AGENTS.md S13.2)
+    router = None  # type: ignore[assignment]
+
+    def Header(default: object = None, **kwargs: object) -> object:  # type: ignore[no-redef]
+        return default
+
+    class HTTPException(Exception):  # type: ignore[no-redef]
+        def __init__(self, status_code: int = 500, detail: str = "") -> None:
+            super().__init__(detail)
+            self.status_code = status_code
+            self.detail = detail
+
+    class StreamingResponse:  # type: ignore[no-redef]
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            raise RuntimeError("streaming unavailable on host")
+
+
+class StreamMissing(Exception):
+    """Unknown incident id (HTTP 404)."""
+
+
+class StreamCursorUnknown(Exception):
+    """Unknown ?since= event id (HTTP 400)."""
+
+
+def http_status(exc: Exception) -> int:
+    """Fail-closed error mapping (spec S40 typed errors)."""
+    if isinstance(exc, StreamMissing):
+        return 404
+    if isinstance(exc, StreamCursorUnknown):
+        return 400
+    return 500
+
+
+def to_stream_item(event: Mapping[str, Any]) -> dict[str, Any]:
+    """Project one audit event dict into a stream item.
+
+    Copies the event verbatim and surfaces its cursor as ``audit_event_id``
+    (the contract field is ``event_id``; the ``frontend/src/sse.ts``
+    subscriber tracks ``audit_event_id``). No data invented.
+    """
+    item = dict(event)
+    item["audit_event_id"] = event.get("event_id", "")
+    return item
+
+
+def filter_after(items: Sequence[Mapping[str, Any]],
+                 since: str | None) -> list[dict[str, Any]]:
+    """Return items newer than the ``?since=`` cursor (fail-closed).
+
+    ``None`` (or blank) replays the whole chain. Otherwise the cursor must
+    match an ``event_id``/``audit_event_id`` in the chain; the match itself
+    is excluded (only NEWER events replay). Unknown ids raise
+    ``StreamCursorUnknown`` (HTTP 400) -- never silently restart.
+    """
+    ordered = [dict(item) for item in items]
+    if since is None or (isinstance(since, str) and not since.strip()):
+        return ordered
+    if not isinstance(since, str):
+        raise StreamCursorUnknown("since cursor must be an event id string")
+    for index, item in enumerate(ordered):
+        if item.get("event_id") == since \
+                or item.get("audit_event_id") == since:
+            return ordered[index + 1:]
+    raise StreamCursorUnknown(f"unknown stream cursor: {since!r}")
+
+
+def format_sse(item: Mapping[str, Any]) -> str:
+    """Frame one stream item as a single SSE event (pure, testable)."""
+    cursor = str(item.get("audit_event_id", ""))
+    data = json.dumps(dict(item), sort_keys=True, default=str)
+    if cursor:
+        return f"id: {cursor}\ndata: {data}\n\n"
+    return f"data: {data}\n\n"
+
+
+def build_sse_body(items: Sequence[Mapping[str, Any]]) -> str:
+    """Concatenate frames for one replay (pure; the handler streams it)."""
+    return "".join(format_sse(item) for item in items)
+
+
+def _sse_frames(items: Sequence[Mapping[str, Any]]) -> Iterator[str]:
+    for item in items:
+        yield format_sse(item)
+
+
+def list_stream_items(incident_id: str,
+                      since: str | None = None) -> list[dict[str, Any]]:
+    """Replay one incident's audit chain as stream items (pure over routers).
+
+    Reads through the audit router's ``get_or_create_chain`` (never a local
+    chain copy). Unknown incidents raise ``StreamMissing`` (HTTP 404): known
+    means a live chain, a persisted chain file, or an open run -- an empty
+    chain for an open run replays as ``[]`` (honest empty, not 404).
+    """
+    if not isinstance(incident_id, str) or not incident_id.strip():
+        raise StreamMissing(f"unknown incident: {incident_id!r}")
+    from app.routers import audit as audit_router
+    known = incident_id in audit_router.CHAINS
+    if not known:
+        try:
+            from app.routers import runs as runs_router
+            try:
+                runs_router.get_run(incident_id)
+                known = True
+            except Exception:
+                known = False
+        except Exception:
+            known = False
+    if not known:
+        path = audit_router._chain_path(incident_id)
+        if path is not None and path.is_file():
+            known = True
+    if not known:
+        raise StreamMissing(f"unknown incident: {incident_id}")
+    chain = audit_router.get_or_create_chain(incident_id)
+    items = [to_stream_item(event.model_dump(mode="json"))
+             for event in chain.events]
+    return filter_after(items, since)
+
+
+def _guarded(fn: Any, *args: Any, **kwargs: Any) -> Any:
+    try:
+        return fn(*args, **kwargs)
+    except (StreamMissing, StreamCursorUnknown) as exc:
+        raise HTTPException(status_code=http_status(exc),
+                            detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+def http_stream(incident_id: str,
+                since: str | None = None) -> Any:
+    """SSE replay: ``GET /stream/incidents/{id}[?since=event_id]`` (open).
+
+    ``since`` is a query param (FastAPI binds it); the frontend subscriber
+    advances it per ``audit_event_id`` frame. Returns
+    ``text/event-stream``; unknown incidents 404, unknown cursors 400.
+    """
+    items = _guarded(list_stream_items, incident_id, since)
+    return StreamingResponse(
+        _sse_frames(items),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+if router is not None:  # container path; host asserts wiring via AST
+    router.get("/stream/incidents/{incident_id}")(http_stream)

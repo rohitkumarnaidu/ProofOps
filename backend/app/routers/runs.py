@@ -390,6 +390,32 @@ def list_runs() -> list[dict[str, Any]]:
             for run in REPO_STORE.values()]
 
 
+#: Run-view projection: history targets that carry verification meaning.
+#: Pure projection of banked records (Lane 3) -- VERIFYING/ROLLBACK entries
+#: plus their outcomes. No verdict invented: each row is the stored
+#: transition (seq/frm/to/reason/refs/at), only filtered.
+_VERDICT_STATES = frozenset({"VERIFYING", "ROLLBACK", "RESOLVED", "ESCALATED"})
+
+
+def verification_verdicts(run: IncidentRun) -> list[dict[str, Any]]:
+    """Verification-relevant slice of banked history (projection only)."""
+    return [{"seq": r.seq, "frm": r.frm, "to": r.to, "reason": r.reason,
+             "refs": list(r.refs), "at": r.at} for r in run.history
+            if r.to in _VERDICT_STATES]
+
+
+def rollback_summary(run: IncidentRun) -> dict[str, bool]:
+    """Rollback projection from banked flags (no new data).
+
+    ``eligible`` mirrors the ExecutionView rule (VERIFYING/ROLLBACK state,
+    single attempt not yet used); ``attempted`` is the stored
+    ``rolled_back`` flag.
+    """
+    return {"eligible": run.state in ("VERIFYING", "ROLLBACK")
+            and not run.rolled_back,
+            "attempted": bool(run.rolled_back)}
+
+
 def run_view(run: IncidentRun) -> dict[str, Any]:
     return {
         "incident_id": run.incident_id,
@@ -402,6 +428,8 @@ def run_view(run: IncidentRun) -> dict[str, Any]:
                      "forced": r.forced, "at": r.at} for r in run.history],
         "handoffs": [dict(h) for h in run.handoffs],
         "audit_records": fsm_svc.audit_records(run),
+        "verification_verdicts": verification_verdicts(run),
+        "rollback": rollback_summary(run),
     }
 
 
