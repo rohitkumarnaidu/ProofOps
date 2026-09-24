@@ -21,3 +21,15 @@ MODEL_TIERS = {
     "planner": "medium",
     "reporter": "economical",
 }
+
+#: Expected Studio model per agent for eval repeatability (Lane 4, L1).
+#: Vendor model + temperature live in Studio config and are absent from the
+#: repo; "" means "Studio default" (honest: no invented identifiers).
+#: This map records expectation only -- it does not route anything; routing
+#: stays agent_id-based via ClientConfig.agent_ids (never consult this map).
+MODEL_IDS: dict[str, str] = {
+    "triage": "",
+    "diagnostic": "",
+    "planner": "",
+    "reporter": "",
+}

@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 from agents import kb as kb_mod  # noqa: E402 (M13.9 collections)
 from agents import rai  # noqa: E402 (M13.8 guards)
 from agents import session as session_mod  # noqa: E402 (M13.7 sessions)
+from agents import tools as tools_mod  # noqa: E402 (M13 ACL reads, Lane 4 L1)
 from agents.memory import GLOBAL_CONTEXT  # noqa: E402 (M13.10 context)
 from agents.schemas import (  # noqa: E402 (M13.6 envelopes)
     MAX_HYPOTHESES,
@@ -36,6 +37,10 @@ from app.services.retrieval import (  # noqa: E402 (M12 query builder)
 
 PROMPT_NAME = "diagnostic.md"
 FALLBACK_CONFIDENCE = 0.5
+
+#: Bound for the self-fetched runbook observation folded into test_result.
+RUNBOOK_EXCERPT_CHARS = 500
+_TRUNCATION_MARKER = "[truncated]"
 
 
 def prompt_text() -> str:
@@ -136,7 +141,72 @@ def run_diagnose(incident_id: str, service: str, env: str,
         if unknown:
             raise OutputRejected(
                 f"diagnostic cites unknown evidence: {unknown}")
-    return parsed
+    return _fold_runbook_observation(parsed)
+
+
+def _runbook_excerpt(doc: Mapping[str, Any]) -> str:
+    """Bounded runbook observation: doc_id + version + ~500 chars of text."""
+    doc_id = str(doc.get("runbook_id", ""))
+    version = str(doc.get("version", ""))
+    title = str(doc.get("title", "") or "")
+    steps = doc.get("diagnostic_steps", ())
+    if isinstance(steps, (str, bytes)):
+        steps = (steps,)
+    try:
+        step_list = [str(s) for s in steps]
+    except TypeError:
+        step_list = []
+    body = " | ".join([part for part in [title, *step_list] if part])
+    text = f"[runbook {doc_id}@{version}] {body}".strip()
+    if len(text) > RUNBOOK_EXCERPT_CHARS:
+        text = (text[: RUNBOOK_EXCERPT_CHARS - len(_TRUNCATION_MARKER)]
+                + _TRUNCATION_MARKER)
+    return text
+
+
+def _fold_runbook_observation(parsed: DiagnosticResult) -> DiagnosticResult:
+    """Lane 4 L1: the diagnostic agent self-fetches its own pinned runbook.
+
+    Self-initiated READ only (charter: prompt TOOL RULES allow all seven
+    read tools; planner-style mutation/tools stay denied). The fetch IS the
+    recorded test of the pin, so Hypothesis.test_* carries it honestly:
+    test_tool names the tool actually invoked, test_args the exact args,
+    test_result the bounded observation. Only hypotheses the model left
+    untested (test_tool == "") are filled; model-run tests are never
+    overwritten. No envelope change (DiagnosticResult/Hypothesis are frozen
+    extra=forbid); no extra record_call (the 1 chat is already counted, the
+    tool counts itself in tools.tool_calls).
+
+    Degraded path: ToolUnavailable (no provider), ToolDenied (ACL/budget),
+    or loader failure returns the model output unchanged. This is an
+    honest skip, not a silent lie: test_result "" contractually means
+    "test not yet run", which is true when the read failed, and no frozen
+    field honestly means "degraded" (fallback marks the lexical path only).
+    Read-only enrichment must be fail-open: it never breaks a validated
+    diagnosis.
+    """
+    pinned = parsed.runbook_id.strip()
+    if not pinned:
+        return parsed  # nothing pinned: no id to fetch, skip honestly
+    try:
+        doc = tools_mod.invoke("diagnostic", "fetch_runbook",
+                               {"runbook_id": pinned})
+    except Exception:
+        return parsed  # degraded: keep the validated model output as-is
+    if not isinstance(doc, Mapping):
+        return parsed  # never hallucinate structure: keep model output
+    excerpt = _runbook_excerpt(doc)
+    enriched: list[Hypothesis] = []
+    for hypothesis in parsed.hypotheses:
+        if hypothesis.test_tool:
+            enriched.append(hypothesis)  # model ran its own test: keep it
+            continue
+        enriched.append(hypothesis.model_copy(update={
+            "test_tool": "fetch_runbook",
+            "test_args": {"runbook_id": pinned},
+            "test_result": excerpt,
+        }))
+    return parsed.model_copy(update={"hypotheses": enriched})
 
 
 def run_diagnose_fallback_only(incident_id: str, signature: str,
