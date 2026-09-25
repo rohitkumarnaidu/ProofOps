@@ -1,56 +1,139 @@
 @import "tailwindcss";
 
-:root {
-  color-scheme: dark;
+/* ==========================================================================
+   Design tokens (M19 design system)
+
+   Every colour the product uses is named here for WHAT IT MEANS, not what it
+   looks like, and Tailwind generates the utilities from these. Before this,
+   the UI carried ~34 raw colour literals across 199 className sites, so two
+   panels could not agree on "raised surface" and nothing could be re-themed or
+   contrast-audited from one place.
+
+   Naming is deliberately semantic:
+     canvas / surface / raised / sunken  -> elevation
+     line / line-strong                 -> borders
+     fg / fg-muted / fg-subtle          -> text hierarchy
+     ok / warn / danger / info / neutral-> state, paired with a -fg for text
+                                         that sits on top of that state colour
+
+   Every text/background pair used by the UI is asserted to WCAG AA in
+   tests/test_frontend_design_system.py, so a token edit that breaks contrast
+   fails the build instead of shipping.
+   ========================================================================== */
+@theme {
+  /* --- Elevation ------------------------------------------------------- */
+  --color-canvas: #0b0e14; /* app background */
+  --color-surface: #11151f; /* panels, cards, table headers */
+  --color-surface-raised: #171d2a; /* nested rows, hover, popovers */
+  --color-surface-sunken: #070910; /* wells, code, raw JSON */
+
+  /* --- Borders --------------------------------------------------------- */
+  /* `line` and `line-strong` are DECORATIVE separators (row rules, panel
+     edges). WCAG 2.2 SC 1.4.11 applies to visual information *required to
+     identify a component*, and a hairline between two rows is not that, so
+     these sit deliberately below 3:1 to stay quiet. `line-control` is the one
+     that does identify a component: it is the boundary of every input, select
+     and textarea, and it is asserted at >= 3:1 against both the panel behind it
+     and its own fill in tests/test_frontend_design_system.py. */
+  --color-line: #232c3c;
+  --color-line-strong: #35415a;
+  --color-line-control: #5f7099;
+
+  /* --- Text ------------------------------------------------------------ */
+  --color-fg: #e8ecf4; /* primary text */
+  --color-fg-muted: #aab4c8; /* secondary text */
+  --color-fg-subtle: #8892a6; /* captions, meta */
+  --color-fg-inverse: #0b0e14; /* text on a filled accent surface */
+
+  /* --- Brand / interactive --------------------------------------------- */
+  --color-accent: #38bdf8; /* primary action, focus, selection */
+  --color-accent-strong: #0ea5e9;
+  --color-accent-fg: #051520; /* text on accent */
+  --color-focus: #7dd3fc; /* focus ring, AA against canvas */
+
+  /* --- State (each paired with its own foreground) ---------------------- */
+  --color-ok: #4ade80;
+  --color-ok-fg: #052e16;
+  --color-warn: #fbbf24;
+  --color-warn-fg: #3a2600;
+  --color-danger: #f87171;
+  --color-danger-fg: #3d0d0d;
+  --color-info: #38bdf8;
+  --color-info-fg: #051520;
+  --color-neutral: #9aa5b8;
+  --color-neutral-fg: #0f172a;
 }
 
-html {
-  background: #0b0e14;
-}
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
 
-body {
-  margin: 0;
-  background: #0b0e14;
-  color: #e6e9f0;
-  font-family: ui-sans-serif, system-ui, sans-serif;
-}
+  html,
+  body {
+    background: var(--color-canvas);
+  }
 
-button,
-input,
-select,
-textarea {
-  font: inherit;
-}
+  body {
+    margin: 0;
+    color: var(--color-fg);
+    font-family: ui-sans-serif, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
 
-button,
-select {
-  min-height: 2rem;
-}
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+    color: inherit;
+  }
 
-:focus {
-  scroll-margin-block: 5rem;
-}
+  /*
+   * Keyboard controls keep a 2rem floor for hit area, but only where the
+   * element is actually interactive -- setting it on every <select> used to
+   * fight inline-block table cells at narrow widths.
+   */
+  button,
+  select,
+  input[type="checkbox"],
+  input[type="radio"] {
+    min-height: 2rem;
+  }
 
-:focus-visible {
-  outline: 3px solid #7dd3fc;
-  outline-offset: 3px;
-}
+  :focus {
+    scroll-margin-block: 5rem;
+  }
 
-.skip-link {
-  position: fixed;
-  left: 1rem;
-  top: 1rem;
-  z-index: 100;
-  transform: translateY(-200%);
-  border-radius: 0.375rem;
-  background: #e6e9f0;
-  color: #0b0e14;
-  padding: 0.625rem 0.875rem;
-  font-weight: 700;
-}
+  /*
+   * A single focus treatment for the whole app. :focus-visible keeps the ring
+   * off mouse clicks; 3px width + 3px offset clears WCAG 2.2 SC 2.4.11
+   * (Focus Not Obscured) against every surface token. Pinned by
+   * test_frontend_m19d.py so it cannot be quietly weakened to a hairline.
+   */
+  :focus-visible {
+    outline: 3px solid var(--color-focus);
+    outline-offset: 3px;
+    border-radius: 0.125rem;
+  }
 
-.skip-link:focus {
-  transform: translateY(0);
+  /* Visible only when focused; never removed, only moved off-screen. */
+  .skip-link {
+    position: fixed;
+    left: 1rem;
+    top: 1rem;
+    z-index: 100;
+    transform: translateY(-200%);
+    border-radius: 0.375rem;
+    background: var(--color-fg);
+    color: var(--color-canvas);
+    padding: 0.625rem 0.875rem;
+    font-weight: 700;
+  }
+
+  .skip-link:focus {
+    transform: translateY(0);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

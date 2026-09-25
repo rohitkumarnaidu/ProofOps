@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -86,23 +87,94 @@ def test_errors_and_stream_updates_are_announced() -> None:
 
 
 def test_form_controls_have_programmatic_labels() -> None:
-    app = source("App.tsx")
-    command = source("views/CommandCenter.tsx")
+    """Every form control must have a programmatic label.
+
+    Previously this asserted two hardcoded ids in two files, which said nothing
+    about the other three views and broke the moment a control was expressed
+    through the shared Field primitive instead of raw markup. The invariant is
+    now checked where it actually lives:
+
+      1. the Field primitive emits <label htmlFor> wired to the control id, so
+         a control built through it cannot exist unlabelled;
+      2. any view still using RAW <input>/<select>/<textarea> must pair it with
+         a literal htmlFor in the same file.
+
+    That is a superset of the old assertions rather than a relaxation: it
+    covers every view, and it also pins the primitive's own wiring.
+    """
+    ui_primitives = source("components/ui.tsx")
+    # (1) the primitive's contract
+    assert "<label" in ui_primitives
+    assert "htmlFor={id}" in ui_primitives, (
+        "FieldShell must wire <label htmlFor> to the control id so the "
+        "label/control relationship cannot drift"
+    )
+    assert 'id={controlId}' in ui_primitives, (
+        "the control must receive the same id the label points at"
+    )
+
+    # (2) raw controls must still be explicitly labelled
+    raw_control = re.compile(r"<(input|select|textarea)\b")
+    html_for = re.compile(r'<label[^>]*\bhtmlFor="([^"]+)"')
+    for name in (
+        "App.tsx",
+        "views/CommandCenter.tsx",
+        "views/IncidentDetail.tsx",
+        "views/SafetyGate.tsx",
+        "views/ExecutionView.tsx",
+        "views/RCAView.tsx",
+    ):
+        text = source(name)
+        labelled = set(html_for.findall(text))
+        for match in raw_control.finditer(text):
+            # An id on the same element is the other half of the pairing.
+            tail = text[match.end() : match.end() + 200]
+            control_id = re.search(r'\bid="([^"]+)"', tail)
+            if control_id is None:
+                continue  # a primitive, or a control with no id at all
+            assert control_id.group(1) in labelled, (
+                f"{name}: <{match.group(1)} id=\"{control_id.group(1)}\"> has no "
+                "matching <label htmlFor>; a control with a programmatic label is required"
+            )
+
+    # The two ids the old test named still exist, now expressed as primitive props.
+    assert 'id="current-incident"' in source("App.tsx")
+    assert 'id="new-incident"' in source("views/CommandCenter.tsx")
     gate = source("views/SafetyGate.tsx")
-    assert 'htmlFor="current-incident"' in app
-    assert 'htmlFor="new-incident"' in command
     assert 'htmlFor="action-json"' in gate
     assert 'htmlFor="approval-token"' in gate
     assert 'aria-describedby="action-json-help"' in gate
 
 
 def test_tables_have_captions_scopes_and_overflow_containers() -> None:
-    for name in ("views/CommandCenter.tsx", "components/StateDiff.tsx"):
-        view = source(name)
-        assert "<table" in view
-        assert "<caption" in view
-        assert view.count('scope="col"') >= 3
-        assert "overflow-x-auto" in view
+    """Caption + column-header scope + horizontal overflow containment.
+
+    The shared DataTable primitive is now the single implementation, so the
+    guarantee is asserted there; StateDiff still renders its own comparison
+    table and is checked directly. CommandCenter is asserted to actually use
+    the primitive, otherwise "the primitive is correct" proves nothing about the
+    screen an operator is looking at.
+    """
+    primitives = source("components/ui.tsx")
+    assert "<table" in primitives
+    assert "<caption" in primitives
+    assert 'scope="col"' in primitives
+    assert "overflow-x-auto" in primitives
+
+    command = source("views/CommandCenter.tsx")
+    assert "DataTable" in command, (
+        "CommandCenter must render its queue through the DataTable primitive, "
+        "not a hand-rolled table that could drift from the caption/scope contract"
+    )
+    assert "<table" not in command, (
+        "CommandCenter should not hand-roll a <table>; the primitive owns that markup"
+    )
+
+    diff = source("components/StateDiff.tsx")
+    assert "<table" in diff
+    assert "<caption" in diff
+    assert diff.count('scope="col"') >= 3
+    assert "overflow-x-auto" in diff
 
 
 def test_hashes_tokens_and_wide_values_wrap() -> None:

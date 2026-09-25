@@ -8,6 +8,7 @@ import {
   useNavigate,
 } from "react-router-dom";
 import { ApiError, runsApi } from "./api";
+import { ErrorState, SelectField } from "./components/ui";
 import { CommandCenter } from "./views/CommandCenter";
 import { ExecutionView } from "./views/ExecutionView";
 import { IncidentDetail } from "./views/IncidentDetail";
@@ -99,7 +100,7 @@ function AppShell() {
         role="link"
         aria-disabled="true"
         aria-label={disabledLabel}
-        className="cursor-not-allowed px-2 py-2 text-gray-600"
+        className="cursor-not-allowed px-2 py-2 text-fg-subtle"
       >
         {label}
       </span>
@@ -109,7 +110,7 @@ function AppShell() {
         to={to}
         aria-current={active ? "page" : undefined}
         aria-label={active ? `${label}, current page` : undefined}
-        className="rounded px-2 py-2 hover:bg-gray-900 hover:underline"
+        className="rounded px-2 py-2 text-fg-muted hover:bg-surface-raised hover:text-fg hover:underline"
       >
         {label}
       </Link>
@@ -127,16 +128,23 @@ function AppShell() {
       >
         Skip to main content
       </a>
-      <header className="border-b border-gray-800 px-6 py-3">
+      <header className="border-b border-line px-4 py-3 sm:px-6">
         <nav aria-label="Primary">
-          <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
-            <Link to="/" className="font-bold text-sky-300">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            <Link
+              to="/"
+              className="mr-1 font-bold tracking-tight text-accent"
+            >
               ProofOps
             </Link>
             <Link
               to="/"
               aria-current={location.pathname === "/" ? "page" : undefined}
-              className="rounded px-2 py-2 hover:bg-gray-900 hover:underline"
+              className={`rounded px-2 py-2 ${
+                location.pathname === "/"
+                  ? "bg-surface-raised font-semibold text-fg"
+                  : "text-fg-muted hover:bg-surface-raised hover:text-fg"
+              }`}
             >
               Command Center
             </Link>
@@ -167,15 +175,13 @@ function AppShell() {
           </div>
         </nav>
         <div className="mt-3 flex flex-wrap items-end gap-2">
-          <label htmlFor="current-incident" className="text-xs text-gray-300">
-            Current incident
-          </label>
-          <select
+          <SelectField
+            label="Current incident"
             id="current-incident"
+            className="w-full min-w-0 sm:w-auto sm:min-w-56"
             value={selectedIncident}
             onChange={(event) => chooseIncident(event.target.value)}
-            aria-describedby={queueError === "" ? undefined : "incident-list-error"}
-            className="min-w-56 rounded border border-gray-700 bg-gray-900 px-2 py-1 text-sm"
+            error={queueError === "" ? null : `Incident list unavailable: ${queueError}`}
           >
             <option value="">Select an incident</option>
             {selectedIncident !== "" &&
@@ -187,19 +193,10 @@ function AppShell() {
                 {run.incident_id} · {run.state}
               </option>
             ))}
-          </select>
+          </SelectField>
         </div>
-        {queueError !== "" && (
-          <p
-            id="incident-list-error"
-            role="alert"
-            className="mt-2 text-sm text-red-300"
-          >
-            Incident list unavailable: {queueError}
-          </p>
-        )}
       </header>
-      <main id="main-content" ref={mainRef} tabIndex={-1}>
+      <main id="main-content" ref={mainRef} tabIndex={-1} className="px-4 py-4 sm:px-6 sm:py-6">
         <Routes>
           <Route path="/" element={<CommandCenter />} />
           <Route path="/incidents/:id" element={<IncidentDetail />} />
@@ -215,14 +212,12 @@ function AppShell() {
 
 function RouteNotFound() {
   return (
-    <section className="p-6">
-      <h1 data-page-heading tabIndex={-1} className="text-xl font-bold">
-        Page not found
-      </h1>
-      <p data-testid="route-404" className="mt-2 text-sm text-gray-400">
-        This route does not exist. Use the primary navigation to open a real
-        operator view.
-      </p>
+    <section className="mx-auto max-w-3xl">
+      <ErrorState
+        testId="route-404"
+        title="Page not found"
+        detail="This route does not exist. Use the primary navigation to open a real operator view."
+      />
     </section>
   );
 }

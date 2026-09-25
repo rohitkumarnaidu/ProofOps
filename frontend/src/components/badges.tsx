@@ -1,11 +1,15 @@
 import type { Mode } from "../api";
+import { StatusPill, type StatusTone } from "./ui";
 
-const COLORS: Record<Mode | "PROBING", string> = {
-  LIVE: "bg-green-900 text-green-200 border-green-700",
-  REPLAY: "bg-amber-900 text-amber-200 border-amber-700",
-  MOCK: "bg-sky-900 text-sky-200 border-sky-700",
-  OFFLINE: "bg-red-900 text-red-200 border-red-700",
-  PROBING: "bg-gray-800 text-gray-300 border-gray-600",
+/** Operating mode -> state tone. This mapping is the single source of truth;
+    it used to be a parallel set of hand-picked Tailwind colour classes, which
+    is how the same semantic state ended up with three different greens. */
+const MODE_TONE: Record<Mode | "PROBING", StatusTone> = {
+  LIVE: "ok",
+  REPLAY: "warn",
+  MOCK: "info",
+  OFFLINE: "danger",
+  PROBING: "neutral",
 };
 
 /** Operating-mode badge (M19.8): always visible, always truthful.
@@ -18,31 +22,27 @@ const COLORS: Record<Mode | "PROBING", string> = {
 export function ModeBadge({ mode }: { mode: Mode | null }) {
   const label = mode ?? "PROBING";
   return (
-    <span
-      data-testid="mode-badge"
-      data-mode={label}
-      className={`inline-block rounded border px-2 py-0.5 text-xs font-bold tracking-widest ${COLORS[label]}`}
-    >
-      {label}
+    <span data-testid="mode-badge" data-mode={label} className="inline-flex">
+      <StatusPill tone={MODE_TONE[label]} title={`Operating mode: ${label}`}>
+        {label}
+      </StatusPill>
     </span>
   );
 }
 
-const SEVERITY_COLORS: Record<string, string> = {
-  P1: "bg-red-800 text-white",
-  P2: "bg-orange-700 text-white",
-  P3: "bg-yellow-700 text-black",
-  P4: "bg-gray-600 text-white",
+const SEVERITY_TONE: Record<string, StatusTone> = {
+  P1: "danger",
+  P2: "warn",
+  P3: "info",
+  P4: "neutral",
 };
 
 export function SeverityChip({ severity }: { severity: string }) {
-  const color = SEVERITY_COLORS[severity] ?? "bg-gray-700 text-white";
   return (
-    <span
-      data-testid="severity-chip"
-      className={`inline-block rounded px-2 py-0.5 text-xs font-bold ${color}`}
-    >
-      {severity}
+    <span data-testid="severity-chip" className="inline-flex">
+      <StatusPill tone={SEVERITY_TONE[severity] ?? "neutral"}>
+        {severity}
+      </StatusPill>
     </span>
   );
 }
