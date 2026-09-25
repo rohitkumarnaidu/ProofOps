@@ -139,6 +139,13 @@ def test_ui_image_unprivileged_multistage():
     conf = (ROOT / "frontend" / "frontend.nginx.conf").read_text(
         encoding="utf-8")
     assert "listen 8080" in conf and "try_files" in conf
+    # A browser whose localhost cookie jar exceeds nginx's default 8k header
+    # budget got "400 Request Header Or Cookie Too Large" and the product was
+    # unreachable on the stock demo URL. This SPA uses no cookies, so the
+    # budget must stay raised. Pinned so a future nginx base-image bump (which
+    # can reset this) cannot silently reintroduce the failure.
+    assert "large_client_header_buffers 8 32k" in conf
+    assert "client_header_buffer_size 16k" in conf
     compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
     assert "5173:8080" in compose and "localhost:8080" in compose
 
