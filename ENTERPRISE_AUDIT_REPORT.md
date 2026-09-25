@@ -12,11 +12,11 @@
 > **Audited state:** `master` @ `6af0f5e` **plus the loop-F working tree**
 > (now committed as `b859c92`..`18d038a`). Nothing in this report is inferred
 > where it could be measured.
-> **Gates at write time (measured, this pass):** pytest **2815 passed, 1
+> **Gates at write time (measured, this pass):** pytest **2858 passed, 1
 > skipped** (the documented host starlette drift), ruff clean over 134 files,
 > mypy clean over 52 source files with `disallow_untyped_defs`, secret scan
-> PASS over 236 tracked files, `tsc --noEmit` clean, `oxlint` clean over 14
-> frontend files.
+> PASS over 239 tracked files, `tsc -b` clean under `strict`, `oxlint` clean
+> over 14 frontend files.
 > **Runtime evidence (this pass, `python:3.12-slim` via compose):** all three
 > services healthy; `/healthz` and `/readyz` 200 with the DB probe passing;
 > every state writer resolving to `/app/var`; files landing on the volume
@@ -28,9 +28,13 @@
 > all five views mounted with **zero** console errors or warnings, rendering two
 > real incidents in both the selector and the queue table; the Safety Gate
 > truthfully surfacing its own `HTTP 401` instead of faking an identity; SSE
-> streaming through the same-origin proxy; and no horizontal overflow at 360px
-> or 390px on any view. This pass is what caught the §1.3 white-screen P0 that
-> every static test and the dev server had passed.
+> streaming through the same-origin proxy and reporting `replay` rather than a
+> false disconnect; and no horizontal overflow at 360px or 390px on any view.
+> A standing sweep covers 5 views × 3 viewports (360/768/1440) = 15
+> combinations, asserting mount, one `h1`, named regions, no overflow, and no
+> rendered failure banners — 15/15 clean. This pass is what caught the §1.3
+> white-screen P0 that every static test and the dev server had passed, plus
+> the §4.1 spread-order and false-disconnect defects.
 > **Still not proven:** anything needing a live Lyzr key, a browser, a second
 > user identity, or external infrastructure. Marked `[UNVERIFIED]` at the
 > point of use.
@@ -252,13 +256,91 @@ stopped streaming at `RESOLVED` while the FSM still routes
 `RESOLVED|ESCALATED → RCA_PENDING → RCA_PUBLISHED → AUDITED`. The test now
 reads the Python `TERMINAL` constant so the two languages cannot drift.
 
+### §4.1 Round 4 — the design system, and three more defects measurement found
+
+A four-lane static audit of the UI returned: no design system (~34 raw colour
+literals across 199 `className` sites, 115 distinct utility tokens, 674 raw
+token occurrences), a 610-line `SafetyGate` re-implementing the same
+panel/button/field/table/error markup as every other view, absent loading /
+empty / error / permission states, and a claim that layouts break at 360px.
+Three of those were real. One was not. All four changed what got built.
+
+**Shipped.** A semantic token layer under Tailwind v4 `@theme` (elevation,
+borders, text hierarchy, accent, five state colours each paired with its own
+foreground), a primitive set (Panel, Button, StatusPill, TextField /
+TextAreaField / SelectField, DataTable, Notice, LoadingState, EmptyState,
+ErrorState, KeyValue, Well), and all five views plus the shell refactored onto
+it. The Safety Gate's eight hand-written inline warnings — four of which had
+no `role` and so were invisible to a screen reader — now go through `Notice`
+with an explicit tone and an opt-in assertive live region.
+
+**Contrast is asserted, not assumed.** `tests/test_frontend_design_system.py`
+parses the tokens back out of `index.css` and computes real WCAG 2.x ratios for
+the 13 text pairs the UI renders. All pass AA. That immediately caught a
+genuine defect in the new primitives: form-control borders were **1.30:1**,
+because they used the decorative separator token. SC 1.4.11 requires 3:1 for
+anything that identifies a component and explicitly exempts decorative
+separators, so the palette now carries `line-control` (3.11:1) for control
+boundaries and keeps `line` quiet. A test asserts both directions, so the
+distinction cannot rot unnoticed.
+
+**A gate that could only pass.** `npx tsc --noEmit` typechecks **nothing** in
+this repo: `frontend/tsconfig.json` is solution-style (empty `files`, project
+references, no `include`), so `--noEmit` compiled zero sources and reported a
+confident exit 0 — across the entire design-system commit. The real gate is
+`tsc -b`, and it immediately caught two type errors. `npm run build` already
+used `tsc -b`, so the image build was never at risk; the danger was the ad-hoc
+verification command, which is the worse shape: a check that always succeeds.
+`tests/test_frontend_typecheck_gate.py` now pins the arrangement and fails if
+any test or script bakes in the vacuous form. Separately, `tsconfig.app.json`
+had **no `strict` key at all** — the frontend was never type-checked in strict
+mode. Added; the tree was already clean.
+
+**A class of bug TypeScript cannot see.** Spreading `{...rest}` *after*
+`className` in a primitive let a view's own `className` replace the
+primitive's classes outright, so the incident-id input rendered with
+`border=0px` and a transparent fill. Found by reading computed styles in a
+real browser; `tsc` was satisfied and so was every source-grep test. Primitives
+now spread caller props first, and a test pins that ordering — verified to fail
+with a precise message when the spread is moved back.
+
+**A fourth honesty defect, in the opposite direction.** Every incident view
+showed a red "Event stream update failed: incident event stream disconnected"
+while the backend was healthy in MOCK mode, having just delivered its full
+audit backlog. The stream is replay-only: the server sends the backlog and
+closes, and `EventSource` reports that close through `onerror`,
+indistinguishable from a real drop. Normal termination was not observable, so
+the client inferred failure. The server now emits a named `replay-complete`
+sentinel after the last frame and the client reports a distinct `replay`
+state — no error, no `OFFLINE` — while keeping the polling fallback and
+backoff reconnect, since new events can appear after the window closes. Tests
+cover both halves plus the opposite failure (a stream that never sent the
+sentinel did fail and must still be reported), because over-correcting into
+silence would be its own lie.
+
+**The 360px claim: refuted, and the refutation kept.** Measured
+`scrollWidth` against `clientWidth` on all five views: no overflow at 360 or
+390. The static finding was plausible and wrong. The sweep now runs 5 views ×
+3 viewports (360 / 768 / 1440) = 15 combinations, asserting mount, a single
+`h1`, named regions, `scrollWidth == clientWidth`, and **absence of rendered
+failure banners** — added after the SSE bug proved that "no console errors"
+and "no failures on screen" are different claims. All 15 clean.
+
+**What this round did not fix.** The UI still ships no JavaScript test runner,
+so everything above is host-side source assertions plus manual CDP browser
+verification. The browser harness that found four of these five defects lives
+outside the repo. That is the single highest-value piece of remaining Q2 debt:
+it is the difference between a UI whose tests can all pass while it is blank
+and one whose tests cannot.
+
 ---
 
 ## §5 — Q1 measured: Quality, Reliability, Evidence
 
-- **Quality:** 2803 passed / 1 justified skip; ruff clean over 134 files; mypy
-  clean with `disallow_untyped_defs`; `tsc` + `oxlint` clean over 14 files;
-  negatives present in every critical module; zero `xfail`.
+- **Quality:** 2858 passed / 1 justified skip; ruff clean over 134 files; mypy
+  clean with `disallow_untyped_defs`; `tsc -b` + `oxlint` clean over 14 files
+  (`tsc --noEmit` is a no-op here — see §4.1); negatives present in every
+  critical module; zero `xfail`.
 - **Reliability:** frozen secret-free `/healthz`, 2s-bounded `/readyz`,
   fail-closed config, 5+ enforced timeouts, DENY-by-default, non-root +
   `cap_drop: ALL` + `no-new-privileges`, 3 healthchecks. Debits: no image
