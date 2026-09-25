@@ -37,6 +37,22 @@ python scripts/secret_scan.py
   logging-unit, docs, contracts, dataplane, safety, execution, runbooks.
 - Daemon-only (Docker Desktop/dockerd): `test_*_runtime.py` (compose matrix,
   failure injection, persistence, live `/healthz`+`/readyz`, log hygiene).
+- Browser-only (stack up, skips cleanly otherwise):
+  `tests/test_ui_browser_gate.py` drives `scripts/ui_browser_check.mjs`, which
+  attaches to a real Chrome over the DevTools Protocol and asserts on the
+  **rendered** result for 5 views × 3 viewports (360/768/1440) = 15
+  combinations. It is the only gate here that can see a runtime UI defect, and
+  that is not hypothetical: in one frontend pass it found a blank white screen
+  on every view, a form control rendering with no border because a
+  `{...rest}` spread sat after `className`, and a false "stream disconnected"
+  banner on a healthy backend. All three passed every other gate in this repo.
+  It uses Node's built-in `WebSocket` and `fetch` (Node ≥ 22) and adds **no**
+  dependency; a test asserts that. Run it directly with
+  `node scripts/ui_browser_check.mjs [--json] [--shots DIR]`, pointing
+  `PROOFOPS_UI_URL` at the UI and `PROOFOPS_CHROME` at a binary if neither is
+  auto-detected. Before trusting a green result, note that it disables the
+  browser cache: a reused profile otherwise serves the previous bundle and
+  looks like a passing build of broken code.
 - CI (`.github/workflows/ci.yml` + `scripts/ci.sh`): lockfile → ruff → mypy →
   unit (host-safe, 4 runtime files ignored) → security (secret scan) →
   lockfile `--check`. Mirrored stage-for-stage except the install source:
