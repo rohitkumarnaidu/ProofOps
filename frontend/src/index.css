@@ -4,8 +4,62 @@
   color-scheme: dark;
 }
 
+html {
+  background: #0b0e14;
+}
+
 body {
+  margin: 0;
   background: #0b0e14;
   color: #e6e9f0;
   font-family: ui-sans-serif, system-ui, sans-serif;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button,
+select {
+  min-height: 2rem;
+}
+
+:focus {
+  scroll-margin-block: 5rem;
+}
+
+:focus-visible {
+  outline: 3px solid #7dd3fc;
+  outline-offset: 3px;
+}
+
+.skip-link {
+  position: fixed;
+  left: 1rem;
+  top: 1rem;
+  z-index: 100;
+  transform: translateY(-200%);
+  border-radius: 0.375rem;
+  background: #e6e9f0;
+  color: #0b0e14;
+  padding: 0.625rem 0.875rem;
+  font-weight: 700;
+}
+
+.skip-link:focus {
+  transform: translateY(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

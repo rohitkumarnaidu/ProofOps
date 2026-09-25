@@ -1,34 +1,30 @@
-/* ProofOps API layer (M19a): typed fetchers over real backend routes.
-   No mock data anywhere: unreachable backend surfaces as OFFLINE, never
-   as fabricated incidents. */
-
 const API_URL =
   (import.meta.env.VITE_API_URL as string | undefined) ??
   "http://localhost:8000";
 
-/** Backend base URL for non-fetch consumers (the SSE subscriber builds its
-    stream URL from the same source the fetchers use). */
+const API_KEY =
+  (import.meta.env.VITE_PROOFOPS_API_KEY as string | undefined)?.trim() ?? "";
+
 export function apiBase(): string {
   return API_URL;
 }
 
-/* Auth (M21b demo-key gate): empty = unauthenticated demo mode. Mutating
-   calls without a key fail closed server-side (401); nothing here authorizes
-   anything — the key is only attached so the server can verify it. */
-const API_KEY =
-  (import.meta.env.VITE_PROOFOPS_API_KEY as string | undefined)?.trim() ?? "";
-
-/** True when an API key is configured; false = unauthenticated demo mode. */
 export function hasApiKey(): boolean {
   return API_KEY !== "";
+}
+
+export function apiKeyStateLabel(): string {
+  return hasApiKey() ? "API key configured" : "unauthenticated demo mode";
 }
 
 export type Mode = "LIVE" | "REPLAY" | "MOCK" | "OFFLINE";
 
 export class ApiError extends Error {
   status: number;
+
   constructor(status: number, detail: string) {
     super(detail);
+    this.name = "ApiError";
     this.status = status;
   }
 }
@@ -46,8 +42,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       ...init,
       headers: { ...headers, ...init?.headers },
     });
-  } catch (err) {
-    throw new ApiError(0, `backend unreachable: ${String(err)}`);
+  } catch (error) {
+    throw new ApiError(0, `backend unreachable: ${String(error)}`);
   }
   const body = (await response.json().catch(() => ({}))) as unknown;
   if (!response.ok) {
@@ -83,8 +79,6 @@ export interface RunView {
   }>;
   handoffs: Array<Record<string, unknown>>;
   audit_records: Array<Record<string, unknown>>;
-  /** Verification-relevant history slice (Lane 3: projected by run_view,
-      never invented). Optional: tolerates older backends. */
   verification_verdicts?: Array<{
     seq: number;
     frm: string;
@@ -93,7 +87,6 @@ export interface RunView {
     refs: string[];
     at: number;
   }>;
-  /** Rollback projection (Lane 3: eligible/attempted from banked flags). */
   rollback?: { eligible: boolean; attempted: boolean };
 }
 
@@ -107,6 +100,10 @@ export interface ApprovalView {
   status: string;
   expires_at: string;
   seconds_remaining: number;
+  identity_mode: string;
+  requester_key_id: string;
+  decided_by: string;
+  sod: "enforced" | "not_enforced_bootstrap" | "not_recorded";
 }
 
 export interface ApprovalIssued {
@@ -117,6 +114,14 @@ export interface ApprovalIssued {
   scope: string;
 }
 
+export interface IdentityView {
+  key_id: string;
+  owner: string;
+  roles: string[];
+  mode: "per_key" | "bootstrap";
+  server_enforced: boolean;
+}
+
 export interface Meta {
   service: string;
   spec: string;
@@ -124,16 +129,14 @@ export interface Meta {
   mode: string;
 }
 
-/** Liveness probe (kept for diagnostics; mode display uses probeMode). */
+function auditPath(incidentId: string): string {
+  return `/incidents/${encodeURIComponent(incidentId)}/audit`;
+}
+
 export function fetchHealth(): Promise<Healthz> {
   return request<Healthz>("/healthz");
 }
 
-/** Backend reachability + tier probe (tier-aware): GET /meta and map the
-    server-reported executor_tier — "mock"→MOCK, "docker"→LIVE (docker tier
-    is real execution), explicit "replay"→REPLAY if a backend ever reports
-    it. Unreachable backend, or any unrecognized tier, → OFFLINE. NEVER
-    reports LIVE unless the backend confirms a real execution tier. */
 export async function probeMode(): Promise<Mode> {
   try {
     const meta = await request<Meta>("/meta");
@@ -146,23 +149,28 @@ export async function probeMode(): Promise<Mode> {
   }
 }
 
+export const identityApi = {
+  view: () => request<IdentityView>("/identity"),
+};
+
 export const runsApi = {
   list: () =>
     request<Array<{ incident_id: string; state: string; history_len: number }>>(
       "/runs",
     ),
-  create: (incident_id: string) =>
+  create: (incidentId: string) =>
     request<RunView>("/runs", {
       method: "POST",
-      body: JSON.stringify({ incident_id }),
+      body: JSON.stringify({ incident_id: incidentId }),
     }),
-  get: (incident_id: string) => request<RunView>(`/runs/${incident_id}`),
+  get: (incidentId: string) =>
+    request<RunView>(`/runs/${encodeURIComponent(incidentId)}`),
   advance: (
-    incident_id: string,
+    incidentId: string,
     to: string,
     opts?: { reason?: string; refs?: string[]; idempotency_key?: string },
   ) =>
-    request<RunView>(`/runs/${incident_id}/advance`, {
+    request<RunView>(`/runs/${encodeURIComponent(incidentId)}/advance`, {
       method: "POST",
       body: JSON.stringify({
         to,
@@ -174,55 +182,52 @@ export const runsApi = {
 };
 
 export const approvalsApi = {
-  request: (action: Record<string, unknown>, actor: string) =>
+  request: (action: Record<string, unknown>) =>
     request<ApprovalIssued>("/approvals", {
       method: "POST",
-      body: JSON.stringify({ action, actor }),
+      body: JSON.stringify({ action }),
     }),
-  view: (approval_id: string) =>
-    request<ApprovalView>(`/approvals/${approval_id}`),
-  approve: (
-    approval_id: string,
-    actor: string,
-    token: string,
-    role: string,
-    idempotency_key?: string,
-  ) =>
-    request<ApprovalView>(`/approvals/${approval_id}/approve`, {
-      method: "POST",
-      body: JSON.stringify({
-        actor,
-        token,
-        role,
-        idempotency_key: idempotency_key ?? null,
-      }),
-    }),
+  view: (approvalId: string) =>
+    request<ApprovalView>(`/approvals/${encodeURIComponent(approvalId)}`),
+  approve: (approvalId: string, token: string, idempotencyKey?: string) =>
+    request<ApprovalView>(
+      `/approvals/${encodeURIComponent(approvalId)}/approve`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          token,
+          idempotency_key: idempotencyKey ?? null,
+        }),
+      },
+    ),
   reject: (
-    approval_id: string,
-    actor: string,
-    role: string,
+    approvalId: string,
     reason?: string,
-    idempotency_key?: string,
+    idempotencyKey?: string,
   ) =>
-    request<ApprovalView>(`/approvals/${approval_id}/reject`, {
-      method: "POST",
-      body: JSON.stringify({
-        actor,
-        role,
-        reason: reason ?? "",
-        idempotency_key: idempotency_key ?? null,
-      }),
-    }),
+    request<ApprovalView>(
+      `/approvals/${encodeURIComponent(approvalId)}/reject`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          reason: reason ?? "",
+          idempotency_key: idempotencyKey ?? null,
+        }),
+      },
+    ),
 };
 
+export interface AuditView {
+  origin: string;
+  incident_id: string;
+  valid: boolean;
+  checked: number;
+  events: Array<Record<string, unknown>>;
+}
+
 export const auditApi = {
-  view: (incident_id: string) =>
-    request<{
-      origin: string;
-      valid: boolean;
-      checked: number;
-      events: Array<Record<string, unknown>>;
-    }>(`/incidents/${incident_id}/audit`),
+  view: (incidentId: string) => request<AuditView>(auditPath(incidentId)),
+  pollUrl: (incidentId: string) => auditPath(incidentId),
 };
 
 export interface SmokeResult {

@@ -1,46 +1,62 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { ApiError, runsApi, type RunView } from "../api";
 import { ModeBadge } from "../components/badges";
 import { StateDiff } from "../components/StateDiff";
+import {
+  isTerminalIncidentState,
+  useIncidentEvents,
+} from "../components/useIncidentEvents";
 import { useMode } from "../components/useMode";
 
-/** View 4 — Execution/Verification (M19.5): FSM execution-phase timeline,
-    audit-sourced execution evidence, rollback eligibility from run flags.
-    Mutating endpoints sit behind the M21 key matrix; this view is read-only.
-    No execution records yet = honest empty state (never invents diffs). */
 export function ExecutionView() {
   const { id } = useParams<{ id: string }>();
-  const mode = useMode(id);
+  const mode = useMode();
   const [run, setRun] = useState<RunView | null>(null);
   const [error, setError] = useState("");
+  const [errorStatus, setErrorStatus] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    async function load() {
+  const load = useCallback(
+    async (showLoading: boolean) => {
       if (id === undefined) return;
-      setIsLoading(true);
+      if (showLoading) setIsLoading(true);
       try {
         setRun(await runsApi.get(id));
         setError("");
-      } catch (err) {
-        setRun(null);
-        setError(err instanceof ApiError ? err.message : String(err));
+        setErrorStatus(null);
+      } catch (caught) {
+        if (showLoading) setRun(null);
+        setError(caught instanceof ApiError ? caught.message : String(caught));
+        setErrorStatus(caught instanceof ApiError ? caught.status : 0);
       } finally {
-        setIsLoading(false);
+        if (showLoading) setIsLoading(false);
       }
-    }
-    void load();
-  }, [id]);
+    },
+    [id],
+  );
+
+  useEffect(() => {
+    setRun(null);
+    setError("");
+    setErrorStatus(null);
+    void load(true);
+  }, [load]);
+
+  const events = useIncidentEvents({
+    incidentId: id,
+    enabled: run !== null && !isLoading && !isTerminalIncidentState(run.state),
+    onRefresh: () => {
+      void load(false);
+    },
+  });
 
   const phaseHistory =
-    run?.history.filter((h) =>
+    run?.history.filter((history) =>
       ["EXECUTING", "VERIFYING", "ROLLBACK", "RESOLVED", "ESCALATED"].includes(
-        h.to,
+        history.to,
       ),
     ) ?? [];
-  // Server rollback projection (run_view) wins where present; the local
-  // flag derivation is the fallback for older backends (same rule).
   const rollbackEligible =
     run?.rollback !== undefined
       ? run.rollback.eligible
@@ -49,25 +65,25 @@ export function ExecutionView() {
         !run.rolled_back;
   const rollbackAttempted =
     run?.rollback !== undefined ? run.rollback.attempted : run?.rolled_back === true;
-  // Server verification slice (run_view) wins where present; the local
-  // phase-history filter is the fallback (same VERIFYING/ROLLBACK cut).
   const verdicts =
     run?.verification_verdicts ??
-    phaseHistory.filter((h) => h.to === "VERIFYING" || h.to === "ROLLBACK");
+    phaseHistory.filter(
+      (history) => history.to === "VERIFYING" || history.to === "ROLLBACK",
+    );
   const executions = (run?.audit_records ?? []).filter(
-    (r) =>
-      typeof r === "object" &&
-      r !== null &&
-      (r as Record<string, unknown>).type === "transition" &&
-      ["EXECUTING", "VERIFYING", "ROLLBACK"].includes(
-        String((r as Record<string, unknown>).to),
-      ),
+    (record) =>
+      typeof record === "object" &&
+      record !== null &&
+      record.type === "transition" &&
+      ["EXECUTING", "VERIFYING", "ROLLBACK"].includes(String(record.to)),
   );
 
   return (
     <div className="p-6">
-      <div className="mb-4 flex items-center gap-3">
-        <h1 className="text-xl font-bold">Execution {id}</h1>
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <h1 data-page-heading tabIndex={-1} className="text-xl font-bold">
+          Execution {id}
+        </h1>
         <ModeBadge mode={mode} />
         {mode === null && (
           <span
@@ -87,10 +103,23 @@ export function ExecutionView() {
           </span>
         )}
       </div>
-      {error !== "" && (
-        <p data-testid="exec-error" className="text-sm text-red-300">
-          {error}
+      <p aria-live="polite" className="mb-2 text-xs text-gray-400">
+        Event stream: {events.connectionState}
+        {events.lastEventType === null ? "" : ` · ${events.lastEventType}`}
+        {events.lastEventId === null ? "" : ` · ${events.lastEventId}`}
+      </p>
+      {events.error !== "" && (
+        <p role="alert" className="mb-3 text-sm text-amber-300">
+          Event stream update failed: {events.error}
         </p>
+      )}
+      {error !== "" && (
+        <div role="alert" data-testid="exec-error" className="text-sm text-red-300">
+          <p>
+            {errorStatus === 404 ? "Run not found. " : "Execution data unavailable. "}
+            {error}
+          </p>
+        </div>
       )}
       {isLoading ? (
         <p
@@ -100,27 +129,23 @@ export function ExecutionView() {
         >
           Loading execution…
         </p>
-      ) : (
-        run !== null && (
-          <>
-            <h2 className="mb-1 text-sm font-bold text-gray-300">
-              Execution-phase timeline
-            </h2>
+      ) : run !== null ? (
+        <>
+          <h2 className="mb-1 text-sm font-bold text-gray-300">
+            Execution-phase timeline
+          </h2>
           {phaseHistory.length === 0 ? (
-            <p
-              data-testid="exec-empty"
-              className="mb-4 text-sm text-gray-400"
-            >
+            <p data-testid="exec-empty" className="mb-4 text-sm text-gray-400">
               This run has not reached execution yet — approve its action in
               the Safety Gate first.
             </p>
           ) : (
             <ol data-testid="exec-timeline" className="mb-4 text-sm">
-              {phaseHistory.map((h) => (
-                <li key={h.seq} className="border-t border-gray-800 py-1">
-                  <span className="text-gray-500">#{h.seq}</span> {h.frm} →{" "}
-                  {h.to}
-                  {h.forced && (
+              {phaseHistory.map((history) => (
+                <li key={history.seq} className="border-t border-gray-800 py-1">
+                  <span className="text-gray-500">#{history.seq}</span>{" "}
+                  {history.frm} → {history.to}
+                  {history.forced && (
                     <span className="ml-2 rounded bg-red-900 px-1 text-xs">
                       forced
                     </span>
@@ -129,20 +154,18 @@ export function ExecutionView() {
               ))}
             </ol>
           )}
-          <h2 className="mb-1 text-sm font-bold text-gray-300">
-            State diff
-          </h2>
-          {/* run_view carries no state snapshot: null is the genuine
-              no-snapshot case — diff rows are never invented here. */}
+          <h2 className="mb-1 text-sm font-bold text-gray-300">State diff</h2>
           <StateDiff diff={null} />
-          <h2 className="mb-1 mt-4 text-sm font-bold text-gray-300">
-            Rollback
-          </h2>
+          <p className="mt-1 text-xs text-gray-500">
+            No M21 execution or state-diff retrieval endpoint is exposed by the
+            current API, so no state transition is fabricated here.
+          </p>
+          <h2 className="mb-1 mt-4 text-sm font-bold text-gray-300">Rollback</h2>
           {rollbackEligible ? (
             <p data-testid="rollback-eligible" className="text-sm">
-              Rollback eligible: the control plane auto-executes one rollback
-              attempt on verification failure (this view is read-only — it
-              never triggers execution itself).
+              Rollback eligible: the control plane may perform its one governed
+              rollback attempt after verification failure. This view is
+              read-only.
             </p>
           ) : (
             <p data-testid="rollback-ineligible" className="text-sm text-gray-400">
@@ -163,12 +186,12 @@ export function ExecutionView() {
             </p>
           ) : (
             <ol data-testid="verdicts-list" className="mb-4 text-sm">
-              {verdicts.map((v) => (
-                <li key={v.seq} className="border-t border-gray-800 py-1">
-                  <span className="text-gray-500">#{v.seq}</span> {v.frm} →{" "}
-                  {v.to}
-                  {v.reason !== "" && (
-                    <span className="text-gray-400"> — {v.reason}</span>
+              {verdicts.map((verdict) => (
+                <li key={verdict.seq} className="border-t border-gray-800 py-1">
+                  <span className="text-gray-500">#{verdict.seq}</span>{" "}
+                  {verdict.frm} → {verdict.to}
+                  {verdict.reason !== "" && (
+                    <span className="text-gray-400"> — {verdict.reason}</span>
                   )}
                 </li>
               ))}
@@ -178,22 +201,24 @@ export function ExecutionView() {
             Execution records ({executions.length}, audit-sourced)
           </h2>
           {executions.length === 0 ? (
-            <p data-testid="exec-records-empty" className="mb-4 text-sm text-gray-400">
+            <p
+              data-testid="exec-records-empty"
+              className="mb-4 text-sm text-gray-400"
+            >
               No execution-phase audit records on file yet.
             </p>
           ) : (
             <ol data-testid="exec-records" className="mb-4 text-sm">
               {executions.map((record, index) => {
-                const seq =
-                  typeof record.seq === "number" ? record.seq : null;
-                const frm =
-                  typeof record.frm === "string" ? record.frm : "?";
+                const seq = typeof record.seq === "number" ? record.seq : null;
+                const frm = typeof record.frm === "string" ? record.frm : "?";
                 const to = typeof record.to === "string" ? record.to : "?";
                 const reason =
                   typeof record.reason === "string" ? record.reason : "";
                 const refs = Array.isArray(record.refs)
                   ? record.refs.filter(
-                      (r: unknown): r is string => typeof r === "string",
+                      (reference): reference is string =>
+                        typeof reference === "string",
                     )
                   : [];
                 return (
@@ -207,13 +232,13 @@ export function ExecutionView() {
                       <span className="text-gray-400"> — {reason}</span>
                     )}
                     {refs.length > 0 && (
-                      <span className="ml-2">
-                        {refs.map((ref) => (
+                      <span className="ml-2 inline-flex flex-wrap gap-1">
+                        {refs.map((reference) => (
                           <span
-                            key={ref}
-                            className="mr-1 rounded bg-gray-800 px-1 text-xs text-sky-300"
+                            key={reference}
+                            className="max-w-full break-all rounded bg-gray-800 px-1 text-xs text-sky-300"
                           >
-                            {ref}
+                            {reference}
                           </span>
                         ))}
                       </span>
@@ -223,9 +248,8 @@ export function ExecutionView() {
               })}
             </ol>
           )}
-          </>
-        )
-      )}
+        </>
+      ) : null}
     </div>
   );
 }

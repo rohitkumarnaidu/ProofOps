@@ -1,24 +1,46 @@
-/* SSE client (M19.7): Lyzr stream-chat shape + control-plane events.
-   Auto-reconnect with backoff; 3s polling fallback; every item carries its
-   audit event id through untouched. No data invented: on total failure the
-   consumer sees OFFLINE, never synthetic rows. */
-
 export interface StreamItem {
   audit_event_id?: string;
+  event_id?: string;
   [key: string]: unknown;
 }
+
+export type StreamConnectionState =
+  | "connecting"
+  | "stream"
+  | "polling"
+  | "offline";
 
 export interface StreamHandlers {
   onItem: (item: StreamItem) => void;
   onMode: (mode: "LIVE" | "OFFLINE") => void;
+  onState?: (state: StreamConnectionState) => void;
+  onError?: (error: Error) => void;
+  onCursorReset?: () => void;
 }
 
 const POLL_FALLBACK_MS = 3000;
 const MAX_BACKOFF_MS = 30000;
 
-/** Subscribe to an SSE endpoint with polling fallback.
-    Returns an unsubscribe function. Pure logic over injected primitives so
-    the reconnect/backoff contract is unit-testable without a browser. */
+function statusOf(error: unknown): number | null {
+  if (typeof error !== "object" || error === null || !("status" in error)) {
+    return null;
+  }
+  const status = (error as { status?: unknown }).status;
+  return typeof status === "number" ? status : null;
+}
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+export function streamEventId(item: StreamItem): string | null {
+  if (typeof item.audit_event_id === "string" && item.audit_event_id !== "") {
+    return item.audit_event_id;
+  }
+  if (typeof item.event_id === "string" && item.event_id !== "") return item.event_id;
+  return null;
+}
+
 export function subscribeStream(
   url: string,
   pollUrl: string,
@@ -26,87 +48,208 @@ export function subscribeStream(
   handlers: StreamHandlers,
   deps?: {
     eventSource?: typeof EventSource | undefined;
-    fetchJson?: (url: string) => Promise<{ items: StreamItem[] }>;
+    fetchJson?: (url: string) => Promise<{ events?: StreamItem[]; items?: StreamItem[] }>;
     setTimeoutFn?: typeof setTimeout;
     clearTimeoutFn?: typeof clearTimeout;
   },
 ): () => void {
-  const ES = deps?.eventSource;
+  const ES =
+    deps?.eventSource ??
+    (typeof globalThis.EventSource === "undefined" ? undefined : globalThis.EventSource);
   const setT = deps?.setTimeoutFn ?? setTimeout;
   const clearT = deps?.clearTimeoutFn ?? clearTimeout;
   let stopped = false;
-  let timer: ReturnType<typeof setTimeout> | null = null;
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  let pollTimer: ReturnType<typeof setTimeout> | null = null;
   let backoff = 1000;
   let source: EventSource | null = null;
+  let cursor = sinceId;
+  let replayedCursor: string | null = null;
+  let polling = false;
 
-  function scheduleFallback() {
-    if (stopped) return;
-    timer = setT(async () => {
-      try {
-        const fetchJson = deps?.fetchJson ?? defaultFetch;
-        const data = await fetchJson(
-          sinceId !== null ? `${pollUrl}?since=${sinceId}` : pollUrl,
-        );
-        for (const item of data.items) {
-          if (typeof item.audit_event_id === "string") {
-            sinceId = item.audit_event_id;
-          }
-          handlers.onItem(item);
+  const clearReconnect = () => {
+    if (reconnectTimer !== null) clearT(reconnectTimer);
+    reconnectTimer = null;
+  };
+
+  const clearPoll = () => {
+    if (pollTimer !== null) clearT(pollTimer);
+    pollTimer = null;
+  };
+
+  const resetCursorOnce = (failed: string | null): boolean => {
+    if (failed === null || replayedCursor === failed) return false;
+    replayedCursor = failed;
+    cursor = null;
+    handlers.onCursorReset?.();
+    return true;
+  };
+
+  const stopPolling = () => {
+    polling = false;
+    clearPoll();
+  };
+
+  const schedulePoll = (delay = POLL_FALLBACK_MS) => {
+    if (stopped || !polling || pollTimer !== null) return;
+    pollTimer = setT(() => {
+      pollTimer = null;
+      void pollOnce();
+    }, delay);
+  };
+
+  const startPolling = () => {
+    if (stopped || polling) return;
+    polling = true;
+    schedulePoll();
+  };
+
+  const defaultFetch = async (target: string) => {
+    const response = await fetch(target, { cache: "no-store" });
+    if (!response.ok) {
+      const error = new Error(`polling failed (${response.status})`) as Error & {
+        status: number;
+      };
+      error.status = response.status;
+      throw error;
+    }
+    return (await response.json()) as { events?: StreamItem[]; items?: StreamItem[] };
+  };
+
+  async function pollOnce(): Promise<void> {
+    if (stopped || !polling) return;
+    let replayImmediately = false;
+    try {
+      const fetchJson = deps?.fetchJson ?? defaultFetch;
+      const data = await fetchJson(pollUrl);
+      if (stopped || !polling) return;
+      const pollCursor = cursor;
+      let reachedCursor = pollCursor === null;
+      // The poll fallback is the audit chain endpoint, which returns `events`.
+      // `items` is accepted only as a tolerated alias so a custom fetchJson
+      // injected by a caller or test cannot silently break the cursor.
+      const raw = Array.isArray(data.events) ? data.events : data.items;
+      const items = Array.isArray(raw) ? raw : [];
+      for (const item of items) {
+        const eventId = streamEventId(item) ?? "";
+        if (!reachedCursor) {
+          if (eventId === pollCursor) reachedCursor = true;
+          continue;
         }
+        if (eventId !== "") cursor = eventId;
+        handlers.onItem(item);
+      }
+      if (pollCursor !== null && !reachedCursor) {
+        replayImmediately = resetCursorOnce(pollCursor);
+        if (!replayImmediately) {
+          throw new Error("polling cursor is no longer present in the audit");
+        }
+      } else {
+        handlers.onState?.("polling");
         handlers.onMode("LIVE");
         backoff = 1000;
-      } catch {
+      }
+    } catch (error) {
+      const status = statusOf(error);
+      if (resetCursorOnce(cursor)) {
+        replayImmediately = true;
+      } else {
+        if (status === 400 || status === 404 || status === 410) {
+          handlers.onError?.(
+            new Error(`stream replay failed (${status ?? "unknown"})`),
+          );
+        } else {
+          handlers.onError?.(
+            new Error(`polling fallback failed: ${messageOf(error)}`),
+          );
+        }
+        handlers.onState?.("offline");
         handlers.onMode("OFFLINE");
       }
-      if (!stopped) scheduleFallback();
-    }, POLL_FALLBACK_MS);
-  }
-
-  async function defaultFetch(u: string) {
-    const res = await fetch(u);
-    return (await res.json()) as { items: StreamItem[] };
+    } finally {
+      if (polling && !stopped) schedulePoll(replayImmediately ? 0 : POLL_FALLBACK_MS);
+    }
   }
 
   if (ES === undefined) {
+    handlers.onState?.("connecting");
     handlers.onMode("OFFLINE");
-    scheduleFallback();
-    return () => {
-      stopped = true;
-      if (timer !== null) clearT(timer);
-    };
-  }
-  const ESCtor: typeof EventSource = ES;
+    startPolling();
+  } else {
+    const ESCtor: typeof EventSource = ES;
 
-  function connect() {
-    if (stopped) return;
-    const target =
-      sinceId !== null ? `${url}?since=${encodeURIComponent(sinceId)}` : url;
-    source = new ESCtor(target);
-    handlers.onMode("LIVE");
-    source.onmessage = (event: MessageEvent) => {
+    const scheduleReconnect = (delay: number) => {
+      if (stopped || reconnectTimer !== null) return;
+      reconnectTimer = setT(() => {
+        reconnectTimer = null;
+        connect();
+      }, delay);
+    };
+
+    function connect(): void {
+      if (stopped) return;
+      clearReconnect();
+      const target =
+        cursor === null ? url : `${url}?since=${encodeURIComponent(cursor)}`;
+      let opened = false;
+      handlers.onState?.("connecting");
       try {
-        const item = JSON.parse(event.data as string) as StreamItem;
-        if (typeof item.audit_event_id === "string") {
-          sinceId = item.audit_event_id;
-        }
-        handlers.onItem(item);
-      } catch {
-        /* malformed frame: counted by caller via onMode staying LIVE */
+        source = new ESCtor(target);
+      } catch (error) {
+        handlers.onState?.("offline");
+        handlers.onMode("OFFLINE");
+        handlers.onError?.(
+          new Error(`event stream unavailable: ${messageOf(error)}`),
+        );
+        startPolling();
+        backoff = Math.min(backoff * 2, MAX_BACKOFF_MS);
+        scheduleReconnect(backoff);
+        return;
       }
-    };
-    source.onerror = () => {
-      source?.close();
-      source = null;
-      handlers.onMode("OFFLINE");
-      backoff = Math.min(backoff * 2, MAX_BACKOFF_MS);
-      timer = setT(connect, backoff);
-    };
+      source.onopen = () => {
+        opened = true;
+        stopPolling();
+        backoff = 1000;
+        handlers.onState?.("stream");
+        handlers.onMode("LIVE");
+      };
+      source.onmessage = (message: MessageEvent) => {
+        try {
+          const item = JSON.parse(message.data as string) as StreamItem;
+          const eventId = streamEventId(item);
+          if (eventId !== null) cursor = eventId;
+          handlers.onItem(item);
+        } catch (error) {
+          handlers.onError?.(
+            new Error(`malformed event frame: ${messageOf(error)}`),
+          );
+        }
+      };
+      source.onerror = () => {
+        source?.close();
+        source = null;
+        if (!opened && resetCursorOnce(cursor)) {
+          handlers.onState?.("connecting");
+          scheduleReconnect(0);
+          return;
+        }
+        handlers.onState?.("offline");
+        handlers.onMode("OFFLINE");
+        handlers.onError?.(new Error("incident event stream disconnected"));
+        startPolling();
+        backoff = Math.min(backoff * 2, MAX_BACKOFF_MS);
+        scheduleReconnect(backoff);
+      };
+    }
+
+    connect();
   }
 
-  connect();
-  return () => {
+  const unsubscribe = () => {
     stopped = true;
     source?.close();
-    if (timer !== null) clearT(timer);
+    stopPolling();
+    clearReconnect();
   };
+  return unsubscribe;
 }

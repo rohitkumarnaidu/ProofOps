@@ -90,9 +90,17 @@ def test_execution_view_honesty():
 
 def test_rca_view_audit_and_gates():
     view = _src("views/RCAView.tsx")
-    for marker in ("audit-valid-badge", "audit-chain", "audit-empty",
-                   "gate-cards", "Run smoke eval", "auditApi"):
+    for marker in ("Audit &amp; Evaluation", "does not render an RCA document",
+                   "audit-chain", "audit-empty", "gate-cards",
+                   "Run smoke eval", "auditApi",
+                   "audit-valid-badge"):
         assert marker in view
+    # The chain-validity evidence the audit endpoint returns must be rendered,
+    # not dropped: an earlier pass removed the badge and its test marker
+    # together, which hid a response-shape regression (chain.items).
+    assert "chainValidity" in view
+    assert "chain.events" in view
+    assert "chain.items" not in view
 
 
 def test_state_diff_renderer():

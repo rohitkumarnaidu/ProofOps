@@ -53,9 +53,9 @@ def test_core_routes_wired():
 
 def test_api_layer_hits_real_endpoints():
     api = _src("api.ts")
-    for endpoint in ("/healthz", "/runs", "/approvals",
-                     "/incidents/${incident_id}/audit"):
+    for endpoint in ("/healthz", "/runs", "/approvals"):
         assert endpoint in api
+    assert '`/incidents/${encodeURIComponent(incidentId)}/audit`' in api
 
 
 # ---------------------------------------------------------------------------
@@ -171,9 +171,12 @@ def test_frontend_env_example():
 
 def test_nav_lists_all_five_routes_plus_404():
     app = _src("App.tsx")
-    for route in ('to="/"', 'to="/incidents/', 'to="/safety"',
-                  'to="/execution/', 'to="/rca/'):
+    for route in ('to="/"', 'selectedPath("/incidents")', 'safetyPath',
+                  'selectedPath("/execution")', 'selectedPath("/rca")'):
         assert route in app, route
+    assert "runsApi.list" in app
+    assert 'aria-disabled="true"' in app
+    assert 'aria-current=' in app
     assert 'path="*"' in app and "route-404" in app
 
 
@@ -229,12 +232,13 @@ def test_mode_badge_probing_and_no_offline_fallback():
         assert "<ModeBadge mode={mode}" in view, name
 
 
-def test_safety_gate_viewer_guardrail():
+def test_safety_gate_server_role_guardrail():
     gate = _src("views/SafetyGate.tsx")
-    assert "viewer-cannot-approve" in gate
-    assert 'role === "viewer"' in gate
-    assert "disabled={!decidable}" in gate  # Deny keeps the TTL-only guard
-    assert "403" in gate  # server remains the enforcer, noted in UI copy
+    assert "identity-cannot-decide" in gate
+    assert "serverHasApproverRole" in gate
+    assert 'normalized === "approver" || normalized === "admin"' in gate
+    assert "disabled={!decidable}" in gate
+    assert "403" in gate
 
 
 # ---------------------------------------------------------------------------
@@ -255,10 +259,11 @@ def test_incident_detail_loading_state():
     assert 'aria-busy="true"' in view
 
 
-def test_safety_gate_sends_idempotency_keys():
+def test_safety_gate_reuses_idempotency_key_per_approval():
     gate = _src("views/SafetyGate.tsx")
-    assert "idempotency_key" in gate
-    assert "randomUUID" in gate  # per-decision uuid
+    assert "useRef(new Map<string, string>())" in gate
+    assert "idempotencyKeysRef.current.get(view.approval_id)" in gate
+    assert "idempotencyKeysRef.current.set(view.approval_id, idempotencyKey)" in gate
     api = _src("api.ts")
     # Backend DecideBody already accepts the key on both decisions; the
     # client must forward it on both (approve already did, reject is new).

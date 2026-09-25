@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { apiBase, probeMode, type Mode } from "../api";
+import { apiBase, auditApi, probeMode, type Mode } from "../api";
 import { subscribeStream } from "../sse";
 
 /** Tier-aware backend mode with an honest loading state plus live refresh.
@@ -30,7 +30,8 @@ export function useMode(incidentId?: string): Mode | null {
       };
     }
     const stream = `${apiBase()}/stream/incidents/${encodeURIComponent(incidentId)}`;
-    const unsubscribe = subscribeStream(stream, stream, null, {
+    const pollUrl = auditApi.pollUrl(incidentId);
+    const unsubscribe = subscribeStream(stream, pollUrl, null, {
       onItem: refresh,
       onMode: refresh,
     });
