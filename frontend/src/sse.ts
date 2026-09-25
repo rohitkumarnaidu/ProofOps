@@ -7,8 +7,15 @@ export interface StreamItem {
 export type StreamConnectionState =
   | "connecting"
   | "stream"
+  /** Replay finished normally: the backlog was delivered and the server closed. */
+  | "replay"
   | "polling"
   | "offline";
+
+/** Named sentinel the server emits after the last replayed frame. Must match
+    `REPLAY_COMPLETE_EVENT` in backend/app/routers/stream.py; kept as a literal
+    because the frontend must not import backend modules. */
+const REPLAY_COMPLETE_EVENT = "replay-complete";
 
 export interface StreamHandlers {
   onItem: (item: StreamItem) => void;
@@ -66,6 +73,9 @@ export function subscribeStream(
   let cursor = sinceId;
   let replayedCursor: string | null = null;
   let polling = false;
+  // Set when the server's `replay-complete` sentinel arrives, so the
+  // EventSource close that follows is recognised as normal termination.
+  let replayCompleted = false;
 
   const clearReconnect = () => {
     if (reconnectTimer !== null) clearT(reconnectTimer);
@@ -208,11 +218,20 @@ export function subscribeStream(
       }
       source.onopen = () => {
         opened = true;
+        replayCompleted = false;
         stopPolling();
         backoff = 1000;
         handlers.onState?.("stream");
         handlers.onMode("LIVE");
       };
+      // The stream is replay-only: the server sends the backlog, emits a named
+      // `replay-complete` sentinel, then closes. EventSource surfaces that
+      // close through onerror, which is indistinguishable from a real drop, so
+      // the sentinel is what lets us report the normal case as normal.
+      source.addEventListener(REPLAY_COMPLETE_EVENT, () => {
+        replayCompleted = true;
+        handlers.onState?.("replay");
+      });
       source.onmessage = (message: MessageEvent) => {
         try {
           const item = JSON.parse(message.data as string) as StreamItem;
@@ -231,6 +250,17 @@ export function subscribeStream(
         if (!opened && resetCursorOnce(cursor)) {
           handlers.onState?.("connecting");
           scheduleReconnect(0);
+          return;
+        }
+        if (replayCompleted) {
+          // Normal termination, not a failure. Do NOT raise an error and do NOT
+          // report OFFLINE: the backend answered and delivered the whole
+          // backlog. Polling plus a backed-off reconnect still run, because new
+          // audit events may appear after the replay window.
+          handlers.onState?.("replay");
+          startPolling();
+          backoff = Math.min(backoff * 2, MAX_BACKOFF_MS);
+          scheduleReconnect(backoff);
           return;
         }
         handlers.onState?.("offline");

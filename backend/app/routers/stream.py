@@ -117,14 +117,36 @@ def format_sse(item: Mapping[str, Any]) -> str:
     return f"data: {data}\n\n"
 
 
+#: Named sentinel frame emitted after the last replayed event.
+#:
+#: This stream is replay-only: the server sends the backlog and closes. The
+#: browser's EventSource reports that close through `onerror`, which is
+#: indistinguishable from a genuine mid-flight network drop -- so the client
+#: used to treat every SUCCESSFUL replay as a failure, flipping the
+#: operating-mode badge to OFFLINE and raising a red "stream disconnected"
+#: alert while the backend was perfectly healthy.
+#:
+#: An explicit terminator makes the normal end of a replay observable instead of
+#: inferred. It is a *named* SSE event, so it does not fire the default
+#: `onmessage` handler and cannot be mistaken for an audit record.
+REPLAY_COMPLETE_EVENT = "replay-complete"
+
+
+def format_replay_complete(delivered: int) -> str:
+    """Terminal frame for one replay: the backlog is fully delivered."""
+    payload = json.dumps({"delivered": delivered}, sort_keys=True)
+    return f"event: {REPLAY_COMPLETE_EVENT}\ndata: {payload}\n\n"
+
+
 def build_sse_body(items: Sequence[Mapping[str, Any]]) -> str:
-    """Concatenate frames for one replay (pure; the handler streams it)."""
-    return "".join(format_sse(item) for item in items)
+    """Concatenate frames for one replay, terminated by the sentinel (pure)."""
+    return "".join(_sse_frames(items))
 
 
 def _sse_frames(items: Sequence[Mapping[str, Any]]) -> Iterator[str]:
     for item in items:
         yield format_sse(item)
+    yield format_replay_complete(len(items))
 
 
 def list_stream_items(incident_id: str,

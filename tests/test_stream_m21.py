@@ -56,11 +56,54 @@ def test_format_sse_frame_shape():
     assert payload["audit_event_id"] == "ev-1"
 
 
-def test_build_sse_body_concatenates_frames():
+def test_build_sse_body_concatenates_frames_then_terminates():
+    """The body is the event frames followed by the completion sentinel.
+
+    The sentinel is load-bearing, not decoration. This stream is replay-only:
+    the server sends the backlog and closes, and EventSource reports that close
+    via onerror -- indistinguishable from a real network drop. Without an
+    explicit terminator the client cannot tell a successful replay from a
+    failure, and the UI duly reported every healthy replay as a disconnect.
+    """
     items = [{"audit_event_id": f"ev-{i}", "seq": i} for i in range(2)]
     body = stream_router.build_sse_body(items)
-    assert body.count("data: ") == 2
     assert "id: ev-0" in body and "id: ev-1" in body
+    # Two audit frames plus exactly one terminator.
+    assert body.count(f"event: {stream_router.REPLAY_COMPLETE_EVENT}") == 1
+    assert body.count("data: ") == 3
+    assert body.endswith("\n\n")
+
+
+def test_replay_complete_sentinel_reports_the_delivered_count():
+    frame = stream_router.format_replay_complete(3)
+    assert frame.startswith(f"event: {stream_router.REPLAY_COMPLETE_EVENT}\n")
+    assert frame.endswith("\n\n")
+    payload = json.loads(frame.split("data: ", 1)[1])
+    assert payload == {"delivered": 3}
+
+
+def test_replay_complete_sentinel_is_terminally_named():
+    """It must be a NAMED event.
+
+    A named SSE event does not fire the default `onmessage` handler. If this
+    were an unnamed `data:` frame the client would parse it as an audit record
+    and it would appear in the audit chain UI as a phantom event.
+    """
+    frame = stream_router.format_replay_complete(0)
+    assert not frame.startswith("data:")
+    assert "event:" in frame.split("\n", 1)[0]
+    # An empty replay still terminates explicitly rather than closing silently.
+    assert stream_router.build_sse_body([]).count(
+        f"event: {stream_router.REPLAY_COMPLETE_EVENT}"
+    ) == 1
+
+
+def test_audit_frames_are_unchanged_by_the_sentinel():
+    """The sentinel must not alter the shape of a real audit frame."""
+    item = {"event_id": "ev-1", "audit_event_id": "ev-1", "seq": 1}
+    frame = stream_router.format_sse(item)
+    assert frame.startswith("id: ev-1\ndata: ")
+    assert "event:" not in frame.split("\n", 1)[0]
 
 
 # ---------------------------------------------------------------------------
