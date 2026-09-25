@@ -54,13 +54,26 @@ except Exception:  # host-only drift (AGENTS.md S13.2)
 
 APPROVER_ROLES = frozenset({"approver", "admin"})
 
+#: Identity modes mirrored from the auth gate (kept local as plain strings so
+#: this router never imports the auth module at module scope; the HTTP layer
+#: passes the resolved value straight through).
+_MODE_PER_KEY = "per_key"
+_MODE_BOOTSTRAP = "bootstrap"
+
 #: Permit-freshness ceiling for runs-router APPROVED edges (invariant 19:
 #: execute re-checks permit freshness <= 5m). Stored approval TTL still
 #: governs the human decision; the FSM credential never outlives either.
 PERMIT_FRESHNESS_S = 300.0
 
 REQUESTS: dict[str, dict[str, Any]] = {}
-NONCE_STORE_PATH = Path(__file__).resolve().parents[3] / "var" / "nonces.jsonl"
+
+
+def _state_dir() -> Any:
+    from app import paths
+    return paths.state_dir()
+
+
+NONCE_STORE_PATH = _state_dir() / "nonces.jsonl"
 try:
     NONCES = approval_svc.NonceStore(NONCE_STORE_PATH)
 except OSError:
@@ -70,7 +83,7 @@ IDEM_RESPONSES: dict[tuple[str, str], dict[str, Any]] = {}
 #: File-persistence for the request queue (Lane 2, hardening loop 4).
 #: Sanitized constant -- callers never choose the production path; tests may
 #: pass an explicit tmp path via the ``path`` parameter of save/load.
-STORE_PATH = Path(__file__).resolve().parents[3] / "var" / "approvals.json"
+STORE_PATH = _state_dir() / "approvals.json"
 
 #: Lifecycle states accepted on reload (fail-closed set).
 _APPROVAL_STATUSES = frozenset({"pending", "approved", "denied", "expired"})
@@ -92,6 +105,9 @@ def save_store(path: str | Path | None = None) -> Path:
             "action": entry["action"].model_dump(mode="json"),
             "status": entry["status"],
             "evidence_ids": list(entry.get("evidence_ids", [])),
+            "requester_key_id": str(entry.get("requester_key_id", "")),
+            "identity_mode": str(entry.get("identity_mode", "")),
+            "decided_by": str(entry.get("decided_by", "")),
         }
         for approval_id, entry in REQUESTS.items()
     }
@@ -162,13 +178,21 @@ def load_store(path: str | Path | None = None) -> list[str]:
             raise ValueError(
                 f"approvals file entry {approval_id!r} invalid: "
                 "evidence_ids must be a string list")
+        extras: dict[str, str] = {}
+        for name in ("requester_key_id", "identity_mode", "decided_by"):
+            value = item.get(name, "")
+            if not isinstance(value, str):
+                raise ValueError(
+                    f"approvals file entry {approval_id!r} invalid: "
+                    f"{name} must be a string")
+            extras[name] = value
         if approval_id != req.approval_id:
             raise ValueError(
                 f"approvals file key {approval_id!r} mismatches "
                 f"entry {req.approval_id!r}")
         staged[approval_id] = {"request": req, "action": action,
                                "status": status,
-                               "evidence_ids": list(evidence)}
+                               "evidence_ids": list(evidence), **extras}
     REQUESTS.clear()
     REQUESTS.update(staged)
     return sorted(staged)
@@ -247,10 +271,51 @@ def _emit(chain: Any, event_type: str, entry: dict[str, Any],
                result=result)
 
 
+def _persist_chain(chain: Any) -> None:
+    """Flush an audit chain to disk after a SERVING-PATH mutation.
+
+    Audit events that never reach the file are not proof: after a restart the
+    approval queue would still remember a decision while the exported chain
+    meant to demonstrate it was empty -- and ``verify()`` would return
+    valid=True over zero events. Called from the HTTP handlers only, so the
+    pure-function layer stays hermetic for unit tests.
+    """
+    if chain is None:
+        return
+    from app.routers import audit as audit_router
+    try:
+        audit_router.persist_chain(chain)
+    except Exception:
+        pass
+
+
+def _guarded_with_chain(fn: Any, chain: Any, *args: Any,
+                        **kwargs: Any) -> Any:
+    """Run a mutating helper and flush whatever it emitted."""
+    try:
+        out = fn(*args, **kwargs)
+    except Exception as exc:
+        _persist_chain(chain)
+        raise HTTPException(status_code=http_status(exc),
+                            detail=str(exc)) from exc
+    _persist_chain(chain)
+    return out
+
+
 def request_approval(action: Mapping[str, Any], actor: str, secret: str,
                      ttl_seconds: int = 600,
-                     chain: Any = None) -> dict[str, Any]:
-    """Queue one approval request + mint its token (M19a request)."""
+                     chain: Any = None,
+                     requester_key_id: str = "",
+                     identity_mode: str = "",
+                     audit_actor: str = "") -> dict[str, Any]:
+    """Queue one approval request + mint its token (M19a request).
+
+    ``requester_key_id``/``identity_mode`` record WHICH server-resolved key
+    raised the request, so separation of duties can later compare two real
+    principals instead of two client-supplied strings. ``audit_actor`` is the
+    principal written into the chain and defaults to ``actor``. They are
+    recorded data only: this function never authorizes anything on its own.
+    """
     from app.contracts.action import Action  # noqa: E402 (lazy: weight)
 
     _ensure_loaded()  # resume persisted queue first: never clobber on save
@@ -270,30 +335,58 @@ def request_approval(action: Mapping[str, Any], actor: str, secret: str,
     REQUESTS[req.approval_id] = {"request": req, "action": candidate,
                                  "status": "pending",
                                  "evidence_ids": list(
-                                     candidate.evidence_ids)}
-    _emit(chain, "approval.request", REQUESTS[req.approval_id], actor,
-          f"requested {req.action_id}")
+                                     candidate.evidence_ids),
+                                 "requester_key_id": str(requester_key_id),
+                                 "identity_mode": str(identity_mode),
+                                 "decided_by": ""}
+    _emit(chain, "approval.request", REQUESTS[req.approval_id],
+          audit_actor or actor,
+          f"requested {req.action_id}"
+          + ("" if identity_mode == _MODE_PER_KEY else
+             " (identity mode " + (identity_mode or "unknown") +
+             ": the actor is a client-asserted label, not an "
+             "authenticated principal)"))
     _save_best_effort()
     return {"approval_id": req.approval_id, "token": token,
             "status": "pending",
             "expires_at": req.expires_at.isoformat(),
-            "scope": req.scope}
+            "scope": req.scope,
+            "identity_mode": str(identity_mode)}
 
 
 def approval_view(approval_id: str, now: float | None = None) -> dict[str, Any]:
-    """Status + TTL countdown data for the Safety Gate (M19a view)."""
+    """Status + TTL countdown data for the Safety Gate (M19a view).
+
+    Also returns the identity provenance: which key store mode produced the
+    decision, which key requested it, which key decided it, and whether
+    separation of duties actually applied. ``sod`` is
+    ``"enforced"`` only when a per-key store authorized the decision and the
+    approver differed from the requester; ``"not_enforced_bootstrap"`` is the
+    honest label for the shared demo credential.
+    """
     entry = _entry(approval_id)
     req = entry["request"]
     ts = time.time() if now is None else float(now)
     remaining = (req.expires_at - datetime.fromtimestamp(
         ts, tz=timezone.utc)).total_seconds()
+    mode = str(entry.get("identity_mode", ""))
+    decided_by = str(entry.get("decided_by", ""))
+    requester = str(entry.get("requester_key_id", ""))
+    sod = "enforced" if mode == _MODE_PER_KEY and decided_by \
+        and requester and decided_by != requester \
+        else "not_enforced_bootstrap" if mode == _MODE_BOOTSTRAP \
+        else "not_recorded"
     return {"approval_id": req.approval_id,
             "incident_id": req.incident_id,
             "action_id": req.action_id, "actor": req.actor,
             "scope": req.scope, "params_hash": req.params_hash,
             "status": entry["status"],
             "expires_at": req.expires_at.isoformat(),
-            "seconds_remaining": max(0.0, remaining)}
+            "seconds_remaining": max(0.0, remaining),
+            "identity_mode": mode,
+            "requester_key_id": requester,
+            "decided_by": decided_by,
+            "sod": sod}
 
 
 def _idem(approval_id: str, key: str | None,
@@ -318,24 +411,32 @@ def approve_approval(approval_id: str, actor: str, token: str, role: str,
                      secret: str, idempotency_key: str | None = None,
                      chain: Any = None, *, enforce_sod: bool = False,
                      requester: str | None = None,
-                     allow_self_approval: bool = False) -> dict[str, Any]:
+                     allow_self_approval: bool = False,
+                     approver_key_id: str = "",
+                     identity_mode: str = "",
+                     audit_actor: str = "") -> dict[str, Any]:
     """Approve (role-gated, token-verified, single-use) (M19a approve).
 
-    Lane 1 separation of duties (opt-in): pass ``enforce_sod=True`` to deny
-    (ApprovalDenied, HTTP 403) when the approver ``actor`` equals the
-    original requester, unless ``allow_self_approval=True`` explicitly
-    overrides. The requester defaults to the stored request actor
-    (``entry["request"].actor``); pass ``requester`` explicitly when the
-    request was raised under a different identity (e.g. the API-key owner
-    at request time). Default ``enforce_sod=False`` preserves the legacy
-    self-approval behavior so existing tests/demo keep working.
+    Separation of duties has two independent triggers, because the HMAC token
+    subject is the request ACTOR and cannot simply be re-pointed at a second
+    principal:
 
-    HMAC note: tokens stay approver-bound (M07 ``verify`` requires the
-    approving actor to equal the stored request actor), so a distinct
-    approver end-to-end needs a token issued for that approver plus the
-    original requester supplied via ``requester``. SoD denials emit
-    ``approval.rejected`` audit and happen BEFORE token verification, so a
-    denied attempt never burns the nonce.
+    1. ``enforce_sod=True`` (explicit legacy override, unchanged): the
+       approver actor must differ from the requester, defaulting to the
+       stored request actor. Denials emit ``approval.rejected`` BEFORE token
+       verification, so a denied attempt never burns the nonce.
+    2. ``identity_mode == "per_key"`` (the production path): the HTTP layer
+       has already proven via the authenticated key that ``actor`` is that
+       key's registered owner and that the key holds an approver/admin role.
+       The REAL principal comparison is then ``approver_key_id`` vs the
+       stored ``requester_key_id``. Self-approval is denied outright -- there
+       is no override -- because a second human identity is the entire point
+       of four-eyes control.
+
+    ``mode == "bootstrap"`` is the shared demo credential with no per-user
+    identity, so it keeps the legacy client-asserted-role behavior and the
+    view labels the decision ``not_enforced_bootstrap`` rather than implying
+    four-eyes control that did not happen.
     """
     def _produce() -> dict[str, Any]:
         entry = _entry(approval_id)
@@ -344,11 +445,25 @@ def approve_approval(approval_id: str, actor: str, token: str, role: str,
         if entry["status"] != "pending":
             raise ApprovalDenied(
                 f"approval is {entry['status']}, not pending")
-        if role not in APPROVER_ROLES:
+        if role and role not in APPROVER_ROLES:
             raise ApprovalDenied(f"role {role!r} may not approve "
                                  f"(M21 owns the guard matrix)")
         req, action = entry["request"], entry["action"]
-        if enforce_sod:
+        if identity_mode == _MODE_PER_KEY:
+            requester_key = str(entry.get("requester_key_id", ""))
+            if not approver_key_id or not requester_key:
+                raise ApprovalDenied(
+                    "separation of duties cannot be evaluated: per-key "
+                    "identity is missing the approver or requester key id")
+            if approver_key_id == requester_key:
+                _emit(chain, "approval.rejected", entry, actor,
+                      f"separation of duties: approver key "
+                      f"{approver_key_id!r} is the requester key "
+                      f"{requester_key!r}; self-approval is not permitted")
+                raise ApprovalDenied(
+                    "separation of duties: the approver key must differ from "
+                    "the requesting key (no override on the per-key path)")
+        elif enforce_sod:
             sod_requester = requester.strip() \
                 if isinstance(requester, str) and requester.strip() \
                 else req.actor
@@ -359,8 +474,23 @@ def approve_approval(approval_id: str, actor: str, token: str, role: str,
                 raise ApprovalDenied(
                     "separation of duties: approver must differ from "
                     "requester (pass allow_self_approval=True to override)")
+        # TWO-PRINCIPAL VERIFICATION (the HMAC/SoD deadlock, resolved).
+        # The token is signed over the REQUESTER's actor, so verifying with
+        # the approver's name could never succeed for a genuinely distinct
+        # approver -- which is exactly what separation of duties requires.
+        # Nothing is weakened by verifying against ``req.actor``:
+        # ``approval_svc.verify`` recomputes the MAC from the STORED request
+        # fields (action_id, actor, params_hash, scope, expiry, nonce), so the
+        # signature already proves the token was minted by this server for
+        # this exact, untampered request. The passed ``actor`` only compared
+        # the caller's own claim against the stored one -- an assertion check,
+        # not integrity. Integrity stays bound to the request; the DECISION is
+        # authorized separately by the authenticated approver key plus the
+        # requester/approver key comparison above.
+        verify_actor = req.actor if identity_mode == _MODE_PER_KEY else actor
         try:
-            approval_svc.verify(token, req, action, actor, secret, NONCES)
+            approval_svc.verify(token, req, action, verify_actor, secret,
+                                NONCES)
         except approval_svc.ApprovalError as exc:
             message = str(exc).lower()
             if "expired" in message:
@@ -376,8 +506,19 @@ def approve_approval(approval_id: str, actor: str, token: str, role: str,
                   f"verify rejected: {message}")
             raise ApprovalDenied(message) from exc
         entry["status"] = "approved"
-        _emit(chain, "approval.approve", entry, actor,
-              f"approved {req.action_id}")
+        entry["decided_by"] = str(approver_key_id)
+        # The REQUEST's identity mode is provenance and must never be
+        # overwritten by the approver's: a request raised under bootstrap and
+        # approved by a per-key approver would otherwise read
+        # "identity_mode: per_key" and look like a server-enforced decision.
+        # Keep the request's mode; the approver's principal is recorded in
+        # decided_by, which is what the view and SoD reason over.
+        _emit(chain, "approval.approve", entry, audit_actor or actor,
+              f"approved {req.action_id} as key "
+              f"{approver_key_id or 'bootstrap'}"
+              + (f" (request raised in {identity_mode} identity mode)"
+                 if identity_mode and identity_mode != _MODE_PER_KEY
+                 else ""))
         _save_best_effort()
         return approval_view(approval_id)
 
@@ -387,17 +528,31 @@ def approve_approval(approval_id: str, actor: str, token: str, role: str,
 def reject_approval(approval_id: str, actor: str, role: str,
                     reason: str = "",
                     idempotency_key: str | None = None,
-                    chain: Any = None) -> dict[str, Any]:
-    """Deny with actor + reason recorded (M19a reject)."""
+                    chain: Any = None,
+                    audit_actor: str = "",
+                    approver_key_id: str = "") -> dict[str, Any]:
+    """Deny with actor + reason recorded (M19a reject).
+
+    Separation of duties is deliberately NOT applied to a denial: four-eyes
+    control protects against GRANTING execution authority, and a denial can
+    only withhold it. Forcing a second identity here would also stop the
+    requester from withdrawing their own request. Authorization still applies
+    -- the HTTP layer requires an authenticated key holding approver/admin
+    before this is reached.
+    """
     def _produce() -> dict[str, Any]:
         entry = _entry(approval_id)
         if entry["status"] != "pending":
             raise ApprovalDenied(
                 f"approval is {entry['status']}, not pending")
-        if role not in APPROVER_ROLES:
+        if role and role not in APPROVER_ROLES:
             raise ApprovalDenied(f"role {role!r} may not reject")
         entry["status"] = "denied"
-        _emit(chain, "approval.deny", entry, actor,
+        # A denial records the deciding principal too, so the exported chain
+        # attributes every outcome to a key rather than only the approvals.
+        if approver_key_id:
+            entry["decided_by"] = str(approver_key_id)
+        _emit(chain, "approval.deny", entry, audit_actor or actor,
               reason or "denied by approver")
         _save_best_effort()
         return approval_view(approval_id)
@@ -446,6 +601,16 @@ def verified_permit(approval_id: str, token: str, actor: str,
             f"approval is {entry['status']}, not approved (human decision "
             "required before APPROVED)")
     req, action = entry["request"], entry["action"]
+    # A per-key approval must carry the principal that decided it. Without it
+    # the record cannot prove which authorized key performed the human
+    # decision, and minting an execution permit from it would launder an
+    # unattributed decision into a credential the FSM trusts.
+    if entry.get("identity_mode") == _MODE_PER_KEY \
+            and not str(entry.get("decided_by", "")):
+        _emit(chain, "approval.rejected", entry, actor,
+              "permit refused: per-key approval has no deciding principal")
+        raise ApprovalDenied(
+            "permit refused: per-key approval records no deciding principal")
     if isinstance(expected_incident, str) and expected_incident.strip():
         if req.incident_id != expected_incident:
             _emit(chain, "approval.rejected", entry, actor,
@@ -508,15 +673,15 @@ def reset_demo_state() -> None:
 class ApprovalBody(BaseModel):
     model_config = {"extra": "forbid"}
     action: dict[str, Any]
-    actor: str = Field(min_length=1, max_length=128)
+    actor: str = Field(default="", max_length=128)
     ttl_seconds: int = Field(default=600, ge=1, le=900)
 
 
 class DecideBody(BaseModel):
     model_config = {"extra": "forbid"}
-    actor: str = Field(min_length=1, max_length=128)
+    actor: str = Field(default="", max_length=128)
     token: str = Field(default="", max_length=512)
-    role: str = Field(default="viewer", max_length=32)
+    role: str = Field(default="", max_length=32)
     reason: str = Field(default="", max_length=1024)
     idempotency_key: str | None = Field(default=None, max_length=128)
 
@@ -542,26 +707,84 @@ def _chain_for(incident_id: str) -> Any:
     return None
 
 
-def http_request(body: ApprovalBody,
-                 x_api_key: str | None = Header(default=None)
-                 ) -> dict[str, Any]:
-    _require_key(x_api_key)
-    incident = body.action.get("incident_id", "") \
-        if isinstance(body.action, dict) else ""
-    return _guarded(request_approval, body.action, body.actor,
-                    _settings_secret(), body.ttl_seconds,
-                    _chain_for(incident))
-
-
-def http_view(approval_id: str) -> dict[str, Any]:
-    return _guarded(approval_view, approval_id)
-
-
-def _require_key(x_api_key: str | None) -> None:
+def _require_key(x_api_key: str | None) -> dict[str, Any]:
+    """Authenticate the caller and return its server-resolved identity."""
     from app.config import get_settings  # noqa: E402 (request-time only)
     from app.routers import auth as auth_mod
-    auth_mod.guard_http(
+    return auth_mod.guard_http(
         x_api_key, lambda: get_settings().PROOFOPS_API_KEY, HTTPException)
+
+
+def _authorize(identity: dict[str, Any], *roles: str) -> None:
+    """Server-side authorization over the authenticated key.
+
+    ``require_role`` never widens from client input, so a body that claims
+    ``role="admin"`` cannot grant itself anything. A bootstrap identity (no
+    key store deployed) is allowed for demo compatibility and the caller is
+    expected to surface ``mode`` in its response.
+    """
+    from app.routers import auth as auth_mod
+    try:
+        auth_mod.require_role(identity, *roles)
+    except auth_mod.KeyRejected as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
+def _assert_owner(identity: dict[str, Any], claimed_actor: str) -> None:
+    """Bind a body-supplied actor to the authenticated key's owner.
+
+    The HMAC token subject is a human-readable actor string, so it must be
+    PROVEN: in per-key mode the claimed actor has to equal the owner
+    registered for the presented key, otherwise anyone holding one key could
+    act as any other named actor. Bootstrap mode cannot prove this, which is
+    precisely why it is labeled as demo identity.
+    """
+    if identity.get("mode") != _MODE_PER_KEY:
+        return
+    owner = identity.get("owner")
+    if not isinstance(owner, str) or not owner.strip() \
+            or claimed_actor != owner:
+        raise HTTPException(
+            status_code=403,
+            detail=f"actor {claimed_actor!r} is not the owner of API key "
+                   f"{identity.get('key_id', '')!r}")
+
+
+def _actor_for(identity: dict[str, Any], claimed: str) -> str:
+    """Resolve the acting actor from the authenticated key.
+
+    A blank body actor is filled from the key's registered owner, so a client
+    cannot name itself. A non-blank claim is still checked against that owner
+    in per-key mode, so a holder of one key cannot act as another named
+    actor. In bootstrap mode the claim is accepted as a display label only --
+    the response reports ``identity_mode: bootstrap`` precisely because that
+    label is not an authenticated identity.
+    """
+    owner = identity.get("owner")
+    owner_name = owner if isinstance(owner, str) and owner.strip() \
+        else _MODE_BOOTSTRAP
+    if not claimed or not claimed.strip():
+        return owner_name
+    _assert_owner(identity, claimed)
+    return claimed
+
+
+def _principal_or(identity: dict[str, Any], claimed: str) -> str:
+    """Structured audit principal: the immutable key id, never the claim.
+
+    The actor string is the HMAC subject and, in bootstrap mode, a
+    client-supplied label. The chain must not record that label as if it were
+    an authenticated identity, so the structured actor is the resolved
+    principal and the claim survives only in the event's result text.
+    """
+    from app.routers import auth as auth_mod
+    try:
+        key_id = auth_mod.principal(identity)
+    except auth_mod.KeyRejected as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    if claimed and claimed.strip() and claimed.strip() != key_id:
+        return f"{key_id} (claimed {claimed.strip()})"
+    return key_id
 
 
 def _chain_for_approval(approval_id: str) -> Any:
@@ -574,22 +797,58 @@ def _chain_for_approval(approval_id: str) -> Any:
     return _chain_for(incident)
 
 
+def http_request(body: ApprovalBody,
+                 x_api_key: str | None = Header(default=None)
+                 ) -> dict[str, Any]:
+    identity = _require_key(x_api_key)
+    # Raising an approval request WRITES to the queue, mints a live HMAC
+    # token, and appends an approval.request record to the exported chain, so
+    # it needs a write role -- otherwise a read-only viewer key could do all
+    # three, which is the same capability the other mutating routes refuse.
+    _authorize(identity, "operator", "approver", "admin")
+    actor = _actor_for(identity, body.actor)
+    incident = body.action.get("incident_id", "") \
+        if isinstance(body.action, dict) else ""
+    chain = _chain_for(incident)
+    return _guarded_with_chain(
+        request_approval, chain, body.action, actor,
+        _settings_secret(), body.ttl_seconds, chain,
+        str(identity.get("key_id", "")),
+        str(identity.get("mode", "")),
+        audit_actor=_principal_or(identity, body.actor))
+
+
+def http_view(approval_id: str) -> dict[str, Any]:
+    return _guarded(approval_view, approval_id)
+
+
 def http_approve(approval_id: str, body: DecideBody,
                  x_api_key: str | None = Header(default=None)
                  ) -> dict[str, Any]:
-    _require_key(x_api_key)
-    return _guarded(approve_approval, approval_id, body.actor, body.token,
-                    body.role, _settings_secret(), body.idempotency_key,
-                    _chain_for_approval(approval_id))
+    identity = _require_key(x_api_key)
+    _authorize(identity, "approver", "admin")
+    actor = _actor_for(identity, body.actor)
+    chain = _chain_for_approval(approval_id)
+    return _guarded_with_chain(
+        approve_approval, chain, approval_id, actor, body.token,
+        body.role, _settings_secret(), body.idempotency_key, chain,
+        approver_key_id=str(identity.get("key_id", "")),
+        identity_mode=str(identity.get("mode", "")),
+        audit_actor=_principal_or(identity, body.actor))
 
 
 def http_reject(approval_id: str, body: DecideBody,
                 x_api_key: str | None = Header(default=None)
                 ) -> dict[str, Any]:
-    _require_key(x_api_key)
-    return _guarded(reject_approval, approval_id, body.actor, body.role,
-                    body.reason, body.idempotency_key,
-                    _chain_for_approval(approval_id))
+    identity = _require_key(x_api_key)
+    _authorize(identity, "approver", "admin")
+    actor = _actor_for(identity, body.actor)
+    chain = _chain_for_approval(approval_id)
+    return _guarded_with_chain(
+        reject_approval, chain, approval_id, actor, body.role,
+        body.reason, body.idempotency_key, chain,
+        audit_actor=_principal_or(identity, body.actor),
+        approver_key_id=str(identity.get("key_id", "")))
 
 
 if router is not None:  # container path; host asserts wiring via AST

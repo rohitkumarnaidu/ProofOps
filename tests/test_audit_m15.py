@@ -278,9 +278,24 @@ def test_router_emit_view_verify_export(_keys):
     assert exported["origin"] == "custom-hash-chain"
     with pytest.raises(Exception):
         audit_router.http_view("inc-nope")
-    with pytest.raises(Exception):
-        audit_router.http_emit("inc-1", audit_router.EmitBody(
-            event_type="transition", actor=" ", result="x"), x_api_key=KEY)
+
+
+def test_router_emit_actor_is_server_derived_not_client_asserted(_keys):
+    """The chain records who the SERVER resolved, never the caller's claim.
+
+    A blank actor is filled from the authenticated principal, and a mismatched
+    claim survives only as a labelled annotation -- so an API-key holder can no
+    longer write a correctly hashed event attributed to another actor.
+    """
+    audit_router.reset_demo_state()
+    filled = audit_router.http_emit("inc-actor", audit_router.EmitBody(
+        event_type="transition", result="a->b"), x_api_key=KEY)
+    assert filled["actor"] == "bootstrap", filled["actor"]
+    claimed = audit_router.http_emit("inc-actor", audit_router.EmitBody(
+        event_type="transition", actor="sre-victim", result="a->b"),
+        x_api_key=KEY)
+    assert claimed["actor"] == "bootstrap (claimed sre-victim)", \
+        claimed["actor"]
 
 
 def test_router_emit_requires_key(_keys):
@@ -288,6 +303,35 @@ def test_router_emit_requires_key(_keys):
         audit_router.http_emit("inc-1", audit_router.EmitBody(
             event_type="transition", actor="s", result="a->b"))
     assert exc.value.status_code == 401
+
+
+def test_persisted_chain_is_readable_after_a_memory_wipe(tmp_path, _keys,
+                                                         monkeypatch):
+    """A restart empties CHAINS but not the file; reads must still find it.
+
+    Found by running the container: with the reader looking only at memory, a
+    persisted chain 404'd after `docker compose restart`, so the operator was
+    told there was no proof of a decision that had actually been recorded.
+    """
+    audit_router.reset_demo_state()
+    monkeypatch.setattr(audit_router, "_VAR_DIR", tmp_path)
+    audit_router.http_emit("inc-restart", audit_router.EmitBody(
+        event_type="transition", actor="s", result="a->b"), x_api_key=KEY)
+    assert audit_router.http_view("inc-restart")["checked"] == 1
+
+    # Simulate the restart: memory gone, file intact.
+    audit_router.CHAINS.clear()
+    view = audit_router.http_view("inc-restart")
+    assert view["valid"] is True
+    assert view["checked"] == 1
+    assert len(view["events"]) == 1
+    assert audit_router.http_verify("inc-restart")["valid"] is True
+    assert len(audit_router.http_export("inc-restart")["events"]) == 1
+    # A genuinely unknown incident still 404s: no empty chain is fabricated,
+    # which would make verify() vacuously true over zero events.
+    with pytest.raises(Exception) as exc:
+        audit_router.http_view("inc-never-existed")
+    assert exc.value.status_code == 404
 
 
 def test_main_wires_audit_router():

@@ -93,8 +93,14 @@ def http_smoke(body: SmokeBody,
     """Smoke runs compute: confirm gate + demo key (no open compute)."""
     from app.config import get_settings  # noqa: E402 (request-time only)
     from app.routers import auth as auth_mod
-    auth_mod.guard_http(
+    identity = auth_mod.guard_http(
         x_api_key, lambda: get_settings().PROOFOPS_API_KEY, HTTPException)
+    # A smoke campaign costs real compute, so it needs a write-capable key
+    # rather than any authenticated viewer.
+    try:
+        auth_mod.require_role(identity, "operator", "approver", "admin")
+    except auth_mod.KeyRejected as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     if body.confirm is not True:
         raise HTTPException(status_code=400,
                             detail="confirm must be true to run smoke")

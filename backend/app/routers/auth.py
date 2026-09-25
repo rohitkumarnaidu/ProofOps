@@ -12,16 +12,25 @@ Lane 1 (identity hardening): per-key identity with server-side roles.
   ``{key_id, key_sha256, owner, roles[]}``. Only SHA256 hex digests are
   stored; raw keys are NEVER persisted. Presented keys are hashed and
   compared with ``hmac.compare_digest`` (constant-time per entry).
-- ``resolve_identity()`` returns the resolved ``{key_id, owner, roles}``
+- ``resolve_identity()`` returns the resolved ``{key_id, owner, roles, mode}``
   dict on success; ``guard_http()`` keeps its raise-on-fail contract and
   now ALSO returns that dict (callers that ignore the return value are
   unaffected).
-- ``check_key_role()`` enforces the server-side role subset gate: when the
-  resolved identity carries roles, the client-asserted role must be one of
-  them; bootstrap identities (no roles) keep the legacy behavior.
+- ``require_role()`` is the PRODUCTION authorization gate: it reads the
+  server-side roles attached to the authenticated key and never consults a
+  client-asserted role. ``check_key_role()`` is retained for the older
+  client-asserted-role comparison and is NOT an authorization boundary.
 - Separation of duties is enforced in approvals ``approve_approval``
   (opt-in ``enforce_sod``); this module only supplies the identity it
   reasons over.
+
+MODE (the honesty contract): ``mode`` is ``"per_key"`` when a key store
+resolved the caller and ``"bootstrap"`` when the deployment fell back to the
+single configured key. Every product surface that shows identity MUST show
+``mode`` too, because ``bootstrap`` is a shared demo credential with NO
+per-user identity and NO server-side roles -- a client can still assert a role
+string, and separation of duties is not enforced. Reporting ``bootstrap`` as
+authenticated user identity would be a false claim.
 
 FALLBACK (loud, deliberate): when ``var/api_keys.json`` is ABSENT or
 UNREADABLE (missing file, permission error), the server falls back to the
@@ -81,11 +90,26 @@ def check_api_key(provided: str | None, expected: str) -> None:
 
 #: Per-key identity store (Lane 1): JSON list of
 #: ``{key_id, key_sha256, owner, roles[]}``. Raw keys never touch disk.
-KEY_STORE_PATH = Path(__file__).resolve().parents[3] / "var" / "api_keys.json"
+#: Resolved through app.paths so the container reads the state dir the image
+#: creates and the compose volume mounts -- NOT a parents[N] guess, which in
+#: the image layout resolved to /var and silently downgraded every request to
+#: the full-authority bootstrap identity.
+def _key_store_path() -> Any:
+    from app import paths
+    return paths.key_store_path()
+
+
+KEY_STORE_PATH = _key_store_path()
 
 #: Bootstrap identity used when the store is absent/unreadable (fallback).
 BOOTSTRAP_KEY_ID = "bootstrap"
 BOOTSTRAP_OWNER = "bootstrap"
+
+#: Identity modes. ``per_key`` = a key store resolved this caller and its
+#: roles are server-owned. ``bootstrap`` = shared single-key demo fallback,
+#: no per-user identity, roles are client-asserted.
+MODE_PER_KEY = "per_key"
+MODE_BOOTSTRAP = "bootstrap"
 
 
 def _entry_shape(entry: Any) -> dict[str, Any]:
@@ -145,14 +169,25 @@ def load_key_store(path: str | Path | None = None
     entries = [_entry_shape(item) for item in raw]
     seen_ids: set[str] = set()
     seen_digests: set[str] = set()
+    seen_owners: set[str] = set()
     for item in entries:
         if item["key_id"] in seen_ids:
             raise ValueError(
                 f"key store corrupt: duplicate key_id {item['key_id']!r}")
         if item["key_sha256"] in seen_digests:
             raise ValueError("key store corrupt: duplicate key_sha256")
+        # Two keys for ONE owner would defeat separation of duties: the check
+        # compares key ids, so a single human holding k-laptop and k-desktop
+        # could raise and approve their own action while the approval record
+        # still reports four-eyes enforcement. Refuse the ambiguous store.
+        if item["owner"] in seen_owners:
+            raise ValueError(
+                f"key store corrupt: duplicate owner {item['owner']!r} "
+                "(separation of duties compares key ids, so one human "
+                "must not hold two keys)")
         seen_ids.add(item["key_id"])
         seen_digests.add(item["key_sha256"])
+        seen_owners.add(item["owner"])
     return entries
 
 
@@ -179,24 +214,75 @@ def resolve_identity(provided: str | None, expected: str,
     if entries is None:
         check_api_key(provided, expected)
         return {"key_id": BOOTSTRAP_KEY_ID, "owner": BOOTSTRAP_OWNER,
-                "roles": []}
+                "roles": [], "mode": MODE_BOOTSTRAP}
     digest = hashlib.sha256(provided.encode("utf-8")).hexdigest()
     for item in entries:
         if hmac.compare_digest(digest, item["key_sha256"]):
             return {"key_id": item["key_id"], "owner": item["owner"],
-                    "roles": list(item["roles"])}
+                    "roles": list(item["roles"]), "mode": MODE_PER_KEY}
     raise KeyRejected("invalid API key")
+
+
+def principal(identity: dict[str, Any]) -> str:
+    """The immutable audit principal for a resolved identity.
+
+    ``key_id`` is the stable, non-secret identifier that survives an owner
+    rename; the mutable display ``owner`` must never be used as the audit
+    principal, or a renamed user would retroactively change who the audit
+    chain claims acted.
+    """
+    key_id = identity.get("key_id")
+    if not isinstance(key_id, str) or not key_id.strip():
+        raise KeyRejected("resolved identity carries no key_id")
+    return key_id
+
+
+def require_role(identity: dict[str, Any], *allowed: str) -> None:
+    """Server-side role gate over the AUTHENTICATED key (authorization).
+
+    This is the production boundary: the allowed set is server code, and the
+    caller is the resolved key identity. A client-asserted role NEVER widens
+    this gate. Fail-closed rules:
+
+    - ``per_key`` identity: the key's stored roles must contain at least one
+      of ``allowed``; an empty role list is DENIED (a per-key store entry
+      with no roles is an intentionally unprivileged key, never a wildcard).
+    - ``bootstrap`` identity: allowed only when ``bootstrap_permits`` is
+      True. The bootstrap path is the shared demo credential with no
+      server-side roles, so the legacy client-asserted-role comparison is
+      all that remains; callers MUST surface ``mode`` in their response so a
+      reader can see that no per-user identity backed this decision.
+    """
+    if not allowed:
+        raise ValueError("require_role needs at least one allowed role")
+    if identity.get("mode") == MODE_BOOTSTRAP:
+        if identity.get("bootstrap_permits", True):
+            return
+        raise KeyRejected("bootstrap demo identity may not perform this action")
+    roles = identity.get("roles")
+    if not isinstance(roles, (list, tuple)):
+        raise KeyRejected("identity carries no server-side role list")
+    granted = {r for r in roles if isinstance(r, str)}
+    if not granted & set(allowed):
+        raise KeyRejected(
+            f"this API key ({principal(identity)}) holds none of "
+            f"{sorted(set(allowed))} (granted: {sorted(granted)})")
 
 
 def check_key_role(identity_roles: Sequence[str] | None,
                    claimed_role: str) -> None:
-    """Server-side role subset gate (Lane 1, opt-in).
+    """Compatibility helper over a CLIENT-ASSERTED role (NOT a boundary).
 
-    ``identity_roles`` empty/None (bootstrap fallback) -> allow anything:
-    today's per-endpoint role gates apply unchanged. Otherwise the
-    client-asserted ``claimed_role`` (e.g. DecideBody.role) must be an
-    element of the key's roles, else KeyRejected (HTTP 403). Exact,
-    case-sensitive match; fail closed on non-string claims.
+    It compares a role string the caller sent against the key's stored roles.
+    That is a usability cross-check, not authorization: a caller who controls
+    the string can pick any role it holds. Authorization must use
+    ``require_role()``, which takes the allowed set from server code. Kept
+    because the legacy endpoint role gates still call it, and removing it
+    would silently widen those endpoints.
+
+    ``identity_roles`` empty/None (bootstrap fallback) -> allow anything.
+    Otherwise the client-asserted ``claimed_role`` must be an element of the
+    roles; exact, case-sensitive; fail closed on non-string claims.
     """
     if not identity_roles:
         return
@@ -237,3 +323,59 @@ def guard_http(provided: str | None, expected_fn: object,
     except Exception as exc:
         raise http_exc_cls(status_code=500,
                            detail=f"key identity unreadable: {exc}") from exc
+
+
+def identity_view(identity: dict[str, Any]) -> dict[str, Any]:
+    """Project the resolved identity for a product surface (no secrets).
+
+    Returns the stable principal, the mutable display owner, the server-side
+    roles, and the identity MODE so a UI can label a bootstrap credential as
+    demo-grade instead of presenting it as an authenticated user.
+    """
+    return {"key_id": identity.get("key_id", ""),
+            "owner": identity.get("owner", ""),
+            "roles": sorted(r for r in identity.get("roles", [])
+                            if isinstance(r, str)),
+            "mode": identity.get("mode", MODE_BOOTSTRAP),
+            "server_enforced": identity.get("mode") == MODE_PER_KEY}
+
+
+try:  # pragma: no cover - container path (pinned deps)
+    from fastapi import APIRouter as _APIRouter
+    from fastapi import Header as _Header
+    from fastapi import HTTPException as _HTTPException
+    _APIRouter(prefix="/__probe__")
+    router = _APIRouter(tags=["auth"])
+    HTTPException = _HTTPException
+    Header = _Header
+except Exception:  # host-only drift (AGENTS.md S13.2)
+    router = None  # type: ignore[assignment]
+
+    def Header(default: object = None, **kwargs: object) -> object:  # type: ignore[no-redef]
+        return default
+
+    class HTTPException(Exception):  # type: ignore[no-redef]
+        def __init__(self, status_code: int = 500, detail: str = "") -> None:
+            super().__init__(detail)
+            self.status_code = status_code
+            self.detail = detail
+
+
+def _settings_key() -> str:
+    from app.config import get_settings  # noqa: E402 (request-time only)
+    return get_settings().PROOFOPS_API_KEY
+
+
+def http_identity(x_api_key: str | None = Header(default=None)
+                  ) -> dict[str, Any]:
+    """``GET /identity``: who the server thinks the caller is.
+
+    Exists so a client never has to assert its own identity or role: the UI
+    reads the server-resolved principal and its roles, and shows ``mode``.
+    """
+    identity = guard_http(x_api_key, _settings_key, HTTPException)
+    return identity_view(identity)
+
+
+if router is not None:  # container path; host asserts wiring via AST
+    router.get("/identity")(http_identity)

@@ -84,7 +84,14 @@ IDEM_RESPONSES: dict[tuple[str, str, str], dict[str, Any]] = {}
 #: File-persistence for the run repo (Lane 2, hardening loop 4).
 #: Sanitized constant -- callers never choose the production path; tests may
 #: pass an explicit tmp path via the ``path`` parameter of save/load.
-STORE_PATH = Path(__file__).resolve().parents[3] / "var" / "runs.json"
+#: Resolved through app.paths (not a parents[N] guess) so the container
+#: writes into the state dir the image chowns and compose mounts.
+def _state_dir() -> Path:
+    from app import paths
+    return paths.state_dir()
+
+
+STORE_PATH = _state_dir() / "runs.json"
 
 # NOTE (Lane 2): IDEM_RESPONSES (router-level HTTP cache) is intentionally
 # NOT persisted -- it only replays identical HTTP bodies within a process.
@@ -434,11 +441,22 @@ def run_view(run: IncidentRun) -> dict[str, Any]:
 
 
 def _record_fsm(incident_id: str, run: IncidentRun) -> int:
-    """Chain every banked FSM record (P0-2: no silent transitions)."""
+    """Chain every banked FSM record (P0-2: no silent transitions).
+
+    The chain is flushed to disk here because this is the serving path: a
+    transition recorded only in memory is not proof, and after a restart the
+    run would remember an APPROVED/EXECUTING edge that the exported chain
+    never showed (while ``verify()`` still reported valid=True).
+    """
     from app.routers import audit as audit_router
     from app.services import audit as audit_mod
     chain = audit_router.get_or_create_chain(incident_id)
-    return audit_mod.record_fsm(chain, fsm_svc.audit_records(run))
+    recorded = audit_mod.record_fsm(chain, fsm_svc.audit_records(run))
+    try:
+        audit_router.persist_chain(chain)
+    except Exception:
+        pass
+    return recorded
 
 
 def advance_run(incident_id: str, to: str, *, reason: str = "",
@@ -635,17 +653,43 @@ def _guarded(fn: Any, *args: Any, **kwargs: Any) -> Any:
                             detail=str(exc)) from exc
 
 
-def _require_key(x_api_key: str | None) -> None:
+#: Roles permitted to mutate a run through HTTP. Read-only surfaces stay open
+#: so a viewer key can still watch. Values are server code: a client-supplied
+#: role never appears in this decision.
+RUN_WRITE_ROLES = ("operator", "approver", "admin")
+
+
+def _require_key(x_api_key: str | None) -> dict[str, Any]:
+    """Authenticate the caller and return its server-resolved identity."""
     from app.config import get_settings  # noqa: E402 (request-time only)
     from app.routers import auth as auth_mod
-    auth_mod.guard_http(
+    return auth_mod.guard_http(
         x_api_key, lambda: get_settings().PROOFOPS_API_KEY, HTTPException)
+
+
+def _authorize(identity: dict[str, Any], *roles: str) -> None:
+    """Server-side authorization over the authenticated key (fail closed)."""
+    from app.routers import auth as auth_mod
+    try:
+        auth_mod.require_role(identity, *roles)
+    except auth_mod.KeyRejected as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
+def _audit_actor(identity: dict[str, Any]) -> str:
+    """Immutable principal recorded for a mutation made over HTTP."""
+    from app.routers import auth as auth_mod
+    try:
+        return auth_mod.principal(identity)
+    except auth_mod.KeyRejected as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
 
 
 def http_create(body: CreateBody,
                 x_api_key: str | None = Header(default=None)
                 ) -> dict[str, Any]:
-    _require_key(x_api_key)
+    identity = _require_key(x_api_key)
+    _authorize(identity, *RUN_WRITE_ROLES)
     run = _guarded(create_run, body.incident_id, body.now)
     return run_view(run)
 
@@ -659,12 +703,11 @@ def http_list() -> list[dict[str, Any]]:
 
 
 def http_advance(incident_id: str, body: AdvanceBody,
-                  x_api_key: str | None = Header(default=None)
-                  ) -> dict[str, Any]:
+                 x_api_key: str | None = Header(default=None)
+                 ) -> dict[str, Any]:
     from app.config import get_settings  # noqa: E402 (request-time only)
-    from app.routers import auth as auth_mod
-    auth_mod.guard_http(
-        x_api_key, lambda: get_settings().PROOFOPS_API_KEY, HTTPException)
+    identity = _require_key(x_api_key)
+    _authorize(identity, *RUN_WRITE_ROLES)
     view = _guarded(advance_run, incident_id, body.to, reason=body.reason,
                     refs=body.refs, approval=body.approval,
                     approval_secret=get_settings().APPROVAL_SECRET,
@@ -676,7 +719,8 @@ def http_advance(incident_id: str, body: AdvanceBody,
 def http_sweep(incident_id: str, body: SweepBody,
                x_api_key: str | None = Header(default=None)
                ) -> dict[str, Any]:
-    _require_key(x_api_key)
+    identity = _require_key(x_api_key)
+    _authorize(identity, *RUN_WRITE_ROLES)
     view = _guarded(sweep_run, incident_id, body.now,
                     stage_ttl=body.stage_ttl,
                     approval_ttl=body.approval_ttl)

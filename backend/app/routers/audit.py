@@ -42,7 +42,15 @@ CHAINS: dict[str, audit_svc.AuditChain] = {}
 #: Persisted-chain directory (repo ``var/``, gitignored). Filenames are
 #: ``audit-<incident_id>.jsonl`` with the id sanitized by the service;
 #: unsanitizable ids stay memory-only (no traversal, fail-closed files).
-_VAR_DIR = Path(__file__).resolve().parents[3] / "var"
+#: Resolved through app.paths so the container writes into the state dir the
+#: image chowns and compose mounts (a parents[N] guess resolved to /var, which
+#: uid 10001 cannot write, so every chain silently stayed memory-only).
+def _state_dir() -> Path:
+    from app import paths
+    return paths.state_dir()
+
+
+_VAR_DIR = _state_dir()
 
 
 def _chain_path(incident_id: str) -> Path | None:
@@ -67,10 +75,25 @@ class AuditMissing(Exception):
 
 
 def get_chain(incident_id: str) -> audit_svc.AuditChain:
+    """Read a chain, falling back to the persisted file on a memory miss.
+
+    A restart empties ``CHAINS`` while the hash chain itself is on the volume,
+    so a reader that only looked in memory would 404 a chain that demonstrably
+    exists -- and the operator would be told there is no proof of a decision
+    that was in fact decided and recorded. Only a genuinely unknown incident
+    raises, and no empty chain is ever fabricated here: creating one would
+    make ``verify()`` vacuously true on zero events.
+    """
     try:
         return CHAINS[incident_id]
-    except KeyError as exc:
-        raise AuditMissing(f"no audit chain: {incident_id}") from exc
+    except KeyError:
+        pass
+    path = _chain_path(incident_id)
+    if path is None or not path.is_file():
+        raise AuditMissing(f"no audit chain: {incident_id}")
+    chain = audit_svc.AuditChain.load(incident_id, path)
+    CHAINS[incident_id] = chain
+    return chain
 
 
 def chain_view(incident_id: str) -> dict[str, Any]:
@@ -112,7 +135,7 @@ def reset_demo_state() -> None:
 class EmitBody(BaseModel):
     model_config = {"extra": "forbid"}
     event_type: str = Field(min_length=1, max_length=128)
-    actor: str = Field(min_length=1, max_length=128)
+    actor: str = Field(default="", max_length=128)
     agent: str = Field(default="", max_length=128)
     input_hash: str = Field(default="", max_length=256)
     evidence_ids: list[str] = Field(default_factory=list, max_length=100)
@@ -121,6 +144,26 @@ class EmitBody(BaseModel):
     approval_id: str = Field(default="", max_length=128)
     execution_id: str = Field(default="", max_length=128)
     result: str = Field(default="", max_length=1024)
+
+
+def _emit_actor(identity: dict[str, Any], claimed: str) -> str:
+    """The audit actor is server-derived, never client-asserted.
+
+    This route appends to the tamper-evident chain, so accepting the caller's
+    ``actor`` string would let any key holder write a correctly hashed event
+    that the chain later proves, attributing it to someone else. The
+    immutable key id is used as the principal; a supplied name is kept only
+    as an ``agent``-style label so forensics still sees what the caller
+    claimed, without letting the claim become the record.
+    """
+    from app.routers import auth as auth_mod
+    try:
+        principal = auth_mod.principal(identity)
+    except auth_mod.KeyRejected as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    if claimed and claimed.strip() and claimed.strip() != principal:
+        return f"{principal} (claimed {claimed.strip()})"
+    return principal
 
 
 def _guarded(fn: Any, *args: Any, **kwargs: Any) -> Any:
@@ -163,10 +206,19 @@ def http_emit(incident_id: str, body: EmitBody,
     """External appends require the demo key (P1: no open chain pollution)."""
     from app.config import get_settings  # noqa: E402 (request-time only)
     from app.routers import auth as auth_mod
-    auth_mod.guard_http(
+    identity = auth_mod.guard_http(
         x_api_key, lambda: get_settings().PROOFOPS_API_KEY, HTTPException)
+    # A write role is required because this route appends to the chain that is
+    # exported as proof. With only a key-presence check, any authenticated key
+    # -- including a per-key viewer -- could append a hash-valid
+    # "approval.approve" or "policy.decision" event that verify() then passes.
+    try:
+        auth_mod.require_role(identity, "operator", "approver", "admin")
+    except auth_mod.KeyRejected as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     event = _guarded(_chain_of(incident_id).emit, body.event_type,
-                     actor=body.actor, agent=body.agent,
+                     actor=_emit_actor(identity, body.actor),
+                     agent=body.agent,
                      input_hash=body.input_hash,
                      evidence_ids=body.evidence_ids, policy=body.policy,
                      action_id=body.action_id, approval_id=body.approval_id,

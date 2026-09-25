@@ -8,10 +8,11 @@ from fastapi.responses import JSONResponse, PlainTextResponse, Response  # noqa:
 from app.config import get_settings  # noqa: E402  (M00.2 trust boundary)
 from app.health import readiness  # noqa: E402  (M00.4 readiness probes)
 from app.logging_setup import configure_logging, get_logger  # noqa: E402 (M00.5)
-from app.routers import runs as runs_router  # noqa: E402 (M14b runs router)
-from app.routers import audit as audit_router  # noqa: E402 (M15b audit router)
-from app.routers import approvals as approvals_router  # noqa: E402 (M19a)
-from app.routers import eval as eval_router  # noqa: E402 (M19b smoke)
+from app.routers import runs as runs_router  # noqa: E402  (M14b runs router)
+from app.routers import audit as audit_router  # noqa: E402  (M15b audit router)
+from app.routers import approvals as approvals_router  # noqa: E402  (M19a)
+from app.routers import auth as auth_router  # noqa: E402  (M21b identity)
+from app.routers import eval as eval_router  # noqa: E402  (M19b smoke)
 from app.services import metrics  # noqa: E402 (Lane 2 observability registry)
 
 # M00.2: load typed config at startup. Missing/invalid required values raise
@@ -46,6 +47,11 @@ if approvals_router.router is not None:
 # M19b: eval smoke router (harness numbers on demand for the RCA view).
 if eval_router.router is not None:
     app.include_router(eval_router.router)
+# M21b: identity router (GET /identity). It exists so a client never asserts
+# its own identity or role: the Safety Gate reads the server-resolved
+# principal, its server-side roles, and the identity MODE from here.
+if auth_router.router is not None:
+    app.include_router(auth_router.router)
 # Lane 2 (SSE stream router, owned by another lane): include IF it exists at
 # integration time -- this lane and the stream lane may land in either order.
 # Honest guard: a missing module means "no SSE routes yet", NOT an error.
