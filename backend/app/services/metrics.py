@@ -363,14 +363,33 @@ def _check_objective(entry: Any, seen: set[str]) -> dict[str, Any]:
             "burn_rate_alerts": [_check_burn(b, name) for b in burns]}
 
 
+def _policies_dir() -> Path:
+    """Resolve the policy directory without importing app.paths.
+
+    The metrics module is pinned stdlib-only by
+    ``test_metrics_m20.py::test_metrics_module_stdlib_only_no_fake_paging``
+    (it must stay a dependency-free metrics island, and importing an app
+    package would also drag the observability service into a P1 loop). The
+    resolution rule is therefore mirrored here in four lines: walk up to the
+    directory that holds both ``policies`` and ``runbooks`` (the repo root in
+    the source tree, ``/app`` in the image) and descend into ``policies``.
+    """
+    here = Path(__file__).resolve()
+    for candidate in here.parents:
+        if (candidate / "policies").is_dir() and \
+                (candidate / "runbooks").is_dir():
+            return candidate / "policies"
+    root = here.parents[3] if len(here.parents) > 3 else here.parents[-1]
+    return root / "policies"
+
+
 def load_slo(path: str | Path | None = None) -> dict[str, Any]:
     """Load + validate the versioned SLO file (fail-closed)."""
     import yaml  # type: ignore[import-untyped]  # same missing-stubs cause
     # as budgets/runbooks/policy (types-PyYAML absent); narrow, justified:
     # the SLOs MUST stay editable YAML per scope, single reader is here.
     if path is None:
-        path = Path(__file__).resolve().parents[3] / "policies" \
-            / "slo.yaml"
+        path = _policies_dir() / "slo.yaml"
     try:
         with open(path, encoding="utf-8") as handle:
             doc = yaml.safe_load(handle)

@@ -152,11 +152,29 @@ class TestDockerCompose:
         # c3cb09e): `COPY telemetry ./telemetry` ships only in the root image;
         # services/eval.py, benchmarks.py, adversarial.py import telemetry.gen
         # at boot. The backend/ context cannot reach ../telemetry either.
+        # Asset exceptions (same class, M20): `COPY policies ./policies` and
+        # `COPY runbooks ./runbooks` ship only in the root image. Without them
+        # app.paths.policies_dir() resolves to an empty /policies inside the
+        # container, so the policy engine, runbook grounding, and /alerts fail
+        # at runtime while host tests pass. Both sit outside the backend/
+        # build context, so backend/Dockerfile cannot legally COPY them.
+        # Writable-state exception (M07/M14/M20 durability): the
+        # `RUN mkdir -p /app/var && chown ...` line creates the non-root-owned
+        # state root for the API-key store, approvals, runs, audit chains, and
+        # the nonce journal. uid 10001 cannot mkdir inside /app, and backend/
+        # has no state dir of its own, so the line is root-context only. The
+        # compose named volume inherits this ownership when mounted.
+        # These are packaging-context exceptions, not permission relaxations:
+        # every safety directive (USER appuser, EXPOSE, HEALTHCHECK, CMD) is
+        # still required to match by the assertions below.
         def norm(name: str) -> list[str]:
             return [d.replace("backend/", "") for d in _docker_directives(name)
                     if not d.startswith("HEALTHCHECK")
                     and d != "COPY agents ./agents"
-                    and d != "COPY telemetry ./telemetry"]
+                    and d != "COPY telemetry ./telemetry"
+                    and d != "COPY policies ./policies"
+                    and d != "COPY runbooks ./runbooks"
+                    and not d.startswith("RUN mkdir -p /app/var")]
         assert norm("Dockerfile") == norm("backend/Dockerfile"), \
             f"Dockerfile drift:\n{norm('Dockerfile')}\nvs\n{norm('backend/Dockerfile')}"
         for name in ("Dockerfile", "backend/Dockerfile"):
