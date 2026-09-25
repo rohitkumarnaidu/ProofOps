@@ -326,12 +326,23 @@ silence would be its own lie.
 failure banners** — added after the SSE bug proved that "no console errors"
 and "no failures on screen" are different claims. All 15 clean.
 
-**What this round did not fix.** The UI still ships no JavaScript test runner,
-so everything above is host-side source assertions plus manual CDP browser
-verification. The browser harness that found four of these five defects lives
-outside the repo. That is the single highest-value piece of remaining Q2 debt:
-it is the difference between a UI whose tests can all pass while it is blank
-and one whose tests cannot.
+**What this round did not fix.** The UI still ships no JavaScript unit-test
+runner for component logic. That remains worth doing — but the *class* of bug
+that actually shipped here, a UI that renders nothing while every
+source-level assertion passes, is now covered by a command in the repository:
+`scripts/ui_browser_check.mjs` drives a real Chrome over CDP across 5 views ×
+3 viewports, wired into the suite by `tests/test_ui_browser_gate.py`, which
+skips rather than fails when the stack is down. It adds no dependency
+(Node's built-in `WebSocket`/`fetch`). It was validated by reproduction —
+reintroducing the empty API base *and* defeating the Dockerfile's `ARG`
+default so the bundle really compiled to an empty string made it exit 1 with
+the uncaught TypeError, and restoring the fix returned it to 0. The first
+attempt at that proof was invalid and worth recording: the code change alone
+was neutralised by the build default, and a loose regex in the probe
+misreported the plant as live. Two review lessons rode along with it — a
+reused browser profile serves the previous bundle, and a child-count check
+passes a half-rendered tree (`#root` had exactly one child, the skip link,
+with the entire operator UI gone).
 
 ---
 
