@@ -7,6 +7,20 @@ COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY index.html vite.config.ts tsconfig*.json ./
 COPY src ./src
+# Same-origin by default: the bundle uses the /api prefix and nginx proxies it
+# to the api service. VITE_API_URL stays overridable for a deliberately
+# split-origin deployment, but leaving it unset is the correct default -- an
+# absolute cross-origin URL cannot work here, because the backend ships no CORS
+# middleware and no OPTIONS preflight handler.
+# ARG defaults to /api, not "". An empty ARG is a real, reachable state that Vite
+# inlines verbatim, and the resulting same-origin-no-prefix bundle fetches the SPA
+# fallback for every API path (HTTP 200 + HTML -> {} -> blank white screen).
+# Defaulting the ARG to /api means the correct value is what you get by doing
+# nothing; an explicit override still wins for a deliberately split-origin deploy.
+ARG VITE_API_URL="/api"
+ARG VITE_PROOFOPS_API_KEY=""
+ENV VITE_API_URL=$VITE_API_URL
+ENV VITE_PROOFOPS_API_KEY=$VITE_PROOFOPS_API_KEY
 RUN npm run build
 
 # Unprivileged variant (not stock nginx:1.27-alpine): with `USER nginx`

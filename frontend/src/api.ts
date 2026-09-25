@@ -1,12 +1,23 @@
-const API_URL =
-  (import.meta.env.VITE_API_URL as string | undefined) ??
-  "http://localhost:8000";
+// Same-origin by default: nginx (compose) and the Vite dev server both proxy
+// /api/ to the backend. The old hardcoded http://localhost:8000 was
+// cross-origin from the browser on :5173, and the API ships no CORS middleware
+// and answers no OPTIONS preflight (405), so every request failed.
+//
+// Falsy-check, NOT `??`. A Dockerfile ARG defaults to "", not undefined, so
+// `?.trim() ?? "/api"` yields "" and every path silently loses its prefix. The
+// SPA fallback then answers /runs with HTTP 200 + HTML, response.json() fails,
+// the catch yields {}, and the run list does {}.map -> uncaught TypeError ->
+// blank white screen. That shipped once and passed every source-grep test.
+const configuredApiUrl = (import.meta.env.VITE_API_URL as string | undefined)?.trim();
+const API_URL = configuredApiUrl ? configuredApiUrl : "/api";
 
+// An unset key legitimately means "unauthenticated demo mode", so "" is the
+// correct end state here; only trim-vs-raw matters.
 const API_KEY =
   (import.meta.env.VITE_PROOFOPS_API_KEY as string | undefined)?.trim() ?? "";
 
 export function apiBase(): string {
-  return API_URL;
+  return API_URL.replace(/\/+$/, "");
 }
 
 export function hasApiKey(): boolean {

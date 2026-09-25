@@ -12,10 +12,10 @@
 > **Audited state:** `master` @ `6af0f5e` **plus the loop-F working tree**
 > (now committed as `b859c92`..`18d038a`). Nothing in this report is inferred
 > where it could be measured.
-> **Gates at write time (measured, this pass):** pytest **2804 passed, 1
+> **Gates at write time (measured, this pass):** pytest **2815 passed, 1
 > skipped** (the documented host starlette drift), ruff clean over 134 files,
 > mypy clean over 52 source files with `disallow_untyped_defs`, secret scan
-> PASS over 234 tracked files, `tsc --noEmit` clean, `oxlint` clean over 14
+> PASS over 236 tracked files, `tsc --noEmit` clean, `oxlint` clean over 14
 > frontend files.
 > **Runtime evidence (this pass, `python:3.12-slim` via compose):** all three
 > services healthy; `/healthz` and `/readyz` 200 with the DB probe passing;
@@ -24,6 +24,13 @@
 > chain and the approval queue both surviving `docker compose restart`;
 > `/metrics` emitting live counters; `/alerts` evaluating four SLOs; the SSE
 > replay stream returning real chained frames; the UI serving its bundle.
+> **Browser evidence (this pass, headless Chrome via CDP, cache disabled):**
+> all five views mounted with **zero** console errors or warnings, rendering two
+> real incidents in both the selector and the queue table; the Safety Gate
+> truthfully surfacing its own `HTTP 401` instead of faking an identity; SSE
+> streaming through the same-origin proxy; and no horizontal overflow at 360px
+> or 390px on any view. This pass is what caught the §1.3 white-screen P0 that
+> every static test and the dev server had passed.
 > **Still not proven:** anything needing a live Lyzr key, a browser, a second
 > user identity, or external infrastructure. Marked `[UNVERIFIED]` at the
 > point of use.
@@ -116,6 +123,71 @@ so after a restart every read 404'd a chain that demonstrably existed on the
 volume: the operator would be told there was no proof of a decision that had
 been decided and recorded. Fixed, with a memory-wipe reload test, and re-verified
 live — `valid=True checked=2` after `docker compose restart`.
+
+### §1.3 A third bug that only a real browser could find: the blank white screen
+
+**Severity: P0 — the shipped UI rendered nothing at all.** `#root` had zero
+children and the console showed `Uncaught TypeError: r.map is not a function`.
+Every deep link, at every viewport, on every page. The API was healthy the whole
+time, so no server-side check would ever have found it.
+
+The chain, each step verified in the built artifact:
+
+1. `frontend/Dockerfile` declared `ARG VITE_API_URL=""`. Vite inlines that as the
+   empty **string**, not `undefined`.
+2. `api.ts` resolved it with `?.trim() ?? "/api"`. `??` falls back only on
+   null/undefined, so `API_URL` stayed `""`.
+3. Every call became same-origin and prefix-less: `fetch("/runs")`.
+4. nginx serves the SPA fallback for unknown paths, so `/runs` answered
+   `index.html` with **HTTP 200**.
+5. `request()` does `await response.json().catch(() => ({}))` and raises only on
+   `!response.ok`. So 200 + HTML returned `{}` — a *success*, not an error.
+6. `setRuns({})` rendered `{}.map(...)` → TypeError → uncaught → blank page.
+
+The minified bundle proved it directly: `var Gn=``,Kn=``; … fetch(\`${Gn}${e}\`)`,
+i.e. the API base compiled to an empty string. After the fix the same probe
+reports ``var Gn=`/api` ``.
+
+**Why every existing test missed it.** The four `test_frontend_m19*.py` files are
+source-substring assertions. Steps 2–6 are runtime data flow; no amount of
+grepping evaluates them. The dev server also *passed*, because the env var is
+`undefined` there and `??` did fire — so "it works in dev" was actively
+misleading evidence. The new `tests/test_frontend_api_base.py` therefore
+**executes** the shipped resolution logic in Node across seven env shapes
+(unset / empty / whitespace / `/api` / trailing slashes / explicit override),
+stripping only TS annotations. Reintroducing `??` was verified to turn that suite
+red, so it is not a tautological guard.
+
+**Two defects, not one.** The cross-origin default (`http://localhost:8000` in a
+browser served from `:5173`, against an API with no CORS middleware and a `405`
+on OPTIONS preflight) was the trigger; the empty-string fallback was what made
+the same-origin repair silently ship as a white screen. Fixing only the first
+would have looked correct in review and been worse than the original in the
+browser. Fixed in both places, deliberately: the code coerces falsy → `/api`,
+and the `ARG` now *defaults to* `/api` so doing nothing is correct.
+
+### §1.4 A prior claim, measured and REFUTED
+
+The four-lane frontend audit asserted that layouts break at 360px from unwrapped
+long tokens and flex/grid children lacking `min-w-0`. **Not reproducible.** With
+cache disabled and a fresh profile, measuring `documentElement.scrollWidth`
+against `clientWidth` on all five views at 360×800 and 390×844:
+
+| view | viewport | scrollWidth | overflow |
+|---|---|---|---|
+| Command Center | 360 | 360 | no |
+| Incident | 360 | 360 | no |
+| Safety Gate | 360 | 360 | no |
+| Execution | 360 | 360 | no |
+| Audit & Eval | 360 | 360 | no |
+
+Recorded rather than quietly dropped: the static-analysis finding was plausible
+and wrong, and only a measurement could tell the difference. The *real* layout
+defects from that audit (no design tokens, a 610-line `SafetyGate`, missing
+state primitives) stand unrefuted and remain open work. One genuine gap this
+pass did confirm: the UI ships no JavaScript test runner, so nothing automated
+would have caught the white screen either — that is now recorded as Q2 debt
+alongside the per-key browser-key exposure.
 
 ---
 
