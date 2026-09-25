@@ -22,7 +22,19 @@ from app.contracts.enums import ACTION_TYPES  # noqa: E402 (M01.1 allowlist)
 from app.contracts.policy import PolicyDecision  # noqa: E402 (M01.8 canonical)
 from app.contracts.values import canonical_json, sha256_hex  # noqa: E402 (seal)
 
-POLICY_DIR = Path(__file__).resolve().parents[3] / "policies"
+def _policies_dir() -> Path:
+    """Policy bundle directory, resolved through app.paths.
+
+    A parents[N] guess resolved to /policies in the container image, which
+    the image never creates, so the policy engine failed to load its bundle at
+    evaluation time. app.paths resolves the directory the image actually
+    ships.
+    """
+    from app import paths
+    return paths.policies_dir()
+
+
+POLICY_DIR = _policies_dir()
 
 # Bundle schema (M06.4): fixed shape so malformed policy can never widen
 # authority. `when` keys are a closed set; values must name known vocabulary.

@@ -3,8 +3,19 @@ __pycache__/
 *.pyo
 .venv/
 venv/
+# Env files: every variant is secret EXCEPT the tracked templates, which the
+# deployer copies. `.env.example` (root and frontend) must stay visible.
 .env
 .env.local
+.env.*
+!.env.example
+!**/.env.example
+# Key/cert material must never reach the repository, even in a demo.
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
 # Runtime state (approvals/runs/audit/nonces/keys) — never committed.
 # Exception: *.example templates ARE tracked so operators know the shape.
 var/*
@@ -24,7 +35,17 @@ frontend/dist/
 runs/
 *.jsonl
 !**/suites/*.jsonl
+# Logs, including rotated ones (host runs produce backend.log.1, etc.).
 *.log
+*.log.*
+# Build/caches that only appear after a real dev run.
+*.tsbuildinfo
+.eslintcache
+.direnv/
+*.pid
+*.orig
+*.rej
+core
 .DS_Store
 Thumbs.db
 .vscode/

@@ -38,7 +38,18 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from app.contracts.runbook import Runbook  # noqa: E402 (M01.6 canonical)
 from app.contracts.values import canonical_json, sha256_hex  # noqa: E402
 
-RUNBOOK_DIR = Path(__file__).resolve().parents[3] / "runbooks"
+def _runbooks_dir() -> Path:
+    """Runbook directory, resolved through app.paths.
+
+    A parents[N] guess resolved to /runbooks in the container image, which the
+    image never creates, so the hash-pinned runbook loader found nothing at
+    runtime. app.paths resolves the directory the image actually ships.
+    """
+    from app import paths
+    return paths.runbooks_dir()
+
+
+RUNBOOK_DIR = _runbooks_dir()
 
 _ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}")
 _INT_RANGE_RE = re.compile(r"integer-(-?\d+)-(-?\d+)")

@@ -43,6 +43,13 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    # api_state is the runtime state root resolved by app.paths.state_dir()
+    # (/app/var in the image: the root context holds policies/ and runbooks/).
+    # It carries the API-key store, approvals, runs, audit chains, and the
+    # nonce journal. appuser cannot mkdir inside /app, so the image pre-creates
+    # and chowns /app/var; an empty named volume inherits that ownership.
+    volumes:
+      - api_state:/app/var
     # Explicit compose-level healthcheck mirroring the image HEALTHCHECK
     # (LACK-13 fix): `service_healthy` must not depend on an implicit image
     # contract. Same stdlib /healthz probe, same budgets as Dockerfile.
@@ -81,3 +88,4 @@ services:
 
 volumes:
   pgdata:
+  api_state:

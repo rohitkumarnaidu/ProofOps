@@ -20,6 +20,7 @@ from typing import Any, Callable, Mapping
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 
+from app import paths  # noqa: E402
 from agents import AGENTS  # noqa: E402 (M13 workforce map)
 from agents.schemas import (  # noqa: E402
     MAX_TOOLS_PER_AGENT,
@@ -191,7 +192,9 @@ def _fetch_runbook_provider(args: dict[str, Any]) -> dict[str, Any]:
     runbook_id = args["runbook_id"]
     if not isinstance(runbook_id, str) or not runbook_id.strip():
         raise ToolDenied("runbook_id must be a non-empty string")
-    return load_runbook(runbook_id).model_dump()
+    return load_runbook(
+        runbook_id, directory=paths.runbooks_dir()
+    ).model_dump()
 
 
 clear_providers()

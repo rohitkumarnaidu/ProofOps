@@ -28,6 +28,21 @@ COPY agents ./agents
 # Same failure class as the M14b agents/ line above. gen.py is stdlib-only
 # (hashlib/json/random/typing); .dockerignore does not exclude telemetry/.
 COPY telemetry ./telemetry
+# M20: the versioned policy bundles (slo.yaml, pricing.yaml, policy bundle)
+# and the sha256-pinned runbooks live at the repo root, outside the backend/
+# build context, so this root-context image must copy them explicitly --
+# without these lines app.paths.policies_dir() resolves to an empty /policies
+# and /alerts, the policy engine, and runbook grounding all fail at runtime
+# while every host test still passes. Same failure class as the agents/ and
+# telemetry/ lines above; mirrored as documented parity exceptions in
+# tests/test_repo_structure.py::test_backend_dockerfile_parity.
+COPY policies ./policies
+COPY runbooks ./runbooks
+# M07/M14/M20 durability: var/ holds the API-key store, approvals, runs, audit
+# chains, and the nonce journal. appuser (uid 10001) cannot mkdir inside
+# /app, so the writable state root is created and owned here and mounted as a
+# named volume by compose; an empty named volume inherits this ownership.
+RUN mkdir -p /app/var && chown appuser:appuser /app/var
 USER appuser
 EXPOSE 8000
 HEALTHCHECK --interval=10s --timeout=3s --start-period=15s --retries=3 CMD python -c "import sys,urllib.request; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/healthz', timeout=2).status == 200 else 1)"

@@ -14,6 +14,7 @@ from typing import Any, Iterable, Mapping
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 
+from app import paths  # noqa: E402
 from app.services.retrieval import (  # noqa: E402 (M12 retrieval)
     TOP_K,
     Doc,
@@ -42,7 +43,10 @@ def build_index(runbook_ids: Iterable[str] | None = None,
     ids = list(DEFAULT_SEEDS if runbook_ids is None else runbook_ids)
     if not ids:
         raise ValueError("runbook_ids must be non-empty")
-    docs = index_runbooks([load_runbook(runbook_id) for runbook_id in ids])
+    docs = index_runbooks([
+        load_runbook(runbook_id, directory=paths.runbooks_dir())
+        for runbook_id in ids
+    ])
     docs.extend(index_history(history_items))
     return docs
 

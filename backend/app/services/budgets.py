@@ -169,8 +169,8 @@ def load_pricing(path: str | Path | None = None) -> dict[str, Any]:
     # as runbooks/policy (types-PyYAML absent); narrow, justified: the table
     # MUST stay editable YAML per scope, and this is its single reader.
     if path is None:
-        path = Path(__file__).resolve().parents[3] / "policies" \
-            / "pricing.yaml"
+        from app import paths
+        path = paths.policies_dir() / "pricing.yaml"
     try:
         with open(path, encoding="utf-8") as handle:
             table = yaml.safe_load(handle)
