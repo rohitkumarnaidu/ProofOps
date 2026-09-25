@@ -35,4 +35,6 @@ These stay at `docs/` root because they are frozen M00–M01 contracts or live-r
 - `PS03_FINAL_SPEC_V2.md` is the only source of truth for behavior; all other docs must trace to it (directly or via `DECISIONS.md` bridge for frozen M00.2-M00.5).
 - Do not add new root docs without updating `tests/test_docs.py` canonical set.
 
-Maintained by: M00.6 docs foundation (96/100, locked).
+Maintained by: M00.6 docs foundation. Per-doc content is updated by whichever
+module changes the code it describes; the index row is the only thing this
+file owns.
