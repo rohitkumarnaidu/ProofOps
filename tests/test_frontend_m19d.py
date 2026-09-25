@@ -66,6 +66,28 @@ def test_interactive_targets_and_skip_link_have_source_basics() -> None:
 
 
 def test_errors_and_stream_updates_are_announced() -> None:
+    """Failures must be announced, not merely coloured.
+
+    The five views no longer each carry a literal role="alert" because the
+    announcing markup moved into the shared primitives. The invariant is now
+    asserted at both layers: the primitives really do emit an alert role, and
+    every view actually routes its failures through one of them (or declares
+    its own). Asserting only the primitive would let a view quietly stop
+    reporting errors at all; asserting only the view would have been the old
+    grep.
+    """
+    ui = source("components/ui.tsx")
+    assert 'role="alert"' in ui, (
+        "ErrorState and/or Notice must render role=alert; a failure that is only "
+        "coloured red is invisible to a screen reader"
+    )
+    # The alert role is only useful if it is actually announced, which needs an
+    # assertive live region alongside it.
+    assert '"assertive"' in ui, (
+        "the alert role must be paired with aria-live=assertive so assistive tech "
+        "announces the failure instead of only exposing it on navigation"
+    )
+
     for name in (
         "CommandCenter.tsx",
         "IncidentDetail.tsx",
@@ -74,7 +96,10 @@ def test_errors_and_stream_updates_are_announced() -> None:
         "RCAView.tsx",
     ):
         view = source(f"views/{name}")
-        assert 'role="alert"' in view
+        assert "ErrorState" in view or 'role="alert"' in view, (
+            f"{name} must surface failures through the ErrorState primitive or its "
+            "own role=alert element"
+        )
     for name in (
         "IncidentDetail.tsx",
         "SafetyGate.tsx",
@@ -137,13 +162,21 @@ def test_form_controls_have_programmatic_labels() -> None:
                 "matching <label htmlFor>; a control with a programmatic label is required"
             )
 
-    # The two ids the old test named still exist, now expressed as primitive props.
+    # The two ids the old test named still exist, now expressed as props on the
+    # shared Field primitive rather than hand-written label/input pairs. The
+    # label/control/description wiring is asserted above at the primitive.
     assert 'id="current-incident"' in source("App.tsx")
     assert 'id="new-incident"' in source("views/CommandCenter.tsx")
     gate = source("views/SafetyGate.tsx")
-    assert 'htmlFor="action-json"' in gate
-    assert 'htmlFor="approval-token"' in gate
-    assert 'aria-describedby="action-json-help"' in gate
+    assert "TextAreaField" in gate, (
+        "the Safety Gate's JSON and token inputs must use the TextAreaField "
+        "primitive so their label and hint wiring cannot drift"
+    )
+    assert 'id="action-json"' in gate
+    assert 'id="approval-token"' in gate
+    # The action-JSON hint is still required: it is what tells the operator the
+    # empty fields are deliberate rather than a bug.
+    assert "this view does not supply incident evidence or risk claims" in gate
 
 
 def test_tables_have_captions_scopes_and_overflow_containers() -> None:

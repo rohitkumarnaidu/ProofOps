@@ -12,11 +12,38 @@ import {
 import { ModeBadge } from "../components/badges";
 import { useIncidentEvents } from "../components/useIncidentEvents";
 import { useMode } from "../components/useMode";
+import {
+  Button,
+  EmptyState,
+  ErrorState,
+  KeyValue,
+  LoadingState,
+  Notice,
+  Panel,
+  StatusPill,
+  TextAreaField,
+  TextField,
+  type StatusTone,
+} from "../components/ui";
 
 interface GateIssue {
   status: number | null;
   title: string;
   detail: string;
+}
+
+/** Approval status -> tone. A decision that resolved is calm, an unresolved or
+    refused one is loud. Unknown statuses fall back to neutral rather than
+    borrowing a colour from a status that means something else. */
+const APPROVAL_TONE: Record<string, StatusTone> = {
+  approved: "ok",
+  denied: "danger",
+  expired: "warn",
+  pending: "warn",
+};
+
+function statusTone(status: string): StatusTone {
+  return APPROVAL_TONE[status.toLowerCase()] ?? "neutral";
 }
 
 function actionTemplate(incidentId: string): string {
@@ -307,9 +334,9 @@ export function SafetyGate() {
   }
 
   return (
-    <div className="p-6">
-      <div className="mb-4 flex flex-wrap items-center gap-3">
-        <h1 data-page-heading tabIndex={-1} className="text-xl font-bold">
+    <div className="mx-auto flex max-w-6xl flex-col gap-4">
+      <div className="flex flex-wrap items-center gap-3">
+        <h1 data-page-heading tabIndex={-1} className="text-xl font-bold tracking-tight">
           Safety Gate{incidentId === "" ? "" : ` · ${incidentId}`}
         </h1>
         <ModeBadge mode={mode} />
@@ -317,13 +344,14 @@ export function SafetyGate() {
           <span
             data-testid="mode-probing"
             aria-busy="true"
-            className="text-xs text-gray-500"
+            className="text-xs text-fg-subtle"
           >
             probing backend…
           </span>
         )}
       </div>
-      <p aria-live="polite" className="mb-3 text-xs text-gray-400">
+
+      <p aria-live="polite" className="text-xs text-fg-subtle">
         Event stream: {incidentEvents.connectionState}
         {incidentEvents.lastEventType === null
           ? ""
@@ -332,279 +360,273 @@ export function SafetyGate() {
           ? ""
           : ` · ${incidentEvents.lastEventId}`}
       </p>
+
       {incidentEvents.error !== "" && (
-        <p role="alert" className="mb-3 text-sm text-amber-300">
-          Event stream update failed: {incidentEvents.error}
-        </p>
+        <ErrorState title="Event stream update failed" detail={incidentEvents.error} />
       )}
+
       {!hasApiKey() && (
-        <p data-testid="api-key-notice" className="mb-3 text-sm text-amber-300">
+        <Notice tone="warn" testId="api-key-notice" live>
           {apiKeyStateLabel()}. Identity and approval mutations will return 401
           until VITE_PROOFOPS_API_KEY is set.
-        </p>
+        </Notice>
       )}
-      <section aria-labelledby="server-identity" className="mb-5 rounded border border-gray-800 p-3">
-        <h2 id="server-identity" className="mb-2 text-sm font-bold text-gray-200">
-          Server-derived identity
-        </h2>
+
+      <Panel
+        title="Server-derived identity"
+        description="Who the server thinks you are. This is the only identity that authorizes anything."
+      >
         {identityLoading ? (
-          <p aria-live="polite" className="text-sm text-gray-400">
-            Loading server identity…
-          </p>
+          <LoadingState label="Loading server identity" />
         ) : identityIssue !== null ? (
           <IssueMessage issue={identityIssue} />
         ) : identity !== null ? (
           <>
-            <dl className="grid gap-x-6 gap-y-1 text-sm sm:grid-cols-[max-content_1fr]">
-              <dt className="text-gray-400">Key id</dt>
-              <dd className="break-all">{identity.key_id}</dd>
-              <dt className="text-gray-400">Owner</dt>
-              <dd className="break-all">{identity.owner}</dd>
-              <dt className="text-gray-400">Server roles</dt>
-              <dd>{identity.roles.length === 0 ? "none" : identity.roles.join(", ")}</dd>
-              <dt className="text-gray-400">Identity mode</dt>
-              <dd>{identity.mode}</dd>
-            </dl>
+            <KeyValue
+              items={[
+                ["Key id", <span className="break-all">{identity.key_id}</span>],
+                ["Owner", <span className="break-all">{identity.owner}</span>],
+                [
+                  "Server roles",
+                  identity.roles.length === 0 ? (
+                    <StatusPill tone="warn">none</StatusPill>
+                  ) : (
+                    identity.roles.join(", ")
+                  ),
+                ],
+                ["Identity mode", identity.mode],
+              ]}
+            />
             {identity.mode === "bootstrap" && (
-              <p data-testid="demo-grade-identity" className="mt-2 text-xs text-amber-300">
+              <Notice tone="warn" testId="demo-grade-identity" className="mt-3">
                 Demo-grade bootstrap identity. This is not an authenticated user
                 identity and must not be presented as one.
-              </p>
+              </Notice>
             )}
           </>
         ) : null}
-      </section>
+      </Panel>
+
       {incidentId === "" && (
-        <p role="status" className="mb-4 text-sm text-amber-300">
+        <Notice tone="info" polite>
           Select a current incident before requesting an approval.
-        </p>
+        </Notice>
       )}
-      <div className="grid gap-6 lg:grid-cols-2">
-        <section aria-labelledby="request-approval">
-          <h2 id="request-approval" className="mb-1 text-sm font-bold text-gray-300">
-            1. Request approval
-          </h2>
-          <p className="mb-2 text-xs text-gray-400">
-            The server derives requester identity from the API key. Client actor
-            and role fields are not authorization controls.
-          </p>
-          <label htmlFor="action-json" className="mb-1 block text-xs text-gray-300">
-            Action JSON
-          </label>
-          <textarea
+
+      {/* items-start: without it the grid stretches the shorter panel to the
+          taller one's height, leaving a large dead area beside the form. */}
+      <div className="grid items-start gap-4 lg:grid-cols-2">
+        <Panel
+          title="1. Request approval"
+          description="The server derives requester identity from the API key. Client actor and role fields are not authorization controls."
+        >
+          <TextAreaField
+            label="Action JSON"
             id="action-json"
-            value={actionText}
-            onChange={(event) => setActionText(event.target.value)}
+            hint="Empty fields are intentional. The server validates the completed action; this view does not supply incident evidence or risk claims."
             rows={20}
             spellCheck={false}
-            aria-describedby="action-json-help"
-            className="w-full rounded border border-gray-700 bg-gray-900 p-2 font-mono text-xs"
+            value={actionText}
+            onChange={(event) => setActionText(event.target.value)}
           />
-          <p id="action-json-help" className="mt-1 text-xs text-gray-500">
-            Empty fields are intentional. The server validates the completed
-            action; this view does not supply incident evidence or risk claims.
-          </p>
-          <button
-            type="button"
-            onClick={() => void requestApproval()}
-            disabled={incidentId === "" || isRequesting}
-            className="mt-2 rounded bg-sky-700 px-3 py-1 text-sm font-bold hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            {isRequesting ? "Requesting…" : "Request approval"}
-          </button>
+          <div className="mt-3">
+            <Button
+              tone="primary"
+              onClick={() => void requestApproval()}
+              disabled={incidentId === "" || isRequesting}
+            >
+              {isRequesting ? "Requesting…" : "Request approval"}
+            </Button>
+          </div>
           {requestIssue !== null && (
             <div className="mt-3">
               <IssueMessage issue={requestIssue} />
             </div>
           )}
           {issuedApprovalId !== null && (
-            <p data-testid="issued-token" className="mt-2 break-all text-xs text-gray-400">
-              approval_id: {issuedApprovalId}. The token is held only in this
-              page's memory and is lost on reload.
-            </p>
+            <Notice tone="info" testId="issued-token" className="mt-3">
+              approval_id: <span className="break-all">{issuedApprovalId}</span>. The
+              token is held only in this page&apos;s memory and is lost on reload.
+            </Notice>
           )}
-        </section>
-        <section aria-labelledby="load-existing">
-          <h2 id="load-existing" className="mb-1 text-sm font-bold text-gray-300">
-            2. Load an existing approval (second operator)
-          </h2>
-          <p className="mb-2 text-xs text-gray-400">
-            A request raised by one operator cannot be approved by that same
-            operator on the per-key path. Load the approval id issued by the
-            requester, then paste the token they were given.
-          </p>
-          <div className="flex flex-col gap-2">
-            <input
-              type="text"
-              aria-label="Existing approval id"
+        </Panel>
+
+        <Panel
+          title="2. Load an existing approval (second operator)"
+          description="A request raised by one operator cannot be approved by that same operator on the per-key path. Load the approval id issued by the requester, then paste the token they were given."
+        >
+          <form
+            className="flex flex-col gap-3"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void loadExistingApproval();
+            }}
+          >
+            <TextField
+              label="Existing approval id"
+              id="load-approval-id"
               placeholder="approval id"
               value={loadApprovalId}
               onChange={(event) => setLoadApprovalId(event.target.value)}
-              className="rounded bg-gray-800 px-2 py-1 text-sm"
             />
-            <input
-              type="text"
-              aria-label="Existing approval token"
+            <TextField
+              label="Existing approval token"
+              id="load-approval-token"
               placeholder="token from the requester"
               value={loadToken}
               onChange={(event) => setLoadToken(event.target.value)}
-              className="rounded bg-gray-800 px-2 py-1 text-sm"
             />
-            <button
-              type="button"
-              data-testid="load-approval"
-              onClick={() => void loadExistingApproval()}
-              disabled={isLoadingApproval || loadApprovalId.trim() === ""}
-              className="self-start rounded bg-gray-700 px-3 py-1 text-sm font-bold hover:bg-gray-600 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              {isLoadingApproval ? "Loading…" : "Load approval"}
-            </button>
-          </div>
+            <div>
+              <Button
+                type="submit"
+                data-testid="load-approval"
+                disabled={isLoadingApproval || loadApprovalId.trim() === ""}
+              >
+                {isLoadingApproval ? "Loading…" : "Load approval"}
+              </Button>
+            </div>
+          </form>
           {loadIssue !== null && (
             <div className="mt-3">
               <IssueMessage issue={loadIssue} />
             </div>
           )}
-        </section>
-        <section aria-labelledby="approval-decision">
-          <h2 id="approval-decision" className="mb-1 text-sm font-bold text-gray-300">
-            3. Decide
-          </h2>
-          {pollIssue?.status === 404 && (
-            <p data-testid="approval-not-found" role="alert" className="mb-2 text-sm text-red-300">
-              Approval not found. The server has no record for this approval id.
-            </p>
-          )}
-          {view === null ? (
-            pollIssue === null ? (
-              expiredTerminal ? (
-                <p
-                  data-testid="approval-terminal"
-                  className="rounded border border-amber-900 p-2 text-sm text-amber-200"
-                >
-                  Terminal state: expired. The token was cleared and both
-                  actions are disabled.
-                </p>
-              ) : (
-                <p className="text-sm text-gray-400">
-                  No approval is loaded in this page state.
-                </p>
-              )
-            ) : null
-          ) : (
-            <div data-testid="approval-card" className="text-sm">
-              <p>
-                Status: <strong>{view.status}</strong> · TTL countdown:{" "}
-                <span data-testid="ttl-countdown">
-                  {Math.max(0, Math.round(view.seconds_remaining))}s remaining
-                </span>
-              </p>
-              <p className="break-all text-gray-400">
-                Incident: {view.incident_id} · Action: {view.action_id}
-              </p>
-              <p className="break-all text-gray-400">Server actor: {view.actor}</p>
-              <p className="break-all text-gray-400">Scope: {view.scope}</p>
-              <p className="break-all font-mono text-gray-400">
-                Params hash: {view.params_hash}
-              </p>
-              <p className="break-all text-gray-400">Expires: {view.expires_at}</p>
-              <p className="break-all text-gray-400">
-                Identity mode: {view.identity_mode} · Requester key:{" "}
-                {view.requester_key_id}
-              </p>
-              <p className="break-all text-gray-400">
-                Decided by: {view.decided_by ?? "not yet decided"} · SoD: {view.sod}
-              </p>
-              {(expiredTerminal || view.status === "expired") && (
-                <p
-                  data-testid="approval-terminal"
-                  className="mt-2 rounded border border-amber-900 p-2 text-amber-200"
-                >
-                  Terminal state: expired. The token was cleared and both actions
-                  are disabled.
-                </p>
+        </Panel>
+      </div>
+
+      <Panel title="3. Decide">
+        {pollIssue?.status === 404 && (
+          <Notice tone="danger" testId="approval-not-found" live className="mb-3">
+            Approval not found. The server has no record for this approval id.
+          </Notice>
+        )}
+        {view === null ? (
+          pollIssue === null ? (
+            expiredTerminal ? (
+              <Notice tone="warn" testId="approval-terminal" live>
+                Terminal state: expired. The token was cleared and both actions are
+                disabled.
+              </Notice>
+            ) : (
+              <EmptyState title="No approval is loaded in this page state." />
+            )
+          ) : null
+        ) : (
+          <div data-testid="approval-card">
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <StatusPill tone={statusTone(view.status)}>{view.status}</StatusPill>
+              <span
+                data-testid="ttl-countdown"
+                className="text-sm tabular-nums text-fg-muted"
+              >
+                TTL countdown: {Math.max(0, Math.round(view.seconds_remaining))}s
+                remaining
+              </span>
+            </div>
+            <KeyValue
+              items={[
+                ["Incident", <span className="break-all">{view.incident_id}</span>],
+                ["Action", <span className="break-all">{view.action_id}</span>],
+                ["Server actor", <span className="break-all">{view.actor}</span>],
+                ["Scope", <span className="break-all">{view.scope}</span>],
+                [
+                  "Params hash",
+                  <span className="break-all font-mono">{view.params_hash}</span>,
+                ],
+                ["Expires", <span className="break-all">{view.expires_at}</span>],
+                [
+                  "Identity mode",
+                  <span className="break-all">
+                    {view.identity_mode} · Requester key: {view.requester_key_id}
+                  </span>,
+                ],
+                [
+                  "Decided by",
+                  <span className="break-all">
+                    {view.decided_by ?? "not yet decided"} · SoD: {view.sod}
+                  </span>,
+                ],
+              ]}
+            />
+            {(expiredTerminal || view.status === "expired") && (
+              <Notice tone="warn" testId="approval-terminal" live className="mt-3">
+                Terminal state: expired. The token was cleared and both actions are
+                disabled.
+              </Notice>
+            )}
+            {!decidable && view.status === "pending" && view.seconds_remaining <= 0 && (
+              <Notice tone="warn" testId="ttl-expired" className="mt-3">
+                Approval TTL elapsed — request a fresh approval.
+              </Notice>
+            )}
+            <div className="mt-4 flex flex-col gap-3">
+              <TextAreaField
+                label="Approval token (page state only; lost on reload)"
+                id="approval-token"
+                rows={3}
+                spellCheck={false}
+                value={token}
+                onChange={(event) => setToken(event.target.value)}
+              />
+              {!serverHasApproverRole && (
+                <Notice tone="warn" testId="identity-cannot-decide" live>
+                  Server identity lacks the approver or admin role. Both decision
+                  actions are disabled; the server remains authoritative.
+                </Notice>
               )}
-              {!decidable && view.status === "pending" && view.seconds_remaining <= 0 && (
-                <p data-testid="ttl-expired" className="mt-1 text-xs text-amber-300">
-                  Approval TTL elapsed — request a fresh approval.
-                </p>
+              {serverHasApproverRole && token.trim() === "" && (
+                <Notice tone="warn">
+                  An issued token is required before deciding.
+                </Notice>
               )}
-              <div className="mt-2 flex flex-col gap-2">
-                <label htmlFor="approval-token" className="text-xs text-gray-300">
-                  Approval token (page state only; lost on reload)
-                </label>
-                <textarea
-                  id="approval-token"
-                  value={token}
-                  onChange={(event) => setToken(event.target.value)}
-                  rows={3}
-                  spellCheck={false}
-                  className="w-full resize-y break-all rounded border border-gray-700 bg-gray-900 p-2 font-mono text-xs"
-                />
-                {!serverHasApproverRole && (
-                  <p
-                    data-testid="identity-cannot-decide"
-                    className="text-xs text-amber-300"
-                  >
-                    Server identity lacks the approver or admin role. Both
-                    decision actions are disabled; the server remains authoritative.
-                  </p>
-                )}
-                {serverHasApproverRole && token.trim() === "" && (
-                  <p className="text-xs text-amber-300">
-                    An issued token is required before deciding.
-                  </p>
-                )}
-                {identityIsBootstrap && (
-                  <p
-                    data-testid="sod-bootstrap-warning"
-                    className="text-xs text-amber-300"
-                  >
-                    Bootstrap identity carries no server-side roles, so the
-                    server cannot attribute this decision to a person and
-                    separation of duties is not enforced. Deploy a per-key
-                    store (var/api_keys.json) for four-eyes control.
-                  </p>
-                )}
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => void decide("approve")}
-                    disabled={!decidable}
-                    className="rounded bg-green-700 px-3 py-1 text-sm font-bold hover:bg-green-600 disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    Approve
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void decide("reject")}
-                    disabled={!decidable}
-                    className="rounded bg-red-700 px-3 py-1 text-sm font-bold hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    Deny
-                  </button>
-                </div>
+              {identityIsBootstrap && (
+                <Notice tone="danger" testId="sod-bootstrap-warning" live>
+                  Bootstrap identity carries no server-side roles, so the server
+                  cannot attribute this decision to a person and separation of
+                  duties is not enforced. Deploy a per-key store
+                  (var/api_keys.json) for four-eyes control.
+                </Notice>
+              )}
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  tone="primary"
+                  onClick={() => void decide("approve")}
+                  disabled={!decidable}
+                >
+                  Approve
+                </Button>
+                <Button
+                  tone="danger"
+                  onClick={() => void decide("reject")}
+                  disabled={!decidable}
+                >
+                  Deny
+                </Button>
               </div>
             </div>
-          )}
-          {pollIssue !== null && pollIssue.status !== 404 && (
-            <div className="mt-3">
-              <IssueMessage issue={pollIssue} />
-            </div>
-          )}
-          {decisionIssue !== null && (
-            <div className="mt-3">
-              <IssueMessage issue={decisionIssue} />
-            </div>
-          )}
-          {view?.status === "approved" && (
-            <p className="mt-3 text-sm text-green-300">Approval resolved: approved.</p>
-          )}
-          {view?.status === "denied" && (
-            <p className="mt-3 text-sm text-red-300">Approval resolved: denied.</p>
-          )}
-        </section>
-      </div>
+          </div>
+        )}
+        {pollIssue !== null && pollIssue.status !== 404 && (
+          <div className="mt-3">
+            <IssueMessage issue={pollIssue} />
+          </div>
+        )}
+        {decisionIssue !== null && (
+          <div className="mt-3">
+            <IssueMessage issue={decisionIssue} />
+          </div>
+        )}
+        {view?.status === "approved" && (
+          <Notice tone="ok" className="mt-3">
+            Approval resolved: approved.
+          </Notice>
+        )}
+        {view?.status === "denied" && (
+          <Notice tone="danger" className="mt-3">
+            Approval resolved: denied.
+          </Notice>
+        )}
+      </Panel>
     </div>
   );
 }

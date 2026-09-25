@@ -14,6 +14,15 @@ import {
   useIncidentEvents,
 } from "../components/useIncidentEvents";
 import { useMode } from "../components/useMode";
+import {
+  Button,
+  EmptyState,
+  ErrorState,
+  LoadingState,
+  Notice,
+  Panel,
+  StatusPill,
+} from "../components/ui";
 
 const GATES = ["C1", "C2", "C3", "C4", "C5", "C6"] as const;
 
@@ -104,9 +113,9 @@ export function RCAView() {
     );
 
   return (
-    <div className="p-6">
-      <div className="mb-4 flex flex-wrap items-center gap-3">
-        <h1 data-page-heading tabIndex={-1} className="text-xl font-bold">
+    <div className="mx-auto flex max-w-6xl flex-col gap-4">
+      <div className="flex flex-wrap items-center gap-3">
+        <h1 data-page-heading tabIndex={-1} className="text-xl font-bold tracking-tight">
           Audit &amp; Evaluation {id}
         </h1>
         <ModeBadge mode={mode} />
@@ -114,36 +123,38 @@ export function RCAView() {
           <span
             data-testid="mode-probing"
             aria-busy="true"
-            className="text-xs text-gray-500"
+            className="text-xs text-fg-subtle"
           >
             probing backend…
           </span>
         )}
         {incidentState !== null && (
-          <span className="rounded bg-gray-800 px-2 py-0.5 text-xs font-bold">
-            {incidentState}
+          <span className="inline-flex">
+            <StatusPill tone="info">{incidentState}</StatusPill>
           </span>
         )}
         {chainValidity && (
-          <span
-            data-testid="audit-valid-badge"
-            className={
-              chainValidity.valid
-                ? "rounded bg-green-900 px-2 py-0.5 text-xs font-bold text-green-200"
-                : "rounded bg-red-900 px-2 py-0.5 text-xs font-bold text-red-200"
-            }
-          >
-            {chainValidity.valid ? "chain valid" : "chain INVALID"} ·{" "}
-            {chainValidity.checked} event{chainValidity.checked === 1 ? "" : "s"} ·{" "}
-            {chainValidity.origin}
+          <span data-testid="audit-valid-badge" className="inline-flex">
+            <StatusPill
+              tone={chainValidity.valid ? "ok" : "danger"}
+              title={`${chainValidity.checked} event(s) verified against the hash chain`}
+            >
+              {chainValidity.valid ? "chain valid" : "chain INVALID"} ·{" "}
+              {chainValidity.checked} event{chainValidity.checked === 1 ? "" : "s"} ·{" "}
+              {chainValidity.origin}
+            </StatusPill>
           </span>
         )}
       </div>
-      <p className="mb-3 text-sm text-gray-400">
+
+      {/* Scope honesty, stated on the view itself rather than only in the docs:
+          this is the audit + measurement surface, not a rendered RCA document. */}
+      <Notice tone="info">
         This view renders incident audit events and measured evaluation data. It
         does not render an RCA document.
-      </p>
-      <p aria-live="polite" className="mb-2 text-xs text-gray-400">
+      </Notice>
+
+      <p aria-live="polite" className="text-xs text-fg-subtle">
         Event stream: {incidentEvents.connectionState}
         {incidentEvents.lastEventType === null
           ? ""
@@ -152,114 +163,130 @@ export function RCAView() {
           ? ""
           : ` · ${incidentEvents.lastEventId}`}
       </p>
+
       {incidentEvents.error !== "" && (
-        <p role="alert" className="mb-3 text-sm text-amber-300">
-          Event stream update failed: {incidentEvents.error}
-        </p>
+        <ErrorState title="Event stream update failed" detail={incidentEvents.error} />
       )}
+
       {auditError !== "" && (
-        <div role="alert" data-testid="rca-error" className="mb-3 text-sm text-red-300">
-          <p>
-            {auditErrorStatus === 404
-              ? "Incident audit not found. "
-              : "Audit data unavailable. "}
-            {auditError}
-          </p>
+        <div data-testid="rca-error">
+          <ErrorState
+            title={auditErrorStatus === 404 ? "Incident audit not found" : "Audit data unavailable"}
+            detail={auditError}
+            onRetry={() => void load(true)}
+          />
         </div>
       )}
+
       {!hasApiKey() && (
-        <p data-testid="api-key-notice" className="mb-3 text-sm text-amber-300">
+        <Notice tone="warn" testId="api-key-notice" live>
           No API key is configured. Audit events may be readable, but the
           evaluation action will return 401.
-        </p>
+        </Notice>
       )}
-      <div className="mb-1 flex items-center justify-between gap-3">
-        <h2 className="text-sm font-bold text-gray-300">Audit events</h2>
-        <button
-          type="button"
-          onClick={() => void load(false)}
-          className="rounded border border-gray-700 px-3 py-1 text-sm"
-        >
-          Refresh audit
-        </button>
-      </div>
-      {isLoading ? (
-        <p
-          data-testid="rca-loading"
-          aria-busy="true"
-          className="mb-4 text-sm text-gray-400"
-        >
-          Loading audit events…
-        </p>
-      ) : auditError !== "" ? null : events.length === 0 ? (
-        <p data-testid="audit-empty" className="mb-4 text-sm text-gray-400">
-          No audit events were returned for this incident.
-        </p>
-      ) : (
-        <ol data-testid="audit-chain" className="mb-4 text-sm">
-          {events.map((event, index) => {
-            const eventId =
-              typeof event.event_id === "string" ? event.event_id : `row-${String(index)}`;
-            return (
-              <li
-                key={eventId}
-                className="max-w-full break-all border-t border-gray-800 py-1 font-mono text-xs"
-              >
-                #{String(event.seq ?? "—")} {String(event.event_type ?? "unknown")} —{" "}
-                {String(event.result ?? "")}
-              </li>
-            );
-          })}
-        </ol>
-      )}
-      <h2 className="mb-1 text-sm font-bold text-gray-300">
-        Six-gate scorecard (harness smoke, mock systems)
-      </h2>
-      <button
-        type="button"
-        onClick={() => void runSmoke()}
-        className="mb-2 rounded bg-sky-700 px-3 py-1 text-sm font-bold hover:bg-sky-600"
+
+      <Panel
+        title="Audit events"
+        description="Hash-chained, append-only. Each row links to its predecessor."
+        actions={
+          <Button size="sm" onClick={() => void load(false)}>
+            Refresh audit
+          </Button>
+        }
       >
-        Run smoke eval
-      </button>
-      {evaluationError !== "" && (
-        <p role="alert" className="mb-3 text-sm text-red-300">
-          Evaluation failed: {evaluationError}
-        </p>
-      )}
-      {smoke !== null && (
-        <div data-testid="gate-cards" className="text-sm">
-          <p className="text-gray-400">
-            {smoke.system} · {smoke.cases} cases · baseline{" "}
-            {smoke.baseline.pass_rate} → degraded {smoke.optimized.pass_rate}
-          </p>
-          <p>
-            Rubric total: <strong>{smoke.rubric.total_100}</strong> (mock
-            systems; pipeline-system numbers are never mixed into this response)
-          </p>
-          {showPerGate && (
-            <div
-              data-testid="per-gate-cards"
-              className="mt-2 grid gap-2 md:grid-cols-3"
-            >
-              {GATES.map((gate) => (
-                <div
-                  key={gate}
-                  data-testid={`gate-card-${gate}`}
-                  className="rounded border border-gray-800 px-2 py-1"
+        {isLoading ? (
+          <div data-testid="rca-loading" aria-busy="true">
+            <LoadingState label="Loading audit events" />
+          </div>
+        ) : auditError !== "" ? null : events.length === 0 ? (
+          <div data-testid="audit-empty">
+            <EmptyState title="No audit events were returned for this incident." />
+          </div>
+        ) : (
+          <ol data-testid="audit-chain" className="text-xs">
+            {events.map((event, index) => {
+              const eventId =
+                typeof event.event_id === "string"
+                  ? event.event_id
+                  : `row-${String(index)}`;
+              return (
+                <li
+                  key={eventId}
+                  className="max-w-full break-all border-b border-line py-1.5 font-mono last:border-b-0"
                 >
-                  <p className="font-bold">{gate}</p>
-                  <p className="text-gray-400">
-                    base {fmtGate(baseGates?.[gate])} → opt{" "}
-                    {fmtGate(optimizedGates?.[gate])} (Δ{" "}
-                    {fmtGate(smoke.delta[`d_${gate}`])})
-                  </p>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+                  <span className="mr-1.5 text-fg-subtle">
+                    #{String(event.seq ?? "—")}
+                  </span>
+                  <span className="font-semibold text-fg">
+                    {String(event.event_type ?? "unknown")}
+                  </span>
+                  {String(event.result ?? "") !== "" ? (
+                    <span className="text-fg-muted"> — {String(event.result)}</span>
+                  ) : null}
+                </li>
+              );
+            })}
+          </ol>
+        )}
+      </Panel>
+
+      <Panel
+        title="Six-gate scorecard (harness smoke, mock systems)"
+        description="Mock-system figures only; pipeline-system numbers are never mixed into this response."
+        actions={
+          <Button size="sm" tone="primary" onClick={() => void runSmoke()}>
+            Run smoke eval
+          </Button>
+        }
+      >
+        {evaluationError !== "" && (
+          <ErrorState title="Evaluation failed" detail={evaluationError} />
+        )}
+        {smoke === null ? (
+          <EmptyState
+            title="No evaluation run in this page state"
+            hint="Run the smoke eval to populate the six-gate scorecard."
+          />
+        ) : (
+          <div data-testid="gate-cards">
+            <p className="text-sm text-fg-muted">
+              {smoke.system} · {smoke.cases} cases · baseline{" "}
+              {smoke.baseline.pass_rate} → degraded {smoke.optimized.pass_rate}
+            </p>
+            <p className="mt-1 text-sm">
+              Rubric total:{" "}
+              <span className="font-bold tabular-nums">
+                {smoke.rubric.total_100}
+              </span>{" "}
+              (mock systems; pipeline-system numbers are never mixed into this
+              response)
+            </p>
+            {showPerGate && (
+              <div
+                data-testid="per-gate-cards"
+                className="mt-3 grid gap-2 md:grid-cols-3"
+              >
+                {GATES.map((gate) => (
+                  <div
+                    key={gate}
+                    data-testid={`gate-card-${gate}`}
+                    className="rounded border border-line bg-surface-raised px-2.5 py-1.5"
+                  >
+                    <p className="text-xs font-bold uppercase tracking-wide text-fg-muted">
+                      {gate}
+                    </p>
+                    <p className="mt-0.5 text-xs text-fg-muted">
+                      base {fmtGate(baseGates?.[gate])} → opt{" "}
+                      {fmtGate(optimizedGates?.[gate])} (Δ{" "}
+                      {fmtGate(smoke.delta[`d_${gate}`])})
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </Panel>
     </div>
   );
 }

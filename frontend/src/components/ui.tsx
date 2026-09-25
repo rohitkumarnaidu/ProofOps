@@ -147,8 +147,14 @@ export function Panel({
 }) {
   const Heading = `h${headingLevel}` as "h2" | "h3" | "h4";
   const hasHeader = Boolean(title || actions);
+  // A <section> without an accessible name is not exposed as a region at all,
+  // so every Panel labels itself from its own heading. The views used to do
+  // this by hand with aria-labelledby + a hand-written id per section, which
+  // is exactly the wiring that rots when a heading is reworded.
+  const headingId = useId();
   return (
     <section
+      aria-labelledby={title ? headingId : undefined}
       className={cx(
         "rounded-lg border border-line bg-surface",
         className,
@@ -158,7 +164,7 @@ export function Panel({
         <header className="flex flex-wrap items-start justify-between gap-2 border-b border-line px-4 py-3">
           <div className="min-w-0">
             {title ? (
-              <Heading className="text-sm font-bold tracking-wide text-fg">
+              <Heading id={headingId} className="text-sm font-bold tracking-wide text-fg">
                 {title}
               </Heading>
             ) : null}
@@ -301,7 +307,7 @@ export function TextAreaField({
           id={controlId}
           aria-describedby={describedBy}
           aria-invalid={error ? true : undefined}
-          className={cx(CONTROL, "min-h-24 font-mono", error && "border-danger", className)}
+          className={cx(CONTROL, "min-h-24 resize-y break-all font-mono", error && "border-danger", className)}
         />
       )}
     </FieldShell>
@@ -483,6 +489,69 @@ export function ErrorState({
         <Button tone="secondary" size="sm" onClick={onRetry}>
           {retryLabel}
         </Button>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * An inline, non-blocking message: a caveat, a degraded-mode notice, a
+ * condition the operator must know about before acting.
+ *
+ * Distinct from ErrorState (something failed, here is a retry) and from
+ * EmptyState (there is nothing here). The Safety Gate alone had eight of these
+ * hand-written as bare <p> elements, four of which were not announced at all --
+ * a screen reader user would have no idea a separation-of-duties warning was on
+ * screen. `live` opts into assertive announcement for the ones that change what
+ * an operator may safely do.
+ */
+export function Notice({
+  tone = "info",
+  title,
+  children,
+  testId,
+  live = false,
+  polite = false,
+  className,
+}: {
+  tone?: StatusTone;
+  title?: ReactNode;
+  children?: ReactNode;
+  testId?: string;
+  /** Assertive: something an operator must notice before acting. */
+  live?: boolean;
+  /** Polite status region: informational, announced without interrupting. */
+  polite?: boolean;
+  className?: string;
+}) {
+  const edge: Record<StatusTone, string> = {
+    ok: "border-ok",
+    warn: "border-warn",
+    danger: "border-danger",
+    info: "border-info",
+    neutral: "border-line-strong",
+  };
+  const heading: Record<StatusTone, string> = {
+    ok: "text-ok",
+    warn: "text-warn",
+    danger: "text-danger",
+    info: "text-info",
+    neutral: "text-fg-muted",
+  };
+  return (
+    <div
+      data-testid={testId}
+      role={live ? "alert" : polite ? "status" : undefined}
+      aria-live={live ? "assertive" : polite ? "polite" : undefined}
+      className={cx(
+        "rounded border bg-surface px-3 py-2 text-xs leading-relaxed",
+        edge[tone],
+        className,
+      )}
+    >
+      {title ? <p className={cx("font-bold", heading[tone])}>{title}</p> : null}
+      {children ? (
+        <div className={cx(Boolean(title) && "mt-1", "text-fg-muted")}>{children}</div>
       ) : null}
     </div>
   );

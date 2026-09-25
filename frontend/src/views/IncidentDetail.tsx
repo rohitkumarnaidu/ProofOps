@@ -7,6 +7,31 @@ import {
   useIncidentEvents,
 } from "../components/useIncidentEvents";
 import { useMode } from "../components/useMode";
+import {
+  EmptyState,
+  ErrorState,
+  KeyValue,
+  LoadingState,
+  Panel,
+  StatusPill,
+  type StatusTone,
+} from "../components/ui";
+
+/** Run state -> tone. Severity of the *operational* situation, not decoration:
+    a terminal state is calm, a failure state is loud. */
+const STATE_TONE: Record<string, StatusTone> = {
+  RESOLVED: "ok",
+  ROLLBACK: "warn",
+  ESCALATED: "danger",
+  BLOCKED: "danger",
+  AWAITING_APPROVAL: "warn",
+  EXECUTING: "info",
+  VERIFYING: "info",
+};
+
+function stateTone(state: string): StatusTone {
+  return STATE_TONE[state] ?? "neutral";
+}
 
 export function IncidentDetail() {
   const { id } = useParams<{ id: string }>();
@@ -51,9 +76,9 @@ export function IncidentDetail() {
   });
 
   return (
-    <div className="p-6">
-      <div className="mb-4 flex flex-wrap items-center gap-3">
-        <h1 data-page-heading tabIndex={-1} className="text-xl font-bold">
+    <div className="mx-auto flex max-w-6xl flex-col gap-4">
+      <div className="flex flex-wrap items-center gap-3">
+        <h1 data-page-heading tabIndex={-1} className="text-xl font-bold tracking-tight">
           Incident {id}
         </h1>
         <ModeBadge mode={mode} />
@@ -61,117 +86,134 @@ export function IncidentDetail() {
           <span
             data-testid="mode-probing"
             aria-busy="true"
-            className="text-xs text-gray-500"
+            className="text-xs text-fg-subtle"
           >
             probing backend…
           </span>
         )}
         {run !== null && (
-          <span
-            data-testid="run-state"
-            className="rounded bg-gray-800 px-2 py-0.5 text-xs font-bold"
-          >
-            {run.state}
+          <span data-testid="run-state" className="inline-flex">
+            <StatusPill tone={stateTone(run.state)}>{run.state}</StatusPill>
           </span>
         )}
       </div>
-      <p aria-live="polite" className="mb-2 text-xs text-gray-400">
+
+      {/* Connection state changes without the operator re-focusing anything, so
+          it is a polite live region rather than static text. */}
+      <p aria-live="polite" className="text-xs text-fg-subtle">
         Event stream: {events.connectionState}
         {events.lastEventType === null ? "" : ` · ${events.lastEventType}`}
         {events.lastEventId === null ? "" : ` · ${events.lastEventId}`}
       </p>
+
       {events.error !== "" && (
-        <p role="alert" className="mb-3 text-sm text-amber-300">
-          Event stream update failed: {events.error}
-        </p>
+        <ErrorState
+          title="Event stream update failed"
+          detail={events.error}
+        />
       )}
+
       {error !== "" && (
-        <div role="alert" data-testid="detail-error" className="text-sm text-red-300">
-          <p>
-            {errorStatus === 404 ? "Run not found. " : "Run unavailable. "}
-            {error}
-          </p>
+        <div data-testid="detail-error">
+          <ErrorState
+            title={errorStatus === 404 ? "Run not found" : "Run unavailable"}
+            detail={error}
+            onRetry={() => void load(true)}
+          />
         </div>
       )}
+
       {id !== undefined && (
-        <nav aria-label="Incident actions" className="mb-4 flex flex-wrap gap-3">
-          <Link
-            to={`/safety?incident_id=${encodeURIComponent(id)}`}
-            className="rounded bg-amber-900 px-3 py-1 text-sm text-amber-100 underline"
-          >
-            Open Safety Gate
-          </Link>
-          <Link
-            to={`/execution/${encodeURIComponent(id)}`}
-            className="rounded bg-gray-800 px-3 py-1 text-sm underline"
-          >
-            Open Execution
-          </Link>
-          <Link
-            to={`/rca/${encodeURIComponent(id)}`}
-            className="rounded bg-gray-800 px-3 py-1 text-sm underline"
-          >
-            Open Audit &amp; Evaluation
-          </Link>
+        <nav aria-label="Incident actions" className="flex flex-wrap gap-2">
+          {[
+            { to: `/safety?incident_id=${encodeURIComponent(id)}`, label: "Open Safety Gate", tone: "warn" },
+            { to: `/execution/${encodeURIComponent(id)}`, label: "Open Execution", tone: "info" },
+            { to: `/rca/${encodeURIComponent(id)}`, label: "Open Audit & Evaluation", tone: "info" },
+          ].map((link) => (
+            <Link
+              key={link.to}
+              to={link.to}
+              className={`rounded border px-3 py-1.5 text-sm font-medium no-underline transition-colors ${
+                link.tone === "warn"
+                  ? "border-warn bg-surface text-warn hover:bg-surface-raised"
+                  : "border-line bg-surface-raised text-fg hover:bg-line"
+              }`}
+            >
+              {link.label}
+            </Link>
+          ))}
         </nav>
       )}
+
       {isLoading ? (
-        <p
-          data-testid="detail-loading"
-          aria-busy="true"
-          className="text-sm text-gray-400"
-        >
-          Loading run…
-        </p>
+        <div data-testid="detail-loading" aria-busy="true">
+          <LoadingState label="Loading run" />
+        </div>
       ) : run !== null ? (
         <>
-          <p className="mb-2 text-sm text-gray-400">
-            Re-plans: {run.replans} · Rolled back:{" "}
-            {run.rolled_back ? "yes" : "no"} · Permit pending:{" "}
-            {run.permit_pending ? "yes" : "no"}
-          </p>
-          <h2 className="mb-1 text-sm font-bold text-gray-300">Timeline</h2>
-          {run.history.length === 0 ? (
-            <p className="text-sm text-gray-400">
-              No transitions yet — advance this run from the API.
-            </p>
-          ) : (
-            <ol data-testid="timeline" className="text-sm">
-              {run.history.map((history) => (
-                <li key={history.seq} className="border-t border-gray-800 py-1">
-                  <span className="text-gray-500">#{history.seq}</span>{" "}
-                  {history.frm} → {history.to}
-                  {history.reason !== "" && (
-                    <span className="text-gray-400"> — {history.reason}</span>
-                  )}
-                  {history.forced && (
-                    <span className="ml-2 rounded bg-red-900 px-1 text-xs">
-                      forced
+          <Panel title="Run summary">
+            <KeyValue
+              items={[
+                ["Re-plans", run.replans],
+                ["Rolled back", run.rolled_back ? "yes" : "no"],
+                ["Permit pending", run.permit_pending ? "yes" : "no"],
+              ]}
+            />
+          </Panel>
+
+          <Panel title="Timeline" description="Every state transition, in order.">
+            {run.history.length === 0 ? (
+              <EmptyState
+                title="No transitions yet"
+                hint="Advance this run from the API."
+              />
+            ) : (
+              <ol data-testid="timeline" className="text-sm">
+                {run.history.map((history) => (
+                  <li
+                    key={history.seq}
+                    className="border-b border-line py-2 last:border-b-0"
+                  >
+                    <span className="mr-2 text-xs tabular-nums text-fg-subtle">
+                      #{history.seq}
                     </span>
-                  )}
-                  {history.refs.length > 0 && (
-                    <span className="ml-2 inline-flex flex-wrap gap-1">
-                      {history.refs.map((reference) => (
-                        <span
-                          key={reference}
-                          data-testid="evidence-chip"
-                          title={reference}
-                          className="max-w-full break-all rounded bg-gray-800 px-1 text-xs text-sky-300"
-                        >
-                          {reference.length > 24
-                            ? `${reference.slice(0, 24)}…`
-                            : reference}
-                        </span>
-                      ))}
+                    <span className="font-medium">
+                      {history.frm} → {history.to}
                     </span>
-                  )}
-                </li>
-              ))}
-            </ol>
-          )}
+                    {history.reason !== "" && (
+                      <span className="text-fg-muted"> — {history.reason}</span>
+                    )}
+                    {history.forced && (
+                      <span className="ml-2 inline-flex align-middle">
+                        <StatusPill tone="danger" title="Forced transition">
+                          forced
+                        </StatusPill>
+                      </span>
+                    )}
+                    {history.refs.length > 0 && (
+                      <span className="ml-2 inline-flex flex-wrap gap-1 align-middle">
+                        {history.refs.map((reference) => (
+                          <span
+                            key={reference}
+                            data-testid="evidence-chip"
+                            title={reference}
+                            className="max-w-full break-all rounded border border-line bg-surface-raised px-1.5 py-0.5 text-xs text-accent"
+                          >
+                            {reference.length > 24
+                              ? `${reference.slice(0, 24)}…`
+                              : reference}
+                          </span>
+                        ))}
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ol>
+            )}
+          </Panel>
         </>
       ) : error === "" ? (
-        <p className="text-sm text-gray-400">No run data is available.</p>
+        <EmptyState title="No run data is available." />
       ) : null}
     </div>
   );

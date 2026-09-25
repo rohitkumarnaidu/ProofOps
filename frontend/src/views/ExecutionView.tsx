@@ -8,6 +8,13 @@ import {
   useIncidentEvents,
 } from "../components/useIncidentEvents";
 import { useMode } from "../components/useMode";
+import {
+  EmptyState,
+  ErrorState,
+  LoadingState,
+  Panel,
+  StatusPill,
+} from "../components/ui";
 
 export function ExecutionView() {
   const { id } = useParams<{ id: string }>();
@@ -79,9 +86,9 @@ export function ExecutionView() {
   );
 
   return (
-    <div className="p-6">
-      <div className="mb-4 flex flex-wrap items-center gap-3">
-        <h1 data-page-heading tabIndex={-1} className="text-xl font-bold">
+    <div className="mx-auto flex max-w-6xl flex-col gap-4">
+      <div className="flex flex-wrap items-center gap-3">
+        <h1 data-page-heading tabIndex={-1} className="text-xl font-bold tracking-tight">
           Execution {id}
         </h1>
         <ModeBadge mode={mode} />
@@ -89,165 +96,190 @@ export function ExecutionView() {
           <span
             data-testid="mode-probing"
             aria-busy="true"
-            className="text-xs text-gray-500"
+            className="text-xs text-fg-subtle"
           >
             probing backend…
           </span>
         )}
         {run !== null && (
-          <span
-            data-testid="exec-state"
-            className="rounded bg-gray-800 px-2 py-0.5 text-xs font-bold"
-          >
-            {run.state}
+          <span data-testid="exec-state" className="inline-flex">
+            <StatusPill tone="info">{run.state}</StatusPill>
           </span>
         )}
       </div>
-      <p aria-live="polite" className="mb-2 text-xs text-gray-400">
+
+      <p aria-live="polite" className="text-xs text-fg-subtle">
         Event stream: {events.connectionState}
         {events.lastEventType === null ? "" : ` · ${events.lastEventType}`}
         {events.lastEventId === null ? "" : ` · ${events.lastEventId}`}
       </p>
+
       {events.error !== "" && (
-        <p role="alert" className="mb-3 text-sm text-amber-300">
-          Event stream update failed: {events.error}
-        </p>
+        <ErrorState title="Event stream update failed" detail={events.error} />
       )}
+
       {error !== "" && (
-        <div role="alert" data-testid="exec-error" className="text-sm text-red-300">
-          <p>
-            {errorStatus === 404 ? "Run not found. " : "Execution data unavailable. "}
-            {error}
-          </p>
+        <div data-testid="exec-error">
+          <ErrorState
+            title={errorStatus === 404 ? "Run not found" : "Execution data unavailable"}
+            detail={error}
+          />
         </div>
       )}
+
       {isLoading ? (
-        <p
-          data-testid="exec-loading"
-          aria-busy="true"
-          className="text-sm text-gray-400"
-        >
-          Loading execution…
-        </p>
+        <div data-testid="exec-loading" aria-busy="true">
+          <LoadingState label="Loading execution" />
+        </div>
       ) : run !== null ? (
         <>
-          <h2 className="mb-1 text-sm font-bold text-gray-300">
-            Execution-phase timeline
-          </h2>
-          {phaseHistory.length === 0 ? (
-            <p data-testid="exec-empty" className="mb-4 text-sm text-gray-400">
-              This run has not reached execution yet — approve its action in
-              the Safety Gate first.
-            </p>
-          ) : (
-            <ol data-testid="exec-timeline" className="mb-4 text-sm">
-              {phaseHistory.map((history) => (
-                <li key={history.seq} className="border-t border-gray-800 py-1">
-                  <span className="text-gray-500">#{history.seq}</span>{" "}
-                  {history.frm} → {history.to}
-                  {history.forced && (
-                    <span className="ml-2 rounded bg-red-900 px-1 text-xs">
-                      forced
-                    </span>
-                  )}
-                </li>
-              ))}
-            </ol>
-          )}
-          <h2 className="mb-1 text-sm font-bold text-gray-300">State diff</h2>
-          <StateDiff diff={null} />
-          <p className="mt-1 text-xs text-gray-500">
-            No M21 execution or state-diff retrieval endpoint is exposed by the
-            current API, so no state transition is fabricated here.
-          </p>
-          <h2 className="mb-1 mt-4 text-sm font-bold text-gray-300">Rollback</h2>
-          {rollbackEligible ? (
-            <p data-testid="rollback-eligible" className="text-sm">
-              Rollback eligible: the control plane may perform its one governed
-              rollback attempt after verification failure. This view is
-              read-only.
-            </p>
-          ) : (
-            <p data-testid="rollback-ineligible" className="text-sm text-gray-400">
-              Rollback not available in state {run.state}
-              {rollbackAttempted ? " (already attempted once)" : ""}.
-            </p>
-          )}
-          <h2 className="mb-1 mt-4 text-sm font-bold text-gray-300">
-            Verification verdicts ({verdicts.length}, run_view slice)
-          </h2>
-          {verdicts.length === 0 ? (
-            <p
-              data-testid="verdicts-empty"
-              className="mb-4 text-sm text-gray-400"
-            >
-              No verification transitions recorded yet — verdicts appear here
-              once the run reaches VERIFYING.
-            </p>
-          ) : (
-            <ol data-testid="verdicts-list" className="mb-4 text-sm">
-              {verdicts.map((verdict) => (
-                <li key={verdict.seq} className="border-t border-gray-800 py-1">
-                  <span className="text-gray-500">#{verdict.seq}</span>{" "}
-                  {verdict.frm} → {verdict.to}
-                  {verdict.reason !== "" && (
-                    <span className="text-gray-400"> — {verdict.reason}</span>
-                  )}
-                </li>
-              ))}
-            </ol>
-          )}
-          <h2 className="mb-1 mt-4 text-sm font-bold text-gray-300">
-            Execution records ({executions.length}, audit-sourced)
-          </h2>
-          {executions.length === 0 ? (
-            <p
-              data-testid="exec-records-empty"
-              className="mb-4 text-sm text-gray-400"
-            >
-              No execution-phase audit records on file yet.
-            </p>
-          ) : (
-            <ol data-testid="exec-records" className="mb-4 text-sm">
-              {executions.map((record, index) => {
-                const seq = typeof record.seq === "number" ? record.seq : null;
-                const frm = typeof record.frm === "string" ? record.frm : "?";
-                const to = typeof record.to === "string" ? record.to : "?";
-                const reason =
-                  typeof record.reason === "string" ? record.reason : "";
-                const refs = Array.isArray(record.refs)
-                  ? record.refs.filter(
-                      (reference): reference is string =>
-                        typeof reference === "string",
-                    )
-                  : [];
-                return (
+          <Panel
+            title="Execution-phase timeline"
+            description="Transitions the run made through the execution phases."
+          >
+            {phaseHistory.length === 0 ? (
+              <div data-testid="exec-empty">
+                <EmptyState
+                  title="This run has not reached execution yet"
+                  hint="Approve its action in the Safety Gate first."
+                />
+              </div>
+            ) : (
+              <ol data-testid="exec-timeline" className="text-sm">
+                {phaseHistory.map((history) => (
                   <li
-                    key={seq ?? `row-${String(index)}`}
-                    className="border-t border-gray-800 py-1"
+                    key={history.seq}
+                    className="border-b border-line py-2 last:border-b-0"
                   >
-                    <span className="text-gray-500">#{seq ?? "—"}</span>{" "}
-                    {frm} → {to}
-                    {reason !== "" && (
-                      <span className="text-gray-400"> — {reason}</span>
-                    )}
-                    {refs.length > 0 && (
-                      <span className="ml-2 inline-flex flex-wrap gap-1">
-                        {refs.map((reference) => (
-                          <span
-                            key={reference}
-                            className="max-w-full break-all rounded bg-gray-800 px-1 text-xs text-sky-300"
-                          >
-                            {reference}
-                          </span>
-                        ))}
+                    <span className="mr-2 text-xs tabular-nums text-fg-subtle">
+                      #{history.seq}
+                    </span>
+                    <span className="font-medium">
+                      {history.frm} → {history.to}
+                    </span>
+                    {history.forced && (
+                      <span className="ml-2 inline-flex align-middle">
+                        <StatusPill tone="danger">forced</StatusPill>
                       </span>
                     )}
                   </li>
-                );
-              })}
-            </ol>
-          )}
+                ))}
+              </ol>
+            )}
+          </Panel>
+
+          {/* No execution or state-diff retrieval endpoint exists, so this panel
+              shows the honest null StateDiff rather than an invented one. */}
+          <Panel title="State diff">
+            <StateDiff diff={null} />
+            <p className="mt-2 text-xs text-fg-subtle">
+              No M21 execution or state-diff retrieval endpoint is exposed by the
+              current API, so no state transition is fabricated here.
+            </p>
+          </Panel>
+
+          <Panel title="Rollback">
+            {rollbackEligible ? (
+              <p data-testid="rollback-eligible" className="text-sm text-fg-muted">
+                Rollback eligible: the control plane may perform its one governed
+                rollback attempt after verification failure. This view is
+                read-only.
+              </p>
+            ) : (
+              <p data-testid="rollback-ineligible" className="text-sm text-fg-subtle">
+                Rollback not available in state {run.state}
+                {rollbackAttempted ? " (already attempted once)" : ""}.
+              </p>
+            )}
+          </Panel>
+
+          <Panel
+            title={`Verification verdicts (${verdicts.length}, run_view slice)`}
+            description="Exit status is not resolution; a verdict is the independent check."
+          >
+            {verdicts.length === 0 ? (
+              <div data-testid="verdicts-empty">
+                <EmptyState
+                  title="No verification transitions recorded yet"
+                  hint="Verdicts appear here once the run reaches VERIFYING."
+                />
+              </div>
+            ) : (
+              <ol data-testid="verdicts-list" className="text-sm">
+                {verdicts.map((verdict) => (
+                  <li
+                    key={verdict.seq}
+                    className="border-b border-line py-2 last:border-b-0"
+                  >
+                    <span className="mr-2 text-xs tabular-nums text-fg-subtle">
+                      #{verdict.seq}
+                    </span>
+                    <span className="font-medium">
+                      {verdict.frm} → {verdict.to}
+                    </span>
+                    {verdict.reason !== "" && (
+                      <span className="text-fg-muted"> — {verdict.reason}</span>
+                    )}
+                  </li>
+                ))}
+              </ol>
+            )}
+          </Panel>
+
+          <Panel
+            title={`Execution records (${executions.length}, audit-sourced)`}
+            description="Read from the hash-chained audit log, not from a live cluster."
+          >
+            {executions.length === 0 ? (
+              <div data-testid="exec-records-empty">
+                <EmptyState title="No execution-phase audit records on file yet." />
+              </div>
+            ) : (
+              <ol data-testid="exec-records" className="text-sm">
+                {executions.map((record, index) => {
+                  const seq = typeof record.seq === "number" ? record.seq : null;
+                  const frm = typeof record.frm === "string" ? record.frm : "?";
+                  const to = typeof record.to === "string" ? record.to : "?";
+                  const reason =
+                    typeof record.reason === "string" ? record.reason : "";
+                  const refs = Array.isArray(record.refs)
+                    ? record.refs.filter(
+                        (reference): reference is string =>
+                          typeof reference === "string",
+                      )
+                    : [];
+                  return (
+                    <li
+                      key={seq ?? `row-${String(index)}`}
+                      className="border-b border-line py-2 last:border-b-0"
+                    >
+                      <span className="mr-2 text-xs tabular-nums text-fg-subtle">
+                        #{seq ?? "—"}
+                      </span>
+                      <span className="font-medium">
+                        {frm} → {to}
+                      </span>
+                      {reason !== "" && (
+                        <span className="text-fg-muted"> — {reason}</span>
+                      )}
+                      {refs.length > 0 && (
+                        <span className="ml-2 inline-flex flex-wrap gap-1 align-middle">
+                          {refs.map((reference) => (
+                            <span
+                              key={reference}
+                              className="max-w-full break-all rounded border border-line bg-surface-raised px-1.5 py-0.5 text-xs text-accent"
+                            >
+                              {reference}
+                            </span>
+                          ))}
+                        </span>
+                      )}
+                    </li>
+                  );
+                })}
+              </ol>
+            )}
+          </Panel>
         </>
       ) : null}
     </div>
