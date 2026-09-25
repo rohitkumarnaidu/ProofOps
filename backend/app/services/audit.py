@@ -167,6 +167,21 @@ class AuditChain:
         linked = AuditEvent.model_validate(
             {**event.model_dump(), "curr_hash": link(prev, event)})
         self._events.append(linked)
+        # Fan out to live subscribers. `emit` is the single choke point every
+        # audit event passes through -- including the FSM transitions that
+        # `record_fsm` ingests -- so this is the one place that has to know
+        # that "something happened".
+        #
+        # The RAW event is published, not a stream frame: SSE framing belongs to
+        # the stream router, and a service importing a router would invert the
+        # layering (stream already imports audit). Publishing is a no-op when
+        # nobody is subscribed (tests, headless API use) and never raises, so
+        # audit emission itself can never fail because a reader went away.
+        try:
+            from app.services import eventbus
+            eventbus.publish(self.incident_id, linked.model_dump(mode="json"))
+        except Exception:  # pragma: no cover - live push must never break audit
+            pass
         return linked
 
     def verify(self) -> dict[str, Any]:

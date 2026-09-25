@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { ApiError, runsApi } from "../api";
+import { ApiError, orchestratorApi, runsApi, type OrchestratorState } from "../api";
 import { ModeBadge } from "../components/badges";
 import {
   Button,
@@ -8,7 +8,9 @@ import {
   EmptyState,
   ErrorState,
   LoadingState,
+  Notice,
   Panel,
+  StatusPill,
   TextField,
   type Column,
 } from "../components/ui";
@@ -33,7 +35,12 @@ const COLUMNS: Array<Column<RunSummary>> = [
       </Link>
     ),
   },
-  { key: "state", header: "State", render: (run) => run.state },
+  {
+    key: "state",
+    header: "State",
+    // The state IS the live signal, so it gets a pill rather than plain text.
+    render: (run) => <StatusPill tone={toneFor(run.state)}>{run.state}</StatusPill>,
+  },
   {
     key: "transitions",
     header: "Transitions",
@@ -41,6 +48,18 @@ const COLUMNS: Array<Column<RunSummary>> = [
     render: (run) => run.history_len,
   },
 ];
+
+/** Run state -> tone. Waiting on a human is amber, not red: nothing is broken. */
+function toneFor(state: string): "ok" | "warn" | "danger" | "info" | "neutral" {
+  if (state === "RESOLVED" || state === "AUDITED") return "ok";
+  if (state === "AWAITING_APPROVAL" || state === "ROLLBACK") return "warn";
+  if (state === "ESCALATED" || state === "BLOCKED") return "danger";
+  if (state === "EXECUTING" || state === "VERIFYING") return "info";
+  return "neutral";
+}
+
+/** How often to ask the worker whether it did anything. Cheap, read-only. */
+const WORKER_POLL_MS = 4000;
 
 export function CommandCenter() {
   const mode = useMode();
@@ -50,8 +69,12 @@ export function CommandCenter() {
   const [creating, setCreating] = useState("");
   const [newId, setNewId] = useState("");
   const [isLoading, setIsLoading] = useState(true);
+  const [worker, setWorker] = useState<OrchestratorState | null>(null);
+  // Tracks the worker's submitted counter so the run list is re-fetched only
+  // when the control plane actually did something.
+  const lastSubmitted = useRef<number | null>(null);
 
-  async function refresh() {
+  const refresh = useCallback(async () => {
     setIsLoading(true);
     try {
       setRuns(await runsApi.list());
@@ -64,11 +87,40 @@ export function CommandCenter() {
     } finally {
       setIsLoading(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
     void refresh();
-  }, []);
+  }, [refresh]);
+
+  // The liveness loop. Polls the worker's counters; when `submitted` changes,
+  // the queue is re-fetched. This is what makes the page alive without a
+  // reload: incidents now arrive and advance on their own.
+  useEffect(() => {
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const state = await orchestratorApi.state();
+        if (cancelled) return;
+        setWorker(state);
+        if (lastSubmitted.current !== null &&
+            lastSubmitted.current !== state.submitted) {
+          await refresh();
+        }
+        lastSubmitted.current = state.submitted;
+      } catch {
+        // A failed poll is not a page-level failure: the run list is still
+        // valid, and a loud banner for a transient blip would be noise.
+        if (!cancelled) setWorker(null);
+      }
+    };
+    void tick();
+    const timer = window.setInterval(() => void tick(), WORKER_POLL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [refresh]);
 
   async function create() {
     const incidentId = newId.trim();
@@ -84,6 +136,7 @@ export function CommandCenter() {
   }
 
   const hasVisibleError = error !== "" || creating !== "";
+  const awaitingHuman = runs.filter((r) => r.state === "AWAITING_APPROVAL").length;
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-4">
@@ -101,7 +154,33 @@ export function CommandCenter() {
             probing backend…
           </span>
         )}
+        {worker !== null && (
+          <span data-testid="worker-status" className="inline-flex items-center gap-2">
+            <StatusPill
+              tone={worker.running && worker.enabled ? "ok" : "neutral"}
+              title={worker.note}
+            >
+              {worker.running && worker.enabled ? "worker live" : "worker stopped"}
+            </StatusPill>
+            <span className="text-xs text-fg-subtle">
+              {worker.processed + worker.stalled + worker.blocked} processed
+              {awaitingHuman > 0 ? ` · ${awaitingHuman} awaiting human` : ""}
+            </span>
+          </span>
+        )}
       </div>
+
+      {/* Honest about what is real and what is scripted. The worker never
+          approves, so "awaiting human" is the expected resting state, not a
+          stall. */}
+      {worker !== null && worker.mode === "scripted-oracle" && (
+        <Notice tone="info" testId="oracle-notice">
+          Agent reasoning is <strong>scripted-oracle</strong> (no Lyzr key
+          configured). The validator, policy engine, FSM, sandbox, verifier and
+          hash-chained audit are real, and the worker never approves anything —
+          incidents stop at <code>AWAITING_APPROVAL</code> for a human.
+        </Notice>
+      )}
 
       {error !== "" && (
         <div data-testid="queue-error">
@@ -115,7 +194,7 @@ export function CommandCenter() {
 
       <Panel
         title="Open a run"
-        description="A run is the control-plane record for one incident. Creating one here is a real server-side mutation."
+        description="Seeds an incident for the orchestrator to drive. Leave it to the worker if you want the full real-time path."
       >
         <form
           className="flex flex-wrap items-end gap-2"
@@ -132,8 +211,6 @@ export function CommandCenter() {
             value={newId}
             onChange={(event) => setNewId(event.target.value)}
           />
-          {/* submit, not a click handler: the field is in a form, so Enter now
-              does the obvious thing and a future browser autofill works. */}
           <Button type="submit" tone="primary" disabled={newId.trim() === ""}>
             Open run
           </Button>
@@ -153,11 +230,14 @@ export function CommandCenter() {
         <div data-testid="queue-empty">
           <EmptyState
             title="No open runs"
-            hint="Create one above, or seed the demo backend first."
+            hint="The orchestrator seeds incidents on its own. Create one above if you want to drive a specific id."
           />
         </div>
       ) : (
-        <Panel>
+        <Panel
+          title="Open incident runs"
+          description="Updated live: this list re-fetches whenever the control plane does work."
+        >
           <DataTable
             testId="queue-table"
             caption="Open incident runs"

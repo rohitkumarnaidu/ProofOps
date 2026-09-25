@@ -1,6 +1,7 @@
 """ProofOps control-plane API (T01 skeleton; routes land per T02+)."""
 import time  # noqa: E402  (Lane 2: middleware latency clock)
 from collections.abc import Awaitable, Callable  # noqa: E402  (Lane 2)
+from typing import Any  # noqa: E402  (M19b lifespan signature)
 
 from fastapi import FastAPI, Request  # noqa: E402  (Lane 2: Request shape)
 from fastapi.responses import JSONResponse, PlainTextResponse, Response  # noqa: E402  (Lane 2)
@@ -8,6 +9,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse, Response  # noqa:
 from app.config import get_settings  # noqa: E402  (M00.2 trust boundary)
 from app.health import readiness  # noqa: E402  (M00.4 readiness probes)
 from app.logging_setup import configure_logging, get_logger  # noqa: E402 (M00.5)
+from app.routers import ingest as ingest_router  # noqa: E402
 from app.routers import runs as runs_router  # noqa: E402  (M14b runs router)
 from app.routers import audit as audit_router  # noqa: E402  (M15b audit router)
 from app.routers import approvals as approvals_router  # noqa: E402  (M19a)
@@ -31,7 +33,43 @@ configure_logging(settings.LOG_LEVEL,
                            settings.DATABASE_URL))
 logger = get_logger(__name__)
 
-app = FastAPI(title="ProofOps", version="0.1.0")
+
+async def _lifespan(application: Any) -> Any:
+    """Start/stop the live incident orchestrator.
+
+    This is the change that makes the product real-time. Until now the pipeline
+    existed but nothing called it, so every state transition an operator saw
+    was one they had triggered by hand via `POST /runs/{id}/advance` -- the
+    product was static by construction, not merely slow.
+
+    The worker runs in-process (see ADR: single-replica demo topology) and
+    drives incidents through the REAL pipeline. It never approves anything: a
+    YELLOW action routes to AWAITING_APPROVAL and stops there for a human.
+
+    Shutdown is explicit and bounded. A cancelled worker must not leave a run
+    half-advanced, so cancellation propagates and the task is awaited; the
+    pipeline's own state is persisted by the time it returns, and a run
+    interrupted mid-flight is simply left in its last recorded state, which is
+    auditable rather than silently lost.
+    """
+    from app.services import orchestrator as orchestrator_mod
+    worker = orchestrator_mod.ORCHESTRATOR
+    try:
+        await worker.start()
+        logger.info("orchestrator started mode=%s auto_generate=%s",
+                    worker.stats.mode, worker.auto_generate)
+    except Exception:  # a dead worker must not stop the API from serving
+        logger.exception("orchestrator failed to start; API continues without it")
+    try:
+        yield
+    finally:
+        try:
+            await worker.stop()
+        except Exception:  # pragma: no cover
+            logger.exception("orchestrator failed to stop cleanly")
+
+
+app = FastAPI(title="ProofOps", version="0.1.0", lifespan=_lifespan)
 # M14b (deliberate minimal touch to the M00.1-locked file, like M00.2): wire
 # the runs router. Guarded: host starlette drift leaves runs.router None
 # (unit/structure tests only there); the container wires it. /healthz body
@@ -65,6 +103,11 @@ except ImportError:
 if stream_router is not None and \
         getattr(stream_router, "router", None) is not None:
     app.include_router(stream_router.router)
+# M19b: alert ingestion + orchestrator control. The front door for incidents --
+# without it, a run can only be created by hand.
+if ingest_router is not None and \
+        getattr(ingest_router, "router", None) is not None:
+    app.include_router(ingest_router.router)
 # Public values only (APP_ENV/LOG_LEVEL/EXECUTOR are non-secret by contract).
 logger.info("proofops api starting env=%s level=%s executor=%s",
             settings.APP_ENV, settings.LOG_LEVEL, settings.EXECUTOR)

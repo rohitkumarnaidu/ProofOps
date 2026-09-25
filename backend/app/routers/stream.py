@@ -23,6 +23,7 @@ asserted via AST (same pattern as routers/runs.py). Exposes ``router``
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import sys
 from pathlib import Path
@@ -106,6 +107,19 @@ def filter_after(items: Sequence[Mapping[str, Any]],
                 or item.get("audit_event_id") == since:
             return ordered[index + 1:]
     raise StreamCursorUnknown(f"unknown stream cursor: {since!r}")
+
+
+def _seq_of(item: Mapping[str, Any]) -> int:
+    """The chain's own ordinal for a stream item (0 when absent/unparseable).
+
+    This is the only sound way to order live events: `audit_event_id` is a
+    content hash, so its lexicographic order has nothing to do with the order
+    the events were appended in.
+    """
+    try:
+        return int(item.get("seq", 0) or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def format_sse(item: Mapping[str, Any]) -> str:
@@ -194,19 +208,101 @@ def _guarded(fn: Any, *args: Any, **kwargs: Any) -> Any:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+#: Comment frame cadence. Proxies and load balancers close an idle connection,
+#: and a client cannot tell "quiet" from "dead" without a heartbeat. This is
+#: well under the common 30-60s idle timeouts and keeps the connection warm.
+KEEPALIVE_SECONDS = 15.0
+
+#: Upper bound on one connection's lifetime. A browser tab left open for days
+#: should not pin a task forever; the client reconnects with Last-Event-ID and
+#: loses nothing, because the chain is replayable from any cursor.
+MAX_CONNECTION_SECONDS = 3600.0
+
+
+def _live_frames(incident_id: str, since: str | None) -> Any:
+    """Replay the backlog, then hold the connection open and push live events.
+
+    A plain function returning an async generator, NOT an `async def`: the
+    StreamingResponse needs the generator itself, and awaiting a coroutine here
+    would hand it a coroutine instead.
+
+    The two halves matter and are ordered deliberately:
+
+    1. Subscribe FIRST, then read the backlog. The reverse order has a real
+       race -- an event emitted between the backlog read and the subscribe
+       would be lost, and the client would never learn it missed one. Reading
+       the backlog after subscribing means any overlap is de-duplicated by the
+       seq check below rather than dropped.
+    2. De-duplicate on the chain's `seq`, because that overlap is expected and
+       harmless once filtered.
+    3. Then stream, with periodic keepalive comments, until the client goes
+       away or MAX_CONNECTION_SECONDS is reached.
+    """
+    from app.services import eventbus
+
+    async def _generate() -> Any:
+        # Inside the generator, so this runs on the event loop.
+        loop = asyncio.get_running_loop()
+        subscription = eventbus.BUS.subscribe(incident_id, loop)
+        last_seq = 0
+        try:
+            # Validate existence/cursor exactly as the replay-only path did, so
+            # a 404/400 still happens before any streaming begins.
+            backlog = _guarded(list_stream_items, incident_id, since)
+            for item in backlog:
+                last_seq = max(last_seq, _seq_of(item))
+                yield format_sse(item)
+            yield format_replay_complete(len(backlog))
+
+            deadline = loop.time() + MAX_CONNECTION_SECONDS
+            while True:
+                remaining = deadline - loop.time()
+                if remaining <= 0:
+                    # Clean close; the client reconnects with its cursor.
+                    return
+                try:
+                    raw = await asyncio.wait_for(
+                        subscription.get(), timeout=min(KEEPALIVE_SECONDS, remaining))
+                except (asyncio.TimeoutError, TimeoutError):
+                    # Comment frame: keeps proxies and the client's own
+                    # liveness check happy without inventing an event.
+                    yield ": keepalive\n\n"
+                    continue
+                item = to_stream_item(raw)
+                # Order by the chain's own `seq`, NEVER by comparing event ids.
+                # Ids are content hashes: lexicographic order is unrelated to
+                # emission order, so an id comparison would silently drop live
+                # events whose hash happens to sort lower.
+                seq = _seq_of(item)
+                if seq and seq <= last_seq:
+                    continue  # already delivered in the backlog
+                last_seq = max(last_seq, seq)
+                yield format_sse(item)
+        finally:
+            eventbus.BUS.unsubscribe(subscription)
+
+    return _generate()
+
+
 def http_stream(incident_id: str,
                 since: str | None = None) -> Any:
-    """SSE replay: ``GET /stream/incidents/{id}[?since=event_id]`` (open).
+    """SSE: ``GET /stream/incidents/{id}[?since=event_id]`` (live, open).
 
-    ``since`` is a query param (FastAPI binds it); the frontend subscriber
-    advances it per ``audit_event_id`` frame. Returns
-    ``text/event-stream``; unknown incidents 404, unknown cursors 400.
+    Replays the backlog, emits a ``replay-complete`` sentinel, then HOLDS the
+    connection open and pushes each new audit event as it is appended. Unknown
+    incidents 404, unknown cursors 400. A client that reconnects passes its last
+    seen ``audit_event_id`` and resumes with no gap and no duplicate.
     """
-    items = _guarded(list_stream_items, incident_id, since)
     return StreamingResponse(
-        _sse_frames(items),
+        _live_frames(incident_id, since),
         media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            # Tell nginx not to buffer and not to time the connection out early;
+            # the long read timeout here must match the keepalive cadence.
+            "Connection": "keep-alive",
+        })
 
 
 if router is not None:  # container path; host asserts wiring via AST

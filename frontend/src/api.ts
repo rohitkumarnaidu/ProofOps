@@ -273,3 +273,38 @@ export const evalApi = {
       body: JSON.stringify({ confirm: true }),
     }),
 };
+
+/* -------------------------------------------------------------------------- */
+/* Orchestrator (M19b real-time control plane)                                 */
+/* -------------------------------------------------------------------------- */
+
+export interface OrchestratorState {
+  running: boolean;
+  enabled: boolean;
+  /** "scripted-oracle" unless a live Lyzr key is configured. */
+  mode: string;
+  auto_generate: boolean;
+  submitted: number;
+  processed: number;
+  blocked: number;
+  stalled: number;
+  failed: number;
+  duplicates_suppressed: number;
+  last_incident: string;
+  last_outcome: string;
+  queue_depth: number;
+  note: string;
+}
+
+/**
+ * The worker's own state.
+ *
+ * Polled rather than streamed because it is one small object and the
+ * interesting signal is a counter moving, not an event arriving. The Command
+ * Center uses `submitted` as a cheap change-detector: when it moves, the run
+ * list is re-fetched. That keeps the queue view live without continuously
+ * polling the expensive endpoint or opening a stream per incident.
+ */
+export const orchestratorApi = {
+  state: () => request<OrchestratorState>("/orchestrator"),
+};

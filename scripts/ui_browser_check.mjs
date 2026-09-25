@@ -32,10 +32,10 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 const BASE = (process.env.PROOFOPS_UI_URL || "http://127.0.0.1:5173").replace(/\/+$/, "");
+const API = (process.env.PROOFOPS_API_URL || BASE).replace(/\/+$/, "");
 const AS_JSON = process.argv.includes("--json");
-const SHOTS = process.argv.includes("--shots")
-  ? process.argv[process.argv.indexOf("--shots") + 1]
-  : null;
+const shotIndex = process.argv.indexOf("--shots");
+const SHOTS = shotIndex === -1 ? null : process.argv[shotIndex + 1];
 const CHROME = process.env.PROOFOPS_CHROME
   || [
     "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
@@ -47,14 +47,36 @@ const CHROME = process.env.PROOFOPS_CHROME
 
 const DEBUG_PORT = Number(process.env.PROOFOPS_CDP_PORT || 9411);
 
-// The five MVP views, keyed by the route the UI actually serves (HashRouter).
-const VIEWS = [
+// The five MVP views. `%INCIDENT%` is substituted at run time.
+//
+// The incident id is DISCOVERED, never hardcoded. Pinning a literal id made
+// this gate report 15 failures on a perfectly healthy system the moment that
+// one run aged out of the store -- a gate that fails for reasons unrelated to
+// the code under test trains people to ignore it, which is worse than not
+// having it.
+const VIEW_TEMPLATES = [
   ["command-center", "/"],
-  ["incident", "/#/incidents/inc-live-1"],
-  ["safety-gate", "/#/safety?incident_id=inc-live-1"],
-  ["execution", "/#/execution/inc-live-1"],
-  ["audit-eval", "/#/rca/inc-live-1"],
+  ["incident", "/#/incidents/%INCIDENT%"],
+  ["safety-gate", "/#/safety?incident_id=%INCIDENT%"],
+  ["execution", "/#/execution/%INCIDENT%"],
+  ["audit-eval", "/#/rca/%INCIDENT%"],
 ];
+
+async function discoverIncident() {
+  // Prefer a run that actually has history: a brand-new NEW run renders mostly
+  // empty states, which would weaken what the sweep can see.
+  try {
+    const res = await fetch(`${API}/api/runs`);
+    if (res.ok) {
+      const runs = await res.json();
+      if (Array.isArray(runs) && runs.length) {
+        const rich = runs.find((r) => (r.history_len ?? 0) > 0) || runs[0];
+        if (rich?.incident_id) return String(rich.incident_id);
+      }
+    }
+  } catch { /* fall through */ }
+  return "unknown-incident";
+}
 
 const VIEWPORTS = [
   [360, 800, "mobile"],
@@ -169,9 +191,13 @@ async function main() {
   // build is broken" when the truth is "you are testing the previous build".
   await send("Network.setCacheDisabled", { cacheDisabled: true });
 
+  const incidentId = await discoverIncident();
+  const views = VIEW_TEMPLATES.map(([name, tpl]) => [
+    name, tpl.replaceAll("%INCIDENT%", encodeURIComponent(incidentId)),
+  ]);
   const rows = [];
   for (const [width, height, vpName] of VIEWPORTS) {
-    for (const [viewName, route] of VIEWS) {
+    for (const [viewName, route] of views) {
       problems = [];
       await send("Emulation.setDeviceMetricsOverride", {
         width, height, deviceScaleFactor: 1, mobile: width < 500,
@@ -244,7 +270,7 @@ async function main() {
   chrome.kill();
 
   const failed = rows.filter((r) => !r.ok);
-  const report = { ok: failed.length === 0, base: BASE, total: rows.length, rows };
+  const report = { ok: failed.length === 0, base: BASE, incident: incidentId, total: rows.length, rows };
   if (AS_JSON) {
     console.log(JSON.stringify(report, null, 2));
   } else {
