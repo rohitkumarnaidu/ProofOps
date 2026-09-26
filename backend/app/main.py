@@ -1,4 +1,13 @@
 """ProofOps control-plane API (T01 skeleton; routes land per T02+)."""
+import sys
+from pathlib import Path
+_ROOT = Path(__file__).resolve().parents[2]
+_BACKEND = Path(__file__).resolve().parents[1]
+for _p in (str(_ROOT), str(_BACKEND)):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
+import app.compat  # noqa: F401 (Starlette host compatibility shim)
 import time  # noqa: E402  (Lane 2: middleware latency clock)
 from collections.abc import Awaitable, Callable  # noqa: E402  (Lane 2)
 from typing import Any  # noqa: E402  (M19b lifespan signature)
@@ -35,23 +44,14 @@ logger = get_logger(__name__)
 
 
 async def _lifespan(application: Any) -> Any:
-    """Start/stop the live incident orchestrator.
+    """Start/stop database schema and the live incident orchestrator."""
+    from app.db.session import init_db
+    try:
+        await init_db()
+        logger.info("database initialized successfully")
+    except Exception:
+        logger.exception("database initialization warning")
 
-    This is the change that makes the product real-time. Until now the pipeline
-    existed but nothing called it, so every state transition an operator saw
-    was one they had triggered by hand via `POST /runs/{id}/advance` -- the
-    product was static by construction, not merely slow.
-
-    The worker runs in-process (see ADR: single-replica demo topology) and
-    drives incidents through the REAL pipeline. It never approves anything: a
-    YELLOW action routes to AWAITING_APPROVAL and stops there for a human.
-
-    Shutdown is explicit and bounded. A cancelled worker must not leave a run
-    half-advanced, so cancellation propagates and the task is awaited; the
-    pipeline's own state is persisted by the time it returns, and a run
-    interrupted mid-flight is simply left in its last recorded state, which is
-    auditable rather than silently lost.
-    """
     from app.services import orchestrator as orchestrator_mod
     worker = orchestrator_mod.ORCHESTRATOR
     try:
@@ -92,10 +92,6 @@ if auth_router.router is not None:
     app.include_router(auth_router.router)
 # Lane 2 (SSE stream router, owned by another lane): include IF it exists at
 # integration time -- this lane and the stream lane may land in either order.
-# Honest guard: a missing module means "no SSE routes yet", NOT an error.
-# NOTE: an ImportError raised INSIDE an existing stream.py would also land
-# here; that failure surfaces in the stream lane's own tests, not silently
-# here -- this guard only covers module absence at integration time.
 try:
     from app.routers import stream as stream_router  # noqa: E402
 except ImportError:
@@ -108,6 +104,7 @@ if stream_router is not None and \
 if ingest_router is not None and \
         getattr(ingest_router, "router", None) is not None:
     app.include_router(ingest_router.router)
+
 # Public values only (APP_ENV/LOG_LEVEL/EXECUTOR are non-secret by contract).
 logger.info("proofops api starting env=%s level=%s executor=%s",
             settings.APP_ENV, settings.LOG_LEVEL, settings.EXECUTOR)
@@ -122,15 +119,6 @@ def healthz() -> dict:
 
 @app.get("/meta")
 def meta() -> dict:
-    # META (M19 additive, read-only): honest executor-tier disclosure for the
-    # UI ModeBadge. executor_tier is the M00.2 config trust boundary
-    # (mock|docker only); the docker daemon shape/refusal contract lives in
-    # app/services/sandbox.py (DOCKER_CONSTRAINTS + fail-closed
-    # apply_docker). mode is the deployment mode (APP_ENV). Public values
-    # only — never secrets. /healthz body above is untouched (byte-frozen).
-    # Lane A (P2): surface nonce-store durability (R1 fail-LOUD) so the
-    # degraded flag is visible instead of silent. Lazy import avoids cycles;
-    # the approvals router already exposes NONCES.
     from app.routers import approvals as approvals_router  # noqa: E402 (lazy)
     nonces = getattr(approvals_router, "NONCES", None)
     return {"service": "proofops-api", "spec": "PS03_FINAL_SPEC_V2",
@@ -138,6 +126,27 @@ def meta() -> dict:
             "nonce_store_durable": bool(
                 getattr(nonces, "persistent", False)),
             "nonce_store_degraded": bool(getattr(nonces, "degraded", False))}
+
+
+@app.get("/meta/engines")
+async def meta_engines() -> dict:
+    """Return status of all 4 foundational enterprise control plane engines."""
+    from app.db.session import db_health
+    from app.services.k8s_executor import K8S_EXECUTOR
+    from app.services.prom_verifier import PROMETHEUS_VERIFIER
+    from agents.llm_hub import LLMHub
+
+    db_st = await db_health()
+    k8s_st = K8S_EXECUTOR.cluster_status()
+    prom_st = await PROMETHEUS_VERIFIER.status()
+    llm_st = LLMHub.active_provider()
+
+    return {
+        "database": db_st,
+        "kubernetes": k8s_st,
+        "prometheus": prom_st,
+        "llm_hub": llm_st,
+    }
 
 
 @app.get("/readyz")
@@ -153,12 +162,6 @@ def readyz() -> JSONResponse:
 async def metrics_middleware(
     request: Request, call_next: Callable[[Request], Awaitable[Response]]
 ) -> Response:
-    # LANE 2 (observability): measure route/code/latency into the stdlib
-    # registry. Fail-OPEN by design: metrics must never break the request
-    # path (the fail-CLOSED half is SLO loading at /alerts below). The route
-    # template (not the raw path) keeps label cardinality low. Router-fed
-    # counters (approvals/policy/LLM/tool) stay future work -- this middleware
-    # never edits routers/ for instrumentation.
     start = time.perf_counter()
     response = await call_next(request)
     try:
@@ -182,10 +185,6 @@ def metrics_endpoint() -> PlainTextResponse:
 
 @app.get("/alerts")
 def alerts_endpoint() -> JSONResponse:
-    # LANE 2: current SLO alert states (firing/ok, pure evaluation over the
-    # registry snapshot). Read-only; paging needs an external webhook
-    # (documented future work -- NOT built, no fake paging). Malformed SLO
-    # fails CLOSED with a static message (never stack traces).
     try:
         slo = metrics.load_slo()
         states = metrics.evaluate_alerts(metrics.snapshot(), slo)

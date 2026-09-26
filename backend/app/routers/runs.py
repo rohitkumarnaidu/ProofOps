@@ -292,6 +292,20 @@ def save_store(path: str | Path | None = None) -> Path:
         except OSError:
             pass
         raise
+
+    # Dual-Engine: asynchronously sync to durable database (Postgres / SQLite)
+    try:
+        import asyncio
+        from app.db.repository import save_incident_run
+        try:
+            loop = asyncio.get_running_loop()
+            for r in list(REPO_STORE.values()):
+                loop.create_task(save_incident_run(r))
+        except RuntimeError:
+            pass
+    except Exception:
+        pass
+
     return out
 
 
@@ -424,12 +438,16 @@ def rollback_summary(run: IncidentRun) -> dict[str, bool]:
 
 
 def run_view(run: IncidentRun) -> dict[str, Any]:
+    state_diff = getattr(run, "state_diff", None)
+    execution_logs = getattr(run, "execution_logs", [])
     return {
         "incident_id": run.incident_id,
         "state": run.state,
         "replans": run.replans,
         "rolled_back": run.rolled_back,
         "permit_pending": run.permit is not None,
+        "state_diff": state_diff,
+        "execution_logs": execution_logs,
         "history": [{"seq": r.seq, "frm": r.frm, "to": r.to,
                      "reason": r.reason, "refs": list(r.refs),
                      "forced": r.forced, "at": r.at} for r in run.history],
@@ -659,12 +677,14 @@ def _guarded(fn: Any, *args: Any, **kwargs: Any) -> Any:
 RUN_WRITE_ROLES = ("operator", "approver", "admin")
 
 
-def _require_key(x_api_key: str | None) -> dict[str, Any]:
+def _require_key(x_api_key: str | None,
+                 authorization: str | None = None) -> dict[str, Any]:
     """Authenticate the caller and return its server-resolved identity."""
     from app.config import get_settings  # noqa: E402 (request-time only)
     from app.routers import auth as auth_mod
     return auth_mod.guard_http(
-        x_api_key, lambda: get_settings().PROOFOPS_API_KEY, HTTPException)
+        x_api_key, lambda: get_settings().PROOFOPS_API_KEY, HTTPException,
+        authorization=authorization)
 
 
 def _authorize(identity: dict[str, Any], *roles: str) -> None:
@@ -686,9 +706,10 @@ def _audit_actor(identity: dict[str, Any]) -> str:
 
 
 def http_create(body: CreateBody,
-                x_api_key: str | None = Header(default=None)
+                x_api_key: str | None = Header(default=None),
+                authorization: str | None = Header(default=None)
                 ) -> dict[str, Any]:
-    identity = _require_key(x_api_key)
+    identity = _require_key(x_api_key, authorization=authorization)
     _authorize(identity, *RUN_WRITE_ROLES)
     run = _guarded(create_run, body.incident_id, body.now)
     return run_view(run)
@@ -703,10 +724,11 @@ def http_list() -> list[dict[str, Any]]:
 
 
 def http_advance(incident_id: str, body: AdvanceBody,
-                 x_api_key: str | None = Header(default=None)
+                 x_api_key: str | None = Header(default=None),
+                 authorization: str | None = Header(default=None)
                  ) -> dict[str, Any]:
     from app.config import get_settings  # noqa: E402 (request-time only)
-    identity = _require_key(x_api_key)
+    identity = _require_key(x_api_key, authorization=authorization)
     _authorize(identity, *RUN_WRITE_ROLES)
     view = _guarded(advance_run, incident_id, body.to, reason=body.reason,
                     refs=body.refs, approval=body.approval,
@@ -717,9 +739,10 @@ def http_advance(incident_id: str, body: AdvanceBody,
 
 
 def http_sweep(incident_id: str, body: SweepBody,
-               x_api_key: str | None = Header(default=None)
+               x_api_key: str | None = Header(default=None),
+               authorization: str | None = Header(default=None)
                ) -> dict[str, Any]:
-    identity = _require_key(x_api_key)
+    identity = _require_key(x_api_key, authorization=authorization)
     _authorize(identity, *RUN_WRITE_ROLES)
     view = _guarded(sweep_run, incident_id, body.now,
                     stage_ttl=body.stage_ttl,

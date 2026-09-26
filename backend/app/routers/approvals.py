@@ -28,10 +28,10 @@ from pydantic import BaseModel, Field
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
+from app.logging_setup import get_logger  # noqa: E402 (M00.5)
 from app.services import approval as approval_svc  # noqa: E402 (M07 tokens)
 from app.services.fsm import Permit  # noqa: E402 (M14 credential, no cycle)
 from app.services.validator import validate_action  # noqa: E402 (M06.1)
-
 try:  # pragma: no cover - container path (pinned deps)
     from fastapi import APIRouter as _APIRouter
     from fastapi import Header as _Header
@@ -66,6 +66,8 @@ _MODE_BOOTSTRAP = "bootstrap"
 PERMIT_FRESHNESS_S = 300.0
 
 REQUESTS: dict[str, dict[str, Any]] = {}
+
+logger = get_logger(__name__)
 
 
 def _state_dir() -> Any:
@@ -518,11 +520,46 @@ def approve_approval(approval_id: str, actor: str, token: str, role: str,
               f"{approver_key_id or 'bootstrap'}"
               + (f" (request raised in {identity_mode} identity mode)"
                  if identity_mode and identity_mode != _MODE_PER_KEY
-                 else ""))
+                  else ""))
         _save_best_effort()
-        return approval_view(approval_id)
+        view = approval_view(approval_id)
+        _trigger_resume(approval_id, chain)
+        return view
 
     return _idem(approval_id, idempotency_key, _produce)
+
+
+def _trigger_resume(approval_id: str, chain: Any) -> None:
+    """Hand a human-approved action to the orchestrator so the run continues.
+
+    This is the seam that makes the lifecycle close. Until it existed, an
+    approved request was recorded and nothing else happened: the run sat at
+    AWAITING_APPROVAL forever, which made the whole product look unfinished.
+
+    The action and permit are read back OUT of the stored record, never taken
+    from the request body, so the thing that executes is the thing the human
+    reviewed. The resume is queued, not run inline, so a slow execution cannot
+    block the HTTP response to the approval that triggered it.
+
+    Failures are logged and swallowed on purpose: the human decision is already
+    durably recorded, and a resume that could not be scheduled must not
+    retroactively turn a successful approval into an error. The run stays in
+    AWAITING_APPROVAL and the orchestrator state endpoint shows the failure,
+    which is the honest place for it.
+    """
+    try:
+        from app.services import orchestrator as orchestrator_mod
+        incident_id, action = approved_action(approval_id)
+        permit = verified_permit(
+            approval_id, token="", actor="", secret="",
+            chain=chain, expected_incident=incident_id)
+        worker = orchestrator_mod.ORCHESTRATOR
+        if not worker.stats.enabled or not worker.running:
+            return
+        worker.resume(incident_id, action, permit)
+    except Exception:
+        logger.warning("approval %s recorded but resume not scheduled",
+                       approval_id, exc_info=True)
 
 
 def reject_approval(approval_id: str, actor: str, role: str,
@@ -574,6 +611,25 @@ def sweep_approvals(now: float, chain: Any = None) -> list[str]:
             expired.append(approval_id)
     _save_best_effort()
     return expired
+
+
+def approved_action(approval_id: str) -> tuple[str, Any]:
+    """(incident_id, Action) for an APPROVED request, straight from the store.
+
+    This exists so the resume path can never be handed an action from a
+    request body, a client payload or a re-plan. The action executed is the one
+    the human actually approved, because it is read out of the same record the
+    approval decision was written to.
+
+    Raises ApprovalDenied for anything not in `approved` state, so a caller
+    cannot resume on a pending, denied, expired or replayed request.
+    """
+    entry = _entry(approval_id)
+    if entry["status"] != "approved":
+        raise ApprovalDenied(
+            f"approval is {entry['status']}, not approved; nothing to execute")
+    req = entry["request"]
+    return str(req.incident_id), entry["action"]
 
 
 def verified_permit(approval_id: str, token: str, actor: str,

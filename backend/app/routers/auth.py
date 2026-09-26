@@ -220,6 +220,9 @@ def resolve_identity(provided: str | None, expected: str,
         if hmac.compare_digest(digest, item["key_sha256"]):
             return {"key_id": item["key_id"], "owner": item["owner"],
                     "roles": list(item["roles"]), "mode": MODE_PER_KEY}
+    if expected and hmac.compare_digest(provided, expected):
+        return {"key_id": BOOTSTRAP_KEY_ID, "owner": BOOTSTRAP_OWNER,
+                "roles": [], "mode": MODE_BOOTSTRAP}
     raise KeyRejected("invalid API key")
 
 
@@ -292,8 +295,43 @@ def check_key_role(identity_roles: Sequence[str] | None,
             f"role {claimed_role!r} not granted to this API key")
 
 
+
+def issue_jwt_token(identity: dict[str, Any], ttl_seconds: int = 86400) -> str:
+    """Issue a signed HS256 JWT token for authenticated identity."""
+    import jwt
+    import time
+    from app.config import get_settings
+    secret = get_settings().APPROVAL_SECRET
+    payload = {
+        "sub": identity.get("key_id", ""),
+        "owner": identity.get("owner", ""),
+        "roles": identity.get("roles", []),
+        "mode": identity.get("mode", MODE_BOOTSTRAP),
+        "iat": int(time.time()),
+        "exp": int(time.time()) + ttl_seconds,
+    }
+    return str(jwt.encode(payload, secret, algorithm="HS256"))
+
+
+def verify_jwt_token(token: str) -> dict[str, Any]:
+    """Verify and decode a signed HS256 JWT bearer token."""
+    import jwt
+    from app.config import get_settings
+    secret = get_settings().APPROVAL_SECRET
+    try:
+        data = jwt.decode(token, secret, algorithms=["HS256"])
+        return {
+            "key_id": str(data.get("sub", "")),
+            "owner": str(data.get("owner", "")),
+            "roles": list(data.get("roles", [])),
+            "mode": str(data.get("mode", MODE_BOOTSTRAP)),
+        }
+    except Exception as exc:
+        raise KeyRejected(f"invalid or expired bearer token: {exc}") from exc
+
 def guard_http(provided: str | None, expected_fn: object,
-               http_exc_cls: type) -> dict[str, Any]:
+               http_exc_cls: type,
+               authorization: str | None = None) -> dict[str, Any]:
     """Enforce the key gate inside mutating handlers (M21b matrix).
 
     Blank keys fail BEFORE touching config (host-safe unit tests never
@@ -302,8 +340,16 @@ def guard_http(provided: str | None, expected_fn: object,
     Lane 1: on success returns the resolved identity
     ``{key_id, owner, roles}`` (bootstrap fallback when no store). The
     raise-on-fail contract is unchanged -- existing callers that ignore
-    the return value behave exactly as before.
+    the return value behave exactly as before. Supports Bearer JWT tokens
+    when authorization header is provided.
     """
+    if authorization and authorization.lower().startswith("bearer "):
+        token = authorization.split(" ", 1)[1].strip()
+        try:
+            return verify_jwt_token(token)
+        except Exception as exc:
+            raise http_exc_cls(status_code=403, detail=str(exc)) from exc
+
     if provided is None or (isinstance(provided, str)
                             and not provided.strip()):
         raise http_exc_cls(status_code=401, detail="X-API-Key required")
@@ -377,5 +423,22 @@ def http_identity(x_api_key: str | None = Header(default=None)
     return identity_view(identity)
 
 
+def http_token(payload: dict[str, Any] | None = None,
+               x_api_key: str | None = Header(default=None),
+               authorization: str | None = Header(default=None),
+               ) -> dict[str, Any]:
+    key = x_api_key or (payload.get("api_key") if isinstance(payload, dict) else None)
+    identity = guard_http(key, _settings_key, HTTPException, authorization=authorization)
+    token = issue_jwt_token(identity)
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "expires_in": 86400,
+        "identity": identity_view(identity),
+    }
+
 if router is not None:  # container path; host asserts wiring via AST
     router.get("/identity")(http_identity)
+    router.get("/auth/identity")(http_identity)
+    router.post("/token")(http_token)
+    router.post("/auth/token")(http_token)

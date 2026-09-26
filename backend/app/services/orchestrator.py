@@ -238,6 +238,34 @@ class Job:
 
 
 @dataclass
+class ResumeJob:
+    """A paused incident plus the human decision that unblocks it.
+
+    `action` and `permit` are opaque here on purpose: the orchestrator has no
+    opinion about them and cannot construct them. They arrive from the approvals
+    store, already bound to the exact action and parameter hash a human
+    approved.
+    """
+
+    incident_id: str
+    action: Any
+    permit: Any
+
+
+def _severity_for(scenario: str, tele: Mapping[str, Any]) -> str:
+    """Severity from the real deterministic function, for the resume context.
+
+    Recomputed rather than stored because it is a pure function of the
+    observables, and recomputing it at resume time means the execution path
+    cannot be handed a severity that disagrees with the evidence.
+    """
+    from agents import triage as triage_mod
+    _, obs = alerts_from_tele(tele)
+    return str(triage_mod.deterministic_severity(
+        obs["env"], obs["error_rate"], obs["signature"], obs["breach"]))
+
+
+@dataclass
 class OrchestratorStats:
     submitted: int = 0
     processed: int = 0
@@ -245,6 +273,8 @@ class OrchestratorStats:
     stalled: int = 0
     failed: int = 0
     duplicates_suppressed: int = 0
+    resumed: int = 0
+    resume_failures: int = 0
     last_incident: str = ""
     last_outcome: str = ""
     enabled: bool = True
@@ -276,8 +306,21 @@ class Orchestrator:
         self.stats = OrchestratorStats(
             mode="live-lyzr" if _lyzr_key() else "scripted-oracle")
         self._queue: asyncio.Queue[Job] = asyncio.Queue()
+        self._resume_queue: asyncio.Queue[ResumeJob] = asyncio.Queue()
+        self._stopping = False
         self._task: asyncio.Task[None] | None = None
+        self._resume_task: asyncio.Task[None] | None = None
         self._claimed: set[str] = set()
+        # Per-incident execution context captured at submit time.
+        #
+        # Needed because the run pauses at AWAITING_APPROVAL and resumes later,
+        # possibly after a restart. The approved ACTION is not stored here --
+        # it comes from the approval record, so there is exactly one source of
+        # truth for what was authorized. What lives here is only the context the
+        # pipeline needs to execute and verify (telemetry, resource, severity),
+    # none of which is an authorization input.
+        self._context: dict[str, dict[str, Any]] = {}
+        self._resuming: set[str] = set()
         self._lock = threading.Lock()
         self._stopping = False
         self._seed_counter = 0
@@ -289,15 +332,21 @@ class Orchestrator:
             return
         self._stopping = False
         self._task = asyncio.create_task(self._run(), name="proofops-orchestrator")
+        # A separate task for resumes. Resumes are triggered by an HTTP approval
+        # rather than by the generator, and must not queue behind a waiting
+        # poll interval: a human pressed approve, so the run should move now.
+        self._resume_task = asyncio.create_task(
+            self._drain_resumes(), name="proofops-resume")
 
     async def stop(self) -> None:
         self._stopping = True
-        task = self._task
-        self._task = None
-        if task is not None:
-            task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await task
+        for attr in ("_task", "_resume_task"):
+            task = getattr(self, attr)
+            setattr(self, attr, None)
+            if task is not None:
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
 
     @property
     def running(self) -> bool:
@@ -326,9 +375,88 @@ class Orchestrator:
                 return False
             self._claimed.add(incident_id)
         self.stats.submitted += 1
+        # Capture execution context now, while the telemetry that produced the
+        # diagnosis is in hand. A resume may happen minutes later.
+        with contextlib.suppress(Exception):
+            _, obs = alerts_from_tele(tele)
+            self._context[incident_id] = {
+                "tele": dict(tele),
+                "resource": {"type": "deployment", "id": obs["service"],
+                             "environment": "mock"},
+                "severity": _severity_for(scenario, tele),
+                "env": obs["env"],
+            }
         self._queue.put_nowait(Job(incident_id=incident_id, scenario=scenario,
                                    tele=dict(tele), source=source))
         return True
+
+    # -- resume ------------------------------------------------------------
+
+    def resume(self, incident_id: str, action: Any, permit: Any) -> bool:
+        """Continue a paused incident now that a HUMAN approved its action.
+
+        `action` and `permit` are supplied by the approvals router from the
+        stored record -- never from a request body and never by re-planning.
+        That is the whole point: the thing executed is the thing approved.
+
+        Queued rather than executed inline so the resume cannot block the HTTP
+        thread that granted the approval, and so exactly-once claiming is the
+        same mechanism that protects the first pass.
+        """
+        with self._lock:
+            if incident_id in self._resuming:
+                return False
+            self._resuming.add(incident_id)
+        self._resume_queue.put_nowait(
+            ResumeJob(incident_id=incident_id, action=action, permit=permit))
+        return True
+
+    def _resume_sync(self, job: ResumeJob) -> None:
+        from app.routers import audit as audit_router
+        from app.routers import runs as runs_router
+        from app.services import pipeline as pipeline_mod
+
+        context = self._context.get(job.incident_id)
+        if context is None:
+            self.stats.resume_failures += 1
+            self.stats.last_outcome = (
+                f"resume failed: no execution context for {job.incident_id}")
+            return
+        run = runs_router.REPO_STORE.get(job.incident_id)
+        if run is None:
+            self.stats.resume_failures += 1
+            self.stats.last_outcome = (
+                f"resume failed: no run for {job.incident_id}")
+            return
+        try:
+            report = pipeline_mod.resume_from_approval(
+                job.incident_id, run, job.action, job.permit,
+                tele_public=context["tele"], resource=context["resource"],
+                severity=context["severity"], env=context.get("env", "prod"),
+                chain=audit_router.get_or_create_chain(job.incident_id))
+            runs_router.REPO_STORE[job.incident_id] = report["run"]
+            with contextlib.suppress(Exception):
+                runs_router._save_best_effort()
+            self.stats.resumed += 1
+            self.stats.last_incident = job.incident_id
+            self.stats.last_outcome = (
+                f"resumed -> {report['path']} ({report['verdict']}"
+                f"{', rolled back' if report['rolled_back'] else ''})")
+        except Exception as exc:  # noqa: BLE001 - recorded, never swallowed
+            self.stats.resume_failures += 1
+            self.stats.last_incident = job.incident_id
+            self.stats.last_outcome = f"resume failed: {str(exc)[:120]}"
+        finally:
+            with self._lock:
+                self._resuming.discard(job.incident_id)
+
+    async def _drain_resumes(self) -> None:
+        while True:
+            job = await self._resume_queue.get()
+            try:
+                await asyncio.to_thread(self._resume_sync, job)
+            except Exception:  # pragma: no cover - belt and braces
+                self.stats.resume_failures += 1
 
     # -- the loop ----------------------------------------------------------
 
@@ -403,7 +531,8 @@ class Orchestrator:
         try:
             triage, diagnostic, plan, extra = oracle_payloads(
                 job.scenario, job.tele, job.incident_id)
-            clients = {name: _Scripted(name, payload) for name, payload in (
+            from agents.llm_hub import LLMHub
+            clients = {name: LLMHub.get_client(name, payload) for name, payload in (
                 ("triage", triage), ("diagnostic", diagnostic), ("planner", plan))}
             store = session_mod.SessionStore()
             chain = audit_router.get_or_create_chain(job.incident_id)
