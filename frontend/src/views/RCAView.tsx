@@ -203,26 +203,35 @@ export function RCAView() {
             <EmptyState title="No audit events were returned for this incident." />
           </div>
         ) : (
-          <ol data-testid="audit-chain" className="text-xs">
+          <ol data-testid="audit-chain" className="text-xs space-y-2">
             {events.map((event, index) => {
               const eventId =
                 typeof event.event_id === "string"
                   ? event.event_id
                   : `row-${String(index)}`;
+              const prev = typeof event.prev_hash === "string" ? event.prev_hash : "";
+              const curr = typeof event.curr_hash === "string" ? event.curr_hash : "";
               return (
                 <li
                   key={eventId}
-                  className="max-w-full break-all border-b border-line py-1.5 font-mono last:border-b-0"
+                  className="max-w-full break-all rounded border border-line bg-surface-raised p-2.5 font-mono"
                 >
-                  <span className="mr-1.5 text-fg-subtle">
-                    #{String(event.seq ?? "—")}
-                  </span>
-                  <span className="font-semibold text-fg">
-                    {String(event.event_type ?? "unknown")}
-                  </span>
+                  <div className="flex flex-wrap items-center justify-between gap-1 pb-1 border-b border-line text-fg-subtle">
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-bold text-fg">#{String(event.seq ?? "—")}</span>
+                      <span className="font-semibold text-accent">{String(event.event_type ?? "unknown")}</span>
+                    </div>
+                    <span className="text-xs text-fg-muted">{String(event.actor ?? "control-plane")}</span>
+                  </div>
                   {String(event.result ?? "") !== "" ? (
-                    <span className="text-fg-muted"> — {String(event.result)}</span>
+                    <div className="mt-1.5 text-fg">{String(event.result)}</div>
                   ) : null}
+                  {(prev !== "" || curr !== "") && (
+                    <div className="mt-2 pt-1 border-t border-line/50 flex flex-wrap items-center gap-3 text-[11px] text-fg-subtle">
+                      {prev !== "" && <span>prev: <span className="text-fg-muted">{prev.slice(0, 10)}…{prev.slice(-6)}</span></span>}
+                      {curr !== "" && <span>curr: <span className="text-ok font-semibold">{curr.slice(0, 10)}…{curr.slice(-6)}</span></span>}
+                    </div>
+                  )}
                 </li>
               );
             })}

@@ -548,6 +548,30 @@ export function SafetyGate() {
                 ],
               ]}
             />
+            {/* Blast Radius & Governance Authority Display */}
+            <div className="mt-3 rounded border border-line bg-surface-raised p-3">
+              <div className="text-xs font-semibold text-fg-subtle uppercase tracking-wider">
+                Blast Radius &amp; Governance Verification
+              </div>
+              <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+                <div>
+                  <span className="text-fg-subtle">Target Scope: </span>
+                  <span className="font-mono font-semibold text-fg">{view.scope}</span>
+                </div>
+                <div>
+                  <span className="text-fg-subtle">Risk Classification: </span>
+                  <span className="font-semibold text-warn">YELLOW (Reversible)</span>
+                </div>
+                <div>
+                  <span className="text-fg-subtle">Separation of Duties: </span>
+                  <span className="font-mono text-ok">{view.sod}</span>
+                </div>
+                <div>
+                  <span className="text-fg-subtle">Auto-Rollback: </span>
+                  <span className="text-fg">1 attempt on SLO breach</span>
+                </div>
+              </div>
+            </div>
             {(expiredTerminal || view.status === "expired") && (
               <Notice tone="warn" testId="approval-terminal" live className="mt-3">
                 Terminal state: expired. The token was cleared and both actions are

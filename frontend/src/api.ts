@@ -45,6 +45,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
+  const token = typeof localStorage !== "undefined" ? localStorage.getItem("proofops_jwt_token") : null;
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
   if (hasApiKey()) {
     headers["X-API-Key"] = API_KEY;
   }
@@ -99,6 +103,12 @@ export interface RunView {
     at: number;
   }>;
   rollback?: { eligible: boolean; attempted: boolean };
+  state_diff?: {
+    before?: Record<string, unknown>;
+    after?: Record<string, unknown>;
+    changed?: Record<string, { before: unknown; after: unknown }>;
+  } | null;
+  execution_logs?: string[];
 }
 
 export interface ApprovalView {
@@ -159,6 +169,36 @@ export async function probeMode(): Promise<Mode> {
     return "OFFLINE";
   }
 }
+
+export interface EngineStatus {
+  database: { healthy: boolean; dialect: string; database: string; error: string | null };
+  kubernetes: { connected: boolean; host: string | null; tier: string };
+  prometheus: { connected: boolean; url: string; tier: string };
+  llm_hub: { provider: string; status: string; tier: string };
+}
+
+export const metaApi = {
+  meta: () => request<Meta>("/meta"),
+  engines: () => request<EngineStatus>("/meta/engines"),
+};
+
+export const authApi = {
+  login: async (apiKey: string) => {
+    const res = await request<{ access_token: string; identity: IdentityView }>("/auth/token", {
+      method: "POST",
+      body: JSON.stringify({ api_key: apiKey }),
+    });
+    if (typeof localStorage !== "undefined" && res.access_token) {
+      localStorage.setItem("proofops_jwt_token", res.access_token);
+    }
+    return res;
+  },
+  logout: () => {
+    if (typeof localStorage !== "undefined") {
+      localStorage.removeItem("proofops_jwt_token");
+    }
+  },
+};
 
 export const identityApi = {
   view: () => request<IdentityView>("/identity"),

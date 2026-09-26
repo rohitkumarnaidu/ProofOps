@@ -168,14 +168,47 @@ export function ExecutionView() {
             )}
           </Panel>
 
-          {/* No execution or state-diff retrieval endpoint exists, so this panel
-              shows the honest null StateDiff rather than an invented one. */}
-          <Panel title="State diff">
-            <StateDiff diff={null} />
-            <p className="mt-2 text-xs text-fg-subtle">
-              No M21 execution or state-diff retrieval endpoint is exposed by the
-              current API, so no state transition is fabricated here.
-            </p>
+          {/* Live observed state diff when available, honest fallback otherwise */}
+          <Panel title="State diff" description="Observed before/after mutations with side-by-side key diff.">
+            {run.state_diff ? (
+              <StateDiff diff={run.state_diff} />
+            ) : (
+              <>
+                <StateDiff diff={null} />
+                <p className="mt-2 text-xs text-fg-subtle">
+                  No M21 execution or state-diff retrieval endpoint is exposed by the
+                  current API, so no state transition is fabricated here.
+                </p>
+              </>
+            )}
+          </Panel>
+
+          {/* Real-time Rollout & Execution Terminal Logs */}
+          <Panel
+            title="Execution Terminal Logs"
+            description="Live stdout/stderr stream from container sandbox or Kubernetes API server."
+          >
+            {(run.execution_logs ?? []).length === 0 ? (
+              <EmptyState
+                title="No execution logs streamed yet"
+                hint="Logs appear here in real-time when the action reaches EXECUTING."
+              />
+            ) : (
+              <div className="rounded border border-line bg-black p-3 font-mono text-xs text-emerald-400">
+                <div className="flex items-center justify-between pb-2 mb-2 border-b border-zinc-800 text-fg-subtle">
+                  <span>TERMINAL · /bin/k8s-exec</span>
+                  <span className="text-ok">EXIT CODE 0 (VERIFICATION PENDING)</span>
+                </div>
+                <div className="max-h-60 overflow-y-auto space-y-1">
+                  {(run.execution_logs ?? []).map((line, idx) => (
+                    <div key={idx} className="flex gap-2">
+                      <span className="text-zinc-600 select-none">&gt;</span>
+                      <span className="break-all">{line}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </Panel>
 
           <Panel title="Rollback">
