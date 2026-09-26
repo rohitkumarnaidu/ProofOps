@@ -6,7 +6,7 @@ is unreachable.
 """
 from __future__ import annotations
 
-import asyncio
+import sys
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -21,10 +21,31 @@ from sqlalchemy.ext.asyncio import (
 
 from app import paths
 from app.config import get_settings
+from app.logging_setup import get_logger  # noqa: E402 (M00.5)
+
+logger = get_logger(__name__)
+
+
+def _async_psycopg_supported() -> bool:
+    """Whether async psycopg can run on this platform at all.
+
+    psycopg's async layer needs a selector event loop. Windows' default
+    ProactorEventLoop is not one, so on a Windows host the async Postgres engine
+    cannot work no matter how reachable the server is.
+
+    This is why the runtime source of truth is the ``python:3.12-slim`` image
+    (AGENTS.md 13.2). The Windows host is a unit-test platform: it must fall back
+    to sqlite deliberately, not fail at the first query.
+    """
+    return not (sys.platform == "win32")
+
 
 _ENGINE: AsyncEngine | None = None
 _SESSIONMAKER: async_sessionmaker[AsyncSession] | None = None
 _ACTIVE_DIALECT: str = "sqlite"
+#: Why we are not on postgres, as an exception *type* only. Never the URL: it
+#: carries a password. None means postgres is in use or was never configured.
+_FALLBACK_REASON: str | None = None
 
 
 def get_sqlite_path() -> Path:
@@ -43,13 +64,22 @@ def get_engine() -> AsyncEngine:
     settings = get_settings()
     db_url = settings.DATABASE_URL.strip() if settings.DATABASE_URL else ""
 
-    # Prefer PostgreSQL if explicit host provided and not unresolvable 'db:5432'
-    use_postgres = bool(
-        db_url
-        and db_url.startswith("postgresql")
-        and "@db:5432" not in db_url
-    )
-
+    # Attempt PostgreSQL whenever we are configured for it *and* this platform can
+    # actually run it, and fall back to the local durable file otherwise.
+    #
+    # This used to reject any URL containing "@db:5432" on the assumption that
+    # hostname was unresolvable. Inside the compose network it is the opposite:
+    # `db` IS the Postgres service and resolves fine, so the guard discarded the
+    # exact host we are configured to use, silently degraded to the local file,
+    # and then 500'd because aiosqlite was never declared.
+    #
+    # A hostname is not evidence of reachability, and a platform is not evidence
+    # of support. Both are now decided by the thing itself: the platform by
+    # psycopg's actual requirement, the connection by attempting it.
+    use_postgres = bool(db_url and db_url.startswith("postgresql"))
+    if use_postgres and not _async_psycopg_supported():
+        use_postgres = False
+        _FALLBACK_REASON = "async-psycopg-unsupported-on-this-platform"
     if use_postgres:
         try:
             # psycopg async connection string: postgresql+psycopg://...
@@ -67,17 +97,35 @@ def get_engine() -> AsyncEngine:
                 _ENGINE, class_=AsyncSession, expire_on_commit=False
             )
             return _ENGINE
-        except Exception:
-            pass
+        except Exception as exc:
+            # Degrade loudly. An operator must be able to tell whether the audit
+            # trail is in Postgres or in a local file, so the reason is kept --
+            # as an exception *type* only, never the URL, which carries a
+            # password.
+            _FALLBACK_REASON = type(exc).__name__
+            logger.warning(
+                "postgres unavailable (%s); falling back to durable local sqlite",
+                _FALLBACK_REASON,
+            )
 
     # Durable local SQLite fallback via aiosqlite
     sqlite_file = get_sqlite_path()
     sqlite_url = f"sqlite+aiosqlite:///{sqlite_file.as_posix()}"
-    _ENGINE = create_async_engine(
-        sqlite_url,
-        echo=False,
-        future=True,
-    )
+    try:
+        _ENGINE = create_async_engine(
+            sqlite_url,
+            echo=False,
+            future=True,
+        )
+    except Exception as exc:
+        # Both engines failed. Refuse loudly rather than pretending to have a
+        # datastore: a caller that believes it is persisting, when it is not, is
+        # the worst possible state for an audit trail.
+        raise RuntimeError(
+            "no usable datastore: postgres failed and the sqlite fallback could "
+            f"not be initialised ({type(exc).__name__}). Refusing to run without "
+            "a datastore rather than silently dropping writes."
+        ) from exc
     _ACTIVE_DIALECT = "sqlite"
     _SESSIONMAKER = async_sessionmaker(
         _ENGINE, class_=AsyncSession, expire_on_commit=False
@@ -139,4 +187,9 @@ async def db_health() -> dict[str, Any]:
         "dialect": _ACTIVE_DIALECT,
         "database": "proofops",
         "error": error if error else None,
+        # Degraded is reported, never hidden: a local sqlite file is a working
+        # fallback, but an operator reading "healthy" must be able to tell that
+        # the audit trail is not in Postgres right now.
+        "degraded": _ACTIVE_DIALECT != "postgresql",
+        "fallback_reason": _FALLBACK_REASON,
     }

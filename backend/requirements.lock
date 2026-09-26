@@ -1,49 +1,41 @@
 # ProofOps locked dependencies — Linux / CPython 3.12 (container + CI).
 #
-# GENERATED, do not edit by hand. Regenerate ONLY on the source of truth
-# (`python:3.12-slim`, never the drifted host) — see scripts/freeze.py:
-#   docker run --rm -v .:/work -w /work python:3.12-slim \
-#     sh -c "pip install -r backend/requirements.txt && python scripts/freeze.py --generate"
-# Resolved 2026-09-16 UTC from PyPI via `pip install --dry-run --report` with
-# `--python-version 3.12 --implementation cp --abi cp312
-# --platform manylinux_2_17_x86_64 --only-binary=:all:` (34 pins).
-#
-# Deliberately EXCLUDED (win32-only edges per resolver metadata, false on
-# linux — see scripts/freeze.py and ADR-010): colorama (uvicorn/pytest win32
-# markers), tzdata (pydantic/psycopg win32 markers). Windows local dev keeps
-# installing from backend/requirements.txt (host runs structure tests only,
-# per ADR-001); CI and the image consume THIS file.
+# GENERATED, do not edit by hand. Regenerate ONLY on the source of
+# truth (see scripts/freeze.py docstring). Human-review every diff:
+# a lock change is a dependency change.
+aiosqlite==0.22.1
 annotated-types==0.8.0
 anyio==4.15.1
 certifi==2026.7.22
 click==8.5.0
 fastapi==0.119.1
-greenlet==3.2.5
+greenlet==3.5.6
 h11==0.16.0
 httpcore==1.0.9
-httptools==0.6.4
+httptools==0.8.0
 httpx==0.28.1
-idna==3.19
+idna==3.20
 iniconfig==2.3.0
 mypy==1.11.2
 mypy_extensions==1.1.0
 packaging==26.3
 pluggy==1.6.0
-psycopg==3.3.5
-psycopg-binary==3.3.5
-pydantic==2.13.5
-pydantic-core==2.46.5
+psycopg-binary==3.3.6
+psycopg==3.3.6
 pydantic-settings==2.15.0
+pydantic==2.13.5
+pydantic_core==2.46.5
 Pygments==2.21.0
-pytest==8.4.2
 pytest-asyncio==0.24.0
+pytest==8.4.2
 python-dotenv==1.2.3
-pyyaml==6.0.3
+PyYAML==6.0.3
 ruff==0.5.7
 SQLAlchemy==2.0.54
 starlette==0.46.2
-typing-extensions==4.16.0
 typing-inspection==0.4.4
+typing_extensions==4.16.0
 uvicorn==0.31.1
-watchfiles==1.2.0
+uvloop==0.22.1
+watchfiles==1.3.0
 websockets==17.1

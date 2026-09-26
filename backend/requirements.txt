@@ -16,6 +16,11 @@ pydantic>=2.7,<3
 pydantic-settings>=2.3,<3
 sqlalchemy>=2.0,<2.1
 psycopg[binary]>=3.1,<4
+# Async driver for the durable local sqlite fallback (AGENTS.md 16.2: "DB down
+# -> file-backed seed+audit"). Without it the fallback raises at engine
+# creation and the API 500s instead of degrading -- which is how this stayed
+# invisible: the host had the driver, the image did not.
+aiosqlite>=0.20,<1
 pyyaml>=6.0,<7
 python-dotenv>=1.0,<2
 httpx>=0.27,<0.29

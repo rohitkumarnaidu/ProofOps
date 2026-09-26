@@ -208,8 +208,8 @@ export function CommandCenter() {
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <div className="rounded border border-line bg-surface-raised p-3">
           <div className="text-xs font-semibold text-fg-subtle">DATABASE PERSISTENCE</div>
-          <div className="mt-1 flex items-center justify-between">
-            <span className="font-mono text-sm font-bold uppercase text-fg">
+          <div className="mt-1 flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
+            <span className="min-w-0 break-words font-mono text-sm font-bold uppercase text-fg">
               {engines?.database?.dialect === "postgresql" ? "PostgreSQL 16" : "SQLite Durable"}
             </span>
             <StatusPill tone={engines?.database?.healthy ? "ok" : "warn"}>
@@ -220,8 +220,8 @@ export function CommandCenter() {
 
         <div className="rounded border border-line bg-surface-raised p-3">
           <div className="text-xs font-semibold text-fg-subtle">KUBERNETES EXECUTOR</div>
-          <div className="mt-1 flex items-center justify-between">
-            <span className="font-mono text-sm font-bold uppercase text-fg">
+          <div className="mt-1 flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
+            <span className="min-w-0 break-words font-mono text-sm font-bold uppercase text-fg">
               {engines?.kubernetes?.connected ? "K8s Cluster" : "Mock Sandbox"}
             </span>
             <StatusPill tone={engines?.kubernetes?.connected ? "ok" : "info"}>
@@ -232,8 +232,8 @@ export function CommandCenter() {
 
         <div className="rounded border border-line bg-surface-raised p-3">
           <div className="text-xs font-semibold text-fg-subtle">PROMETHEUS TELEMETRY</div>
-          <div className="mt-1 flex items-center justify-between">
-            <span className="font-mono text-sm font-bold uppercase text-fg">
+          <div className="mt-1 flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
+            <span className="min-w-0 break-words font-mono text-sm font-bold uppercase text-fg">
               {engines?.prometheus?.connected ? "PromQL Live" : "Standby"}
             </span>
             <StatusPill tone={engines?.prometheus?.connected ? "ok" : "neutral"}>
@@ -244,8 +244,8 @@ export function CommandCenter() {
 
         <div className="rounded border border-line bg-surface-raised p-3">
           <div className="text-xs font-semibold text-fg-subtle">AI WORKFORCE ENGINE</div>
-          <div className="mt-1 flex items-center justify-between">
-            <span className="font-mono text-sm font-bold uppercase text-fg">
+          <div className="mt-1 flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
+            <span className="min-w-0 break-words font-mono text-sm font-bold uppercase text-fg">
               {engines?.llm_hub?.provider ? engines.llm_hub.provider.toUpperCase() : "ORACLE"}
             </span>
             <StatusPill tone={engines?.llm_hub?.status === "CONNECTED" ? "ok" : "info"}>

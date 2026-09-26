@@ -134,9 +134,17 @@ class TestPresence:
             "ProofOps_PS03_Master_Winning_Implementation_Trust_Submission_Checklist.md",  # UNVERIFIED companion
             "README.md",  # repo entrypoint (tested in test_repo_structure.py)
             "ZERO_TRUST_AUDIT_M00-M11.md",  # dated historical report (do not rewrite)
-            "SAFETY_CROSSING_PLAN.md",  # M00-M06 safety campaign plan (owned by
-            # the crossing campaign; SUPERSEDED, never deleted, on completion)
-        }
+                "SAFETY_CROSSING_PLAN.md",  # M00-M06 safety campaign plan (owned by
+                # the crossing campaign; SUPERSEDED, never deleted, on completion)
+                "PROOF_OPS_REAL_CLOUD_AND_SECURITY_ARCHITECTURE.md",
+                # Enterprise cloud-integration + zero-trust control-plane
+                # architecture (live-tier lane). Substantive and maintained, so
+                # it is governed as a known-extra rather than left ungoverned --
+                # but deliberately NOT promoted into CANONICAL_DOCS, which
+                # ADR-007 pins at exactly 11 and which remains the M00
+                # foundation set. Registering a doc is not the same as
+                # promoting it, and this one describes a lane, not the baseline.
+            }
         actual = {p.name for p in DOCS.glob("*.md")}
         assert set(CANONICAL_DOCS) <= actual, \
             f"canonical missing: {sorted(set(CANONICAL_DOCS) - actual)}"
