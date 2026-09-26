@@ -71,12 +71,34 @@ def test_main_wires_eval_router():
 
 def test_five_routes_wired():
     app = _src("App.tsx")
-    # 5 MVP + explicit 404 (no fake pages); '<Routes>' excluded by matching
+    # 5 MVP + explicit 404 (no fake pages), plus the read-only agent surface
+    # that AGENTS.md 9.3 now permits. '<Routes>' is excluded by matching
     # 'path="' (nav Links use 'to=', never 'path=').
-    assert app.count('path="') == 6
+    #
+    # The count moved from 6 to 8 when the agent view was added. The count is a
+    # guard against *unlisted* pages appearing, not a target in itself, so it
+    # moved with the spec rather than being quietly satisfied. The five primary
+    # views below are unchanged.
+    assert app.count('path="') == 8
     for path in ('path="/"', 'path="/incidents/:id"', 'path="/safety"',
-                 'path="/execution/:id"', 'path="/rca/:id"', 'path="*"'):
+                 'path="/execution/:id"', 'path="/rca/:id"', 'path="*"',
+                 'path="/agents"', 'path="/agents/:id"'):
         assert path in app
+
+
+def test_the_five_primary_views_are_the_unchanged_set():
+    """The agent surface is additional; it did not replace a primary view.
+
+    AGENTS.md 9.3 keeps "exactly five primary MVP views" and separately permits
+    an agent surface. That distinction only holds if the original five are still
+    all present, so it is asserted rather than left to the count above.
+    """
+    app = _src("App.tsx")
+    for view in ("CommandCenter", "IncidentDetail", "SafetyGate",
+                 "ExecutionView", "RCAView"):
+        assert f"./views/{view}\"" in app, (
+            f"{view} is one of the five primary views and must stay wired")
+    assert "RouteNotFound" in app, "unknown paths must still 404, not blank"
 
 
 def test_execution_view_honesty():

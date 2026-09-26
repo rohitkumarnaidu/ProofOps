@@ -348,3 +348,79 @@ export interface OrchestratorState {
 export const orchestratorApi = {
   state: () => request<OrchestratorState>("/orchestrator"),
 };
+
+/**
+ * The read-only agent surface.
+ *
+ * These are the only two agent routes the product exposes, and neither can
+ * mutate anything. `proposed_action` comes back as data for a human to judge on
+ * the Safety Gate -- there is no code path from an answer to an execution, and
+ * the test suite asserts that the router mentions no mutation endpoint.
+ */
+
+/** A proposed action is a proposal. `requires_human_approval` is always true. */
+export interface ProposedAction {
+  action_type: string;
+  parameters: Record<string, unknown>;
+  risk_level: string;
+  action_id: string;
+  runbook_id: string;
+  requires_human_approval: boolean;
+}
+
+export interface TraceStep {
+  step: string;
+  ms: number;
+  [k: string]: unknown;
+}
+
+export interface Citation {
+  claim: string;
+  evidence_ids: string[];
+}
+
+export interface InvestigateReply {
+  answer: string;
+  citations: Citation[];
+  trace: TraceStep[];
+  proposed_action: ProposedAction | null;
+  /** Always states the agent has no authority to act. */
+  authority: string;
+  /** `scripted-oracle` or `live-agent`. Never presented as the other. */
+  reasoning_mode: string;
+  verdict: string;
+  evidence_ids: string[];
+  severity?: string;
+  incident_id?: string;
+  session_id?: string;
+}
+
+/** One persisted turn. `session_id` is the incident id, by construction. */
+export interface ThreadTurn {
+  role: string;
+  text: string;
+  at: number;
+  reasoning_mode?: string;
+  verdict?: string;
+  /** Always present: the backend serialises the full dataclass, and an
+   * operator turn simply carries an empty list rather than omitting it. */
+  trace: TraceStep[];
+  citations?: Citation[];
+  evidence_ids: string[];
+  proposed_action?: ProposedAction | null;
+}
+
+export const agentsApi = {
+  investigate: (body: { incident_id: string; question: string }) =>
+    request<InvestigateReply>("/agents/investigate", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  /** Returns the persisted thread for an incident, oldest turn first. */
+  thread: async (incidentId: string): Promise<ThreadTurn[]> => {
+    const res = await request<{ turns: ThreadTurn[] }>(
+      `/agents/${encodeURIComponent(incidentId)}/thread`,
+    );
+    return res.turns ?? [];
+  },
+};

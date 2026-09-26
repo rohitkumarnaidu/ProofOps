@@ -9,6 +9,7 @@ import {
 } from "react-router-dom";
 import { ApiError, runsApi } from "./api";
 import { ErrorState, SelectField } from "./components/ui";
+import { AgentsView } from "./views/AgentsView";
 import { CommandCenter } from "./views/CommandCenter";
 import { ExecutionView } from "./views/ExecutionView";
 import { IncidentDetail } from "./views/IncidentDetail";
@@ -172,6 +173,12 @@ function AppShell() {
               selectedPath("/rca"),
               "Select a current incident before opening Audit and Evaluation",
             )}
+            {navLink(
+              "Agent",
+              isCurrent("/agents"),
+              selectedPath("/agents"),
+              "Select a current incident before asking the agent",
+            )}
           </div>
         </nav>
         <div className="mt-3 flex flex-wrap items-end gap-2">
@@ -202,6 +209,8 @@ function AppShell() {
           <Route path="/incidents/:id" element={<IncidentDetail />} />
           <Route path="/safety" element={<SafetyGate />} />
           <Route path="/execution/:id" element={<ExecutionView />} />
+      <Route path="/agents" element={<AgentsView />} />
+      <Route path="/agents/:id" element={<AgentsView />} />
           <Route path="/rca/:id" element={<RCAView />} />
           <Route path="*" element={<RouteNotFound />} />
         </Routes>
