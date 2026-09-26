@@ -273,3 +273,62 @@ def test_turn_fields_survive_a_round_trip():
     assert restored.trace == turn.trace
     assert restored.proposed_action == turn.proposed_action
     assert restored.reasoning_mode == "scripted-oracle"
+
+
+# ---------------------------------------------------------------------------
+# Evidence sourcing -- the bug the live run actually exposed
+# ---------------------------------------------------------------------------
+
+class _FakeRun:
+    """Stands in for a run object as the runs router returns it."""
+
+    def __init__(self, handoffs):
+        self.handoffs = handoffs
+
+
+def test_the_agent_reuses_the_evidence_the_control_plane_observed(monkeypatch):
+    """The agent must cite the run's own evidence, not rebuild its own.
+
+    Found the hard way, against a live run: the endpoint reconstructed telemetry
+    from a run object that never retained it, so the evidence pack came back
+    empty and the agent could only ever answer NO_EVIDENCE. That is a safe
+    failure and a useless agent -- the four agents had become unreachable in
+    practice, which is the same defect this whole surface was built to fix.
+
+    The evidence is already on the run's handoff, with the same ids the audit
+    chain recorded, so that is what the agent must read.
+    """
+    pack = {"evidence": [
+        {"evidence_id": "ev-live-1", "source_type": "metric", "trust": "high"},
+        {"evidence_id": "ev-live-2", "source_type": "deploy", "trust": "med"},
+    ]}
+    run = _FakeRun([{"evidence_pack": pack}])
+
+    monkeypatch.setattr(
+        "app.routers.runs.get_run", lambda _i: run, raising=False)
+
+    from app.routers import agents as live_agents  # noqa: PLC0415
+
+    found = live_agents._persisted_pack("live-bad-deploy-8")  # noqa: SLF001
+    assert found is not None, (
+        "the agent must be able to read the run's recorded evidence")
+    assert [str(e["evidence_id"]) for e in found.get("evidence", [])] == [
+        "ev-live-1", "ev-live-2"]
+
+
+def test_an_unobserved_incident_still_refuses_rather_than_inventing(monkeypatch):
+    """Falling back must not become inventing.
+
+    If no run exists, or the run carries no pack, the helper returns None and
+    the caller refuses. An incident nobody observed must never acquire a
+    confident answer by default.
+    """
+    monkeypatch.setattr(
+        "app.routers.runs.get_run", lambda _i: None, raising=False)
+    from app.routers import agents as live_agents  # noqa: PLC0415
+
+    assert live_agents._persisted_pack("never-seen") is None  # noqa: SLF001
+
+    monkeypatch.setattr(
+        "app.routers.runs.get_run", lambda _i: _FakeRun([{}]), raising=False)
+    assert live_agents._persisted_pack("no-pack") is None  # noqa: SLF001

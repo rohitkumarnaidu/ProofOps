@@ -123,6 +123,123 @@ def _telemetry_for(incident_id: str) -> dict[str, Any]:
             "error_signature": "", "metrics": [], "evidence_from_run": True}
 
 
+def _persisted_pack(incident_id: str) -> dict[str, Any] | None:
+    """The Evidence Pack the pipeline already built for this incident.
+
+    Returned only when the run genuinely carries one. `None` means "no
+    recorded evidence" and the caller falls back to its own reconstruction --
+    so an unobserved incident still refuses rather than inventing support.
+    """
+    try:
+        from app.routers import runs as runs_router  # noqa: PLC0415
+
+        run = runs_router.get_run(incident_id)
+    except Exception:
+        return None
+    if run is None:
+        return None
+    for handoff in (getattr(run, "handoffs", None) or []):
+        raw = None
+        if isinstance(handoff, dict):
+            raw = handoff.get("evidence_pack")
+        else:
+            raw = getattr(handoff, "evidence_pack", None)
+        if not raw:
+            continue
+        # The stored pack is already {"evidence": [...], ...}; tolerate a bare
+        # list too, since either shape is evidence and neither is a conclusion.
+        if isinstance(raw, list):
+            return {"evidence": raw}
+        if isinstance(raw, dict) and raw.get("evidence"):
+            return raw
+    return None
+
+
+def _grounded_from_run(incident_id: str) -> dict[str, Any] | None:
+    """Report the control plane's own pinned diagnosis, with its evidence.
+
+    Returns None when the run has no diagnosis recorded, so the caller falls back
+    to investigating fresh. Every field here comes off the run -- nothing is
+    generated. An unpinned verdict is reported *as* unpinned rather than
+    dressed up as a conclusion, and yields no proposal.
+    """
+    try:
+        from app.routers import runs as runs_router  # noqa: PLC0415
+
+        run = runs_router.get_run(incident_id)
+    except Exception:
+        return None
+    if run is None:
+        return None
+
+    diagnosis: dict[str, Any] | None = None
+    planned: dict[str, Any] | None = None
+    triage: dict[str, Any] | None = None
+    for handoff in (getattr(run, "handoffs", None) or []):
+        if not isinstance(handoff, dict):
+            continue
+        if isinstance(handoff.get("diagnostic_result"), dict):
+            diagnosis = handoff["diagnostic_result"]
+        if isinstance(handoff.get("triage_result"), dict):
+            triage = handoff["triage_result"]
+        action = handoff.get("action") or handoff.get("planned_action")
+        if isinstance(action, dict):
+            planned = action
+    if not diagnosis:
+        return None
+
+    verdict = str(diagnosis.get("verdict", "UNKNOWN"))
+    hypotheses = [
+        str(h.get("text", "")) for h in (diagnosis.get("hypotheses") or [])
+        if isinstance(h, dict) and h.get("text")
+    ][:3]
+    runbook = str(diagnosis.get("runbook_id", "")) or "(none)"
+    version = str(diagnosis.get("runbook_version", ""))
+    severity = str((triage or {}).get("severity", ""))
+
+    evidence_ids = [str(e["evidence_id"]) for e in
+                    (_persisted_pack(incident_id) or {}).get("evidence", [])]
+
+    citations = [
+        {"claim": h, "evidence_ids": evidence_ids} for h in hypotheses
+    ] or [{"claim": f"control plane verdict: {verdict}",
+           "evidence_ids": evidence_ids}]
+
+    if verdict == "PINNED":
+        answer = (
+            f"The control plane already pinned a cause for {incident_id}: "
+            f"{hypotheses[0] if hypotheses else 'a single pinned cause'}. "
+            f"It selected runbook {runbook}"
+            + (f"@{version}" if version else "")
+            + ". The evidence above is what it cited, and the audit chain "
+            "recorded the same ids. I have not re-derived anything and I have "
+            "not acted on it."
+        )
+    else:
+        answer = (
+            f"The control plane could not pin a single cause for {incident_id} "
+            f"(verdict {verdict}). Its leads are: "
+            + ("; ".join(hypotheses) if hypotheses else "(none recorded)")
+            + ". I am not going to propose an action on an unpinned cause -- "
+            "that would be a guess. This needs a human."
+        )
+
+    proposed = None
+    if verdict == "PINNED" and planned:
+        proposed = {
+            "action_type": str(planned.get("action_type", "")),
+            "parameters": dict(planned.get("parameters") or {}),
+            "risk_level": str(planned.get("risk_level", "")),
+            "action_id": str(planned.get("action_id", "")),
+            "runbook_id": str(planned.get("runbook_id", "")),
+            "requires_human_approval": True,
+        }
+
+    return {"answer": answer, "citations": citations, "verdict": verdict,
+            "hypotheses": hypotheses, "proposed_action": proposed,
+            "severity": severity}
+
+
 def investigate(body: InvestigateBody, x_api_key: str | None = Header(default=None)
                 ) -> dict[str, Any]:
     """Investigate an incident and answer with evidence, a trace, and a proposal.
@@ -154,9 +271,23 @@ def investigate(body: InvestigateBody, x_api_key: str | None = Header(default=No
         role="operator", text=body.question, at=time.time(),
         reasoning_mode=mode))
 
+    # Use the evidence the control plane actually observed and persisted on the
+    # run, not a telemetry bundle this endpoint has to invent. Two reasons:
+    #
+    #   1. Truthfulness. A run does not retain its raw telemetry, so rebuilding it
+    #      here produced an empty pack and the agent could only ever answer
+    #      NO_EVIDENCE -- correct, but useless. The handoff carries the real
+    #      Evidence Pack, with the same evidence ids the audit chain recorded.
+    #   2. Agreement. Citing the control plane's own evidence is what makes the
+    #      UI, the agent, and the audit chain tell one story instead of two.
     tele = _telemetry_for(incident_id)
-    if not tele:
-        answer = (f"I have no telemetry for incident {incident_id!r}, so I "
+    persisted = _persisted_pack(incident_id)
+    if persisted is not None:
+        pack = persisted
+        evidence_ids = [str(e["evidence_id"]) for e in pack.get("evidence", [])]
+        step("evidence_pack", items=len(evidence_ids), source="persisted")
+    elif not tele:
+        answer = (f"I have no evidence for incident {incident_id!r}, so I "
                   "cannot say anything about it. Point me at an incident the "
                   "control plane has actually observed.")
         step("refused", reason="no evidence for this incident")
@@ -167,10 +298,11 @@ def investigate(body: InvestigateBody, x_api_key: str | None = Header(default=No
                 "proposed_action": None, "authority": READ_ONLY_NOTICE,
                 "reasoning_mode": mode, "verdict": "NO_EVIDENCE",
                 "evidence_ids": []}
-
-    pack = predigest_svc.build_evidence_pack(incident_id, dict(tele))
-    evidence_ids = [str(e["evidence_id"]) for e in pack.get("evidence", [])]
-    step("evidence_pack", items=len(evidence_ids))
+    else:
+        pack = predigest_svc.build_evidence_pack(incident_id, dict(tele))
+        evidence_ids = [str(e["evidence_id"])
+                        for e in pack.get("evidence", [])]
+        step("evidence_pack", items=len(evidence_ids), source="rebuilt")
     if not evidence_ids:
         answer = ("The evidence pack for this incident is empty, so any "
                   "conclusion I gave you would be invented. I am not going to "
@@ -200,6 +332,31 @@ def investigate(body: InvestigateBody, x_api_key: str | None = Header(default=No
                 "proposed_action": None, "authority": READ_ONLY_NOTICE,
                 "reasoning_mode": mode, "verdict": "ERROR", "evidence_ids": []}
 
+    # ---- Path 1: the control plane already pinned this one ----
+    #
+    # An IncidentRun keeps no telemetry (see IncidentRun in services/fsm.py), so
+    # re-running A2 here would need a signature this endpoint does not have and
+    # must not invent. But the run's handoff already carries the control plane's
+    # own diagnosis, the same evidence ids the audit chain recorded, and the
+    # planned action. Reporting that is both truthful and the more useful
+    # answer: it is what the system actually concluded, not a fresh guess that
+    # might disagree with the audit chain.
+    grounded = _grounded_from_run(incident_id)
+    if grounded is not None:
+        step("grounded_from_control_plane", verdict=grounded["verdict"],
+             hypotheses=len(grounded["hypotheses"]))
+        convo.append_turn(incident_id, convo.Turn(
+            role="agent", text=grounded["answer"], at=time.time(),
+            reasoning_mode=mode, verdict=grounded["verdict"], trace=trace,
+            citations=grounded["citations"], evidence_ids=evidence_ids,
+            proposed_action=grounded["proposed_action"]))
+        return {"answer": grounded["answer"], "citations": grounded["citations"],
+                "trace": trace, "proposed_action": grounded["proposed_action"],
+                "authority": READ_ONLY_NOTICE, "reasoning_mode": mode,
+                "verdict": grounded["verdict"], "evidence_ids": evidence_ids,
+                "severity": grounded.get("severity", "")}
+
+    # ---- Path 2: investigate fresh (no persisted diagnosis on this run) ----
     clients = {name: orch._Scripted(name, payload) for name, payload in (  # noqa: SLF001
         ("triage", triage_payload), ("diagnostic", diagnostic_payload),
         ("planner", plan_payload))}
