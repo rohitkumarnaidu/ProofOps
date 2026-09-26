@@ -101,6 +101,38 @@ def test_a_proposal_always_requires_human_approval():
 
 
 # ---------------------------------------------------------------------------
+# Reachability -- the mistake this whole surface existed to fix
+# ---------------------------------------------------------------------------
+
+def test_the_agent_router_is_actually_wired_into_the_app():
+    """A module that is not mounted is a module nobody can reach.
+
+    This is precisely the failure the project already logged as A10: the four
+    agents were implemented, tested, and reachable only as Python calls. Writing
+    a beautiful read-only agent surface and then forgetting one `include_router`
+    would reproduce the identical gap with a fresh coat of paint.
+    """
+    main_py = (ROOT / "backend" / "app" / "main.py").read_text(encoding="utf-8")
+    assert "routers import agents as agents_router" in main_py, (
+        "main.py must import the agents router")
+    assert "app.include_router(agents_router.router)" in main_py, (
+        "main.py must include the agents router, or /agents/investigate does "
+        "not exist over HTTP and the product is a dashboard again")
+
+
+def test_the_agent_routes_are_declared_on_the_router():
+    """Both routes, by name, so a rename cannot silently drop one.
+
+    `ast.unparse` normalises string quotes, so both forms are accepted.
+    """
+    code = _code_only(AGENTS_PY)
+    for route in ("/agents/investigate", "/agents/{incident_id}/thread"):
+        assert route in code, (
+            f"the route {route!r} must exist -- a thread you cannot read back "
+            "is not a conversation, it is a log")
+
+
+# ---------------------------------------------------------------------------
 # Grounding
 # ---------------------------------------------------------------------------
 

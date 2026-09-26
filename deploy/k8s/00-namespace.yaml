@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: proofops
+  labels:
+    app.kubernetes.io/name: proofops
+    app.kubernetes.io/part-of: proofops-control-plane
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted

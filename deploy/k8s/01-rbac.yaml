@@ -1,0 +1,52 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: proofops-agent-sa
+  namespace: proofops
+  annotations:
+    # AWS EKS IRSA (IAM Roles for Service Accounts)
+    eks.amazonaws.com/role-arn: "arn:aws:iam::123456789012:role/ProofOpsIncidentCommanderRole"
+    # GCP GKE Workload Identity
+    iam.gke.io/gcp-service-account: "proofops-sa@gcp-enterprise-project.iam.gserviceaccount.com"
+    # Azure AKS Workload Identity
+    azure.workload.identity/client-id: "00000000-0000-0000-0000-000000000000"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: proofops-governed-executor
+rules:
+  # 1. Read-Only Observability (GREEN actions)
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "pods/status", "services", "configmaps", "events"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "deployments/status", "replicasets", "statefulsets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["metrics.k8s.io"]
+    resources: ["pods", "nodes"]
+    verbs: ["get", "list"]
+
+  # 2. Governed Reversible Mutations (YELLOW actions - requires cryptographic approval)
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["patch", "update"] # For rollout restarts and version rollback patches
+  - apiGroups: ["apps"]
+    resources: ["deployments/scale"]
+    verbs: ["get", "update", "patch"] # For bounded replica scaling (+/- 2)
+
+  # 3. Explicitly Forbidden (RED Actions):
+  # DELETE verbs on namespaces, deployments, nodes, secrets, or RBAC are intentionally EXCLUDED.
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: proofops-governed-executor-binding
+subjects:
+  - kind: ServiceAccount
+    name: proofops-agent-sa
+    namespace: proofops
+roleRef:
+  kind: ClusterRole
+  name: proofops-governed-executor
+  apiGroup: rbac.authorization.k8s.io

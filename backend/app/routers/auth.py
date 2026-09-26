@@ -343,15 +343,14 @@ def guard_http(provided: str | None, expected_fn: object,
     the return value behave exactly as before. Supports Bearer JWT tokens
     when authorization header is provided.
     """
-    if authorization and authorization.lower().startswith("bearer "):
+    if authorization and isinstance(authorization, str) and authorization.lower().startswith("bearer "):
         token = authorization.split(" ", 1)[1].strip()
         try:
             return verify_jwt_token(token)
         except Exception as exc:
             raise http_exc_cls(status_code=403, detail=str(exc)) from exc
 
-    if provided is None or (isinstance(provided, str)
-                            and not provided.strip()):
+    if not isinstance(provided, str) or not provided.strip():
         raise http_exc_cls(status_code=401, detail="X-API-Key required")
     try:
         expected = expected_fn()  # type: ignore[operator]
@@ -427,8 +426,10 @@ def http_token(payload: dict[str, Any] | None = None,
                x_api_key: str | None = Header(default=None),
                authorization: str | None = Header(default=None),
                ) -> dict[str, Any]:
-    key = x_api_key or (payload.get("api_key") if isinstance(payload, dict) else None)
-    identity = guard_http(key, _settings_key, HTTPException, authorization=authorization)
+    api_k = x_api_key if isinstance(x_api_key, str) else None
+    auth_h = authorization if isinstance(authorization, str) else None
+    key = api_k or (payload.get("api_key") if isinstance(payload, dict) else None)
+    identity = guard_http(key, _settings_key, HTTPException, authorization=auth_h)
     token = issue_jwt_token(identity)
     return {
         "access_token": token,

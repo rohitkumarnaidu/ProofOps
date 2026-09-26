@@ -433,8 +433,30 @@ execute re-checks policy-permit freshness (≤5m); typed errors
 1. Command Center · 2. Incident Detail · 3. Safety Gate · 4. Execution /
    Verification · 5. RCA / Evaluation. Priorities: operational state, evidence,
    policy, blast radius, approval, execution, verification, audit, scorecard.
-   Do not build a chatbot; no decorative AI animation as proof substitute.
    Every UI number traces to evidence/audit/eval run or is labeled a derived metric.
+
+**Amended (human-approved).** The clause "Do not build a chatbot" is replaced by:
+
+> **No decorative chat.** An agent surface is permitted and expected
+> (`POST /agents/investigate`, `GET /agents/{id}/thread`). It must be
+> **read-only**: it investigates and proposes, and **cannot** execute, approve,
+> or mutate. Every claim carries the evidence ids supporting it;
+> `INSUFFICIENT_EVIDENCE` yields no proposal. No streaming AI animation may
+> stand in for proof — the trace, the citations, and the audit chain are the
+> proof.
+
+*Why the rule changed.* It was written when there were no agents worth talking
+to, and it has now caused a measurable failure. The four agents (A1–A4) were
+implemented and tested but reachable **only** as Python calls from inside
+`run_pipeline` — the project's own audit logged it as **A10 FAIL**. A product
+whose operators cannot ask it anything and cannot see why it decided is an
+automation pipeline with a dashboard, not an agentic control plane. The
+substance of the rule is preserved and sharpened: the ban was never on
+conversation, it was on **decorative** AI surface substituting for evidence. A
+read-only, citation-carrying, trace-bearing agent surface is the opposite of
+decoration. The Manager Agent remains `[OPTIONAL]` (line 71) for a *manager*
+persona; what is unblocked here is the investigation surface, with no authority
+to act.
 
 ### 9.4 Realtime UX
 

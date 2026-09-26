@@ -1,11 +1,8 @@
 """ProofOps control-plane API (T01 skeleton; routes land per T02+)."""
 import sys
 from pathlib import Path
-_ROOT = Path(__file__).resolve().parents[2]
-_BACKEND = Path(__file__).resolve().parents[1]
-for _p in (str(_ROOT), str(_BACKEND)):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import app.compat  # noqa: F401 (Starlette host compatibility shim)
 import time  # noqa: E402  (Lane 2: middleware latency clock)
@@ -24,6 +21,8 @@ from app.routers import audit as audit_router  # noqa: E402  (M15b audit router)
 from app.routers import approvals as approvals_router  # noqa: E402  (M19a)
 from app.routers import auth as auth_router  # noqa: E402  (M21b identity)
 from app.routers import eval as eval_router  # noqa: E402  (M19b smoke)
+from app.routers import agents as agents_router  # noqa: E402
+from app.routers import webhooks as webhooks_router  # noqa: E402
 from app.services import metrics  # noqa: E402 (Lane 2 observability registry)
 
 # M00.2: load typed config at startup. Missing/invalid required values raise
@@ -104,6 +103,12 @@ if stream_router is not None and \
 if ingest_router is not None and \
         getattr(ingest_router, "router", None) is not None:
     app.include_router(ingest_router.router)
+if agents_router is not None and \
+        getattr(agents_router, "router", None) is not None:
+    app.include_router(agents_router.router)
+if webhooks_router is not None and \
+        getattr(webhooks_router, "router", None) is not None:
+    app.include_router(webhooks_router.router)
 
 # Public values only (APP_ENV/LOG_LEVEL/EXECUTOR are non-secret by contract).
 logger.info("proofops api starting env=%s level=%s executor=%s",
