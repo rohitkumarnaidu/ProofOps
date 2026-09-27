@@ -40,6 +40,9 @@ SECRET_ADJACENT_FIELDS = frozenset({"DATABASE_URL"})
 
 AppEnv = Literal["development", "test", "demo", "production"]
 Executor = Literal["mock", "docker"]
+# How an approval token is carried to the human who must use it. See
+# APPROVAL_TOKEN_DELIVERY below and ADR-015.
+ApprovalTokenDelivery = Literal["approver_minted", "out_of_band", "scoped_view"]
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR"]
 SeedVariant = Literal["NORMAL", "NOISY", "INCOMPLETE", "CONTRADICTORY", "ADVERSARIAL"]
 
@@ -101,6 +104,19 @@ class Settings(BaseSettings):
     # without asking. With this on, a live failure propagates instead of
     # downgrading to the mock (see pipeline._apply_action).
     LIVE_CLUSTER: bool = False
+    # How an approval token reaches the human who must use it. The token is a
+    # single-use HMAC bearer credential that is deliberately never persisted
+    # (AGENTS.md 1.1 #4/#6/#7), so something has to carry it.
+    #
+    #   approver_minted (default, strongest): the control plane never mints.
+    #     The human raises the request from the Safety Gate and receives the
+    #     token, so no token exists that the approver did not create.
+    #   out_of_band: the control plane mints and hands the token to a separate
+    #     sink (a 0600 file outside the API's reach) that the approver reads.
+    #   scoped_view: the token is retrievable once, by an approver or admin
+    #     only, over a dedicated audited endpoint. Convenience, at the cost of a
+    #     live credential crossing a read path -- hence not the default.
+    APPROVAL_TOKEN_DELIVERY: ApprovalTokenDelivery = "approver_minted"
 
     # --- security ---
     APPROVAL_SECRET: str = ""
@@ -255,6 +271,7 @@ class Settings(BaseSettings):
             "KUBERNETES_NAMESPACE": ("PUBLIC", False, "M08 live executor"),
             "PROMETHEUS_URL": ("PUBLIC", False, "M09 live verifier"),
             "LIVE_CLUSTER": ("PUBLIC", False, "M08 live executor opt-in"),
+            "APPROVAL_TOKEN_DELIVERY": ("PUBLIC", False, "M07 HITL token carrier"),
             "APPROVAL_SECRET": ("SECRET", True, "M07 HITL"),
             "APPROVAL_TTL_SECONDS": ("PUBLIC", False, "M07 HITL"),
             "POLICY_VERSION": ("PUBLIC", False, "M06 policy"),

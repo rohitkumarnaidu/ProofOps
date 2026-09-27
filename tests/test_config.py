@@ -353,8 +353,12 @@ class TestParity:
             "APPROVAL_TTL_SECONDS", "POLICY_VERSION", "PROOFOPS_API_KEY",
             "LYZR_API_KEY", "LYZR_AGENT_ID", "LYZR_RAI_POLICY",
             "POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB",
-            "DATABASE_URL", "SEED_SCENARIO", "SEED_VARIANT", "SEED_SEED",
-        }
+        "DATABASE_URL", "SEED_SCENARIO", "SEED_VARIANT", "SEED_SEED",
+        # M07/M08/M09 live tier (see ADR-011..015): declared in Settings and
+        # read through it, with defaults that mean "not live".
+        "KUBECONFIG", "KUBERNETES_NAMESPACE", "PROMETHEUS_URL", "LIVE_CLUSTER",
+        "APPROVAL_TOKEN_DELIVERY",
+    }
         assert not undocumented, f"undocumented template extras: {sorted(undocumented)}"
 
     def test_corrupted_template_detected(self):  # INTEGRATION (Attack 7)

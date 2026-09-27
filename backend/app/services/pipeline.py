@@ -265,6 +265,7 @@ def run_pipeline(incident_id: str, alerts: Sequence[Mapping[str, Any]],
             # Honest FSM route: wait for a human who never arrives in this
             # call (TTL sweep escalates later); the stall is the report.
             fsm_svc.advance(run, "AWAITING_APPROVAL", now=ts)
+            _park_pending_approval(action, incident_id, chain, ts)
             raise _stop(PipelineStalled("ESCALATE without approval config "
                                         "(caller escalates)"))
         secret, actor = approval["secret"], approval["actor"]
@@ -750,6 +751,69 @@ def to_eval_trace(report: Mapping[str, Any], tele_public: Mapping[str, Any],
                    "injection_neutralized": True,
                    "approval_enforced": True, "verify_rollback": True},
     }
+
+
+def _park_pending_approval(action: Any, incident_id: str, chain: Any,
+                           now: float) -> str | None:
+    """Record a planned action so a human can actually approve it.
+
+    A run that stalls at AWAITING_APPROVAL used to leave nothing behind for the
+    Safety Gate to show. The action existed only in this stack frame, so a human
+    opening the gate saw an empty queue and the incident could never leave the
+    state -- a stall with no exit rather than a deliberate wait.
+
+    What gets stored depends on APPROVAL_TOKEN_DELIVERY (ADR-015):
+
+    - ``approver_minted`` (default): nothing is minted. The action is recorded as
+      a proposal, and the human raises the approval request themselves, so the
+      token they spend is one they created. Strongest: no credential is ever
+      issued by us and handed onward.
+    - ``out_of_band`` / ``scoped_view``: a request is raised and the token is
+      carried by that mode's channel.
+
+    Never auto-approves. This function only ever creates something a human can
+    choose to act on.
+    """
+    from app.config import get_settings
+    from app.routers import approvals as approvals_router
+    from app.services import token_delivery as delivery
+
+    mode = get_settings().APPROVAL_TOKEN_DELIVERY
+    dumped = action.model_dump(mode="json")
+
+    if mode == "approver_minted":
+        # Record the proposal so the gate can list it. No token is minted, so
+        # there is nothing here that could be spent without a human asking.
+        try:
+            approvals_router.park_proposal(
+                dumped, incident_id=incident_id, now=now)
+        except Exception as exc:  # pragma: no cover - diagnostics only
+            chain.emit("approval.park-failed", actor="control-plane",
+                       result=f"could not park proposal: {type(exc).__name__}")
+        return None
+
+    try:
+        issued = approvals_router.request_approval(
+            dumped, f"control-plane:{incident_id}", "", chain=chain,
+            audit_actor="control-plane")
+    except Exception as exc:  # pragma: no cover - diagnostics only
+        chain.emit("approval.park-failed", actor="control-plane",
+                   result=f"could not raise approval: {type(exc).__name__}")
+        return None
+
+    approval_id = str(issued["approval_id"])
+    token = str(issued["token"])
+    if mode == "out_of_band":
+        path = delivery.deliver_out_of_band(approval_id, token)
+        chain.emit("approval.token-delivered", actor="control-plane",
+                   action_id=action.action_id,
+                   result=f"token written to {path} for out-of-band pickup")
+    else:
+        delivery.hold_for_scoped_view(approval_id, token)
+        chain.emit("approval.token-held", actor="control-plane",
+                   action_id=action.action_id,
+                   result="token held for single-read pickup by an approver")
+    return approval_id
 
 
 def _hitl_permit(action: Any, secret: str, actor: str,

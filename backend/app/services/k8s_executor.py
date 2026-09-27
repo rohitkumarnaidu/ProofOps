@@ -155,7 +155,14 @@ class KubernetesExecutor:
         sandbox with a documented fallback tier.
         """
         p = action.parameters
-        namespace = str(p.get("namespace", "default"))
+        # Default to the namespace this identity is scoped to, not "default".
+        #
+        # The agent's ServiceAccount carries a namespaced Role in exactly one
+        # namespace, so any other default is a guaranteed 403 -- and a 403 here
+        # surfaced as a run stuck in EXECUTING with no verdict, which reads like
+        # a hang rather than a permissions error. An action may still name a
+        # namespace explicitly; the configured one is the floor.
+        namespace = str(p.get("namespace") or self._namespace or "default")
         deployment = str(p.get("deployment", action.resource_id))
 
         if not self.is_connected:

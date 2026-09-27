@@ -17,6 +17,7 @@ Config → Sanitized Snapshot`. Nothing reads `os.environ` directly except
 | KUBERNETES_NAMESPACE | namespace the agent identity is scoped to | default | PUBLIC | M08 |
 | PROMETHEUS_URL | http(s) base URL of the query API | http://localhost:9090 | PUBLIC | M09 |
 | LIVE_CLUSTER | bool, true = execute against a real cluster | false | PUBLIC | M08 |
+| APPROVAL_TOKEN_DELIVERY | approver_minted\|out_of_band\|scoped_view | approver_minted | PUBLIC | M07 |
 | APPROVAL_SECRET | str, required | — (fail-closed) | SECRET | M00.2 → M07 |
 | APPROVAL_TTL_SECONDS | int > 0 | 600 | PUBLIC | M00.2 → M07 |
 | POLICY_VERSION | non-empty token | v1 | PUBLIC | M00.2 → M06 |

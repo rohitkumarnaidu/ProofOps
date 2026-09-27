@@ -67,6 +67,13 @@ PERMIT_FRESHNESS_S = 300.0
 
 REQUESTS: dict[str, dict[str, Any]] = {}
 
+#: Actions the control plane planned and parked, awaiting a human who has not yet
+#: chosen to raise an approval request for them. Distinct from REQUESTS: a
+#: proposal has no token, because minting one is the human's decision. This is
+#: what makes the Safety Gate useful in ``approver_minted`` mode -- without it a
+#: stalled run leaves nothing to show and the incident can never leave the state.
+PROPOSALS: dict[str, dict[str, Any]] = {}
+
 logger = get_logger(__name__)
 
 
@@ -291,17 +298,105 @@ def _persist_chain(chain: Any) -> None:
         pass
 
 
-def _guarded_with_chain(fn: Any, chain: Any, *args: Any,
-                        **kwargs: Any) -> Any:
-    """Run a mutating helper and flush whatever it emitted."""
-    try:
-        out = fn(*args, **kwargs)
-    except Exception as exc:
-        _persist_chain(chain)
-        raise HTTPException(status_code=http_status(exc),
-                            detail=str(exc)) from exc
-    _persist_chain(chain)
+def park_proposal(action: Mapping[str, Any], incident_id: str,
+                  now: float | None = None) -> str:
+    """Record a planned action that a human may later choose to request.
+
+    Mints nothing. The point is that in the default delivery mode the approver
+    raises the request themselves, so the token they spend is one they created
+    and there is no credential for us to leak.
+    """
+    _ensure_loaded()
+    if not isinstance(action, Mapping):
+        raise ValueError("action must be a mapping")
+    action_id = str(action.get("action_id") or "")
+    if not action_id:
+        raise ValueError("action must carry an action_id")
+    PROPOSALS[action_id] = {
+        "action": dict(action),
+        "incident_id": str(incident_id),
+        "parked_at": time.time() if now is None else float(now),
+    }
+    return action_id
+
+
+def list_proposals() -> list[dict[str, Any]]:
+    """Parked actions, for the Safety Gate. Contains no tokens by construction.
+
+    The full action *is* included, because in ``approver_minted`` mode the human
+    has to submit it back to raise the approval request, and a summary they
+    cannot act on is not a proposal. An action is not a secret -- it is the thing
+    being authorised, and the approver is entitled to read exactly what they are
+    approving. The token is the secret, and it appears nowhere here.
+    """
+    out: list[dict[str, Any]] = []
+    for action_id, entry in PROPOSALS.items():
+        action = entry.get("action", {})
+        out.append({
+            "action_id": action_id,
+            "incident_id": entry.get("incident_id", ""),
+            "action_type": str(action.get("action_type", "")),
+            "risk_level": str(action.get("risk_level", "")),
+            "runbook_id": str(action.get("runbook_id", "")),
+            "parked_at": entry.get("parked_at", 0.0),
+            "token_available": _token_collectable(action_id),
+            "action": dict(action),
+        })
     return out
+
+
+def _token_collectable(approval_id: str) -> bool:
+    """Whether an approver could still collect a held token. Never returns one."""
+    try:
+        from app.services import token_delivery as delivery
+        return delivery.peek_scoped_view(approval_id)
+    except Exception:
+        return False
+
+
+def http_proposals() -> dict[str, Any]:
+    """List parked proposals. Authenticated; no token is ever in this payload."""
+    return {"proposals": list_proposals()}
+
+
+def http_claim_token(approval_id: str,
+                     x_api_key: str | None = Header(default=None)
+                     ) -> dict[str, Any]:
+    """Hand a held approval token to an approver, exactly once (ADR-015).
+
+    The weakest delivery mode, so it carries the most guard rails. A token is a
+    live single-use credential and this is a read path, therefore:
+
+    - approver or admin only, resolved server-side from the key
+    - single-read: the entry is consumed before it is returned, so a second
+      claim finds nothing
+    - TTL-bounded from mint, not from first read
+    - audited, because a credential left the process
+    - never included in the ordinary view or the proposal list
+
+    A caller who cannot already mint a token cannot obtain one here, which is
+    the property that makes this acceptable at all.
+    """
+    identity = _require_key(x_api_key)
+    _authorize(identity, "approver", "admin")
+    from app.services import token_delivery as delivery
+
+    token = delivery.claim_scoped_view(approval_id)
+    if token is None:
+        # Do not distinguish "never existed" from "already spent or expired": the
+        # difference is exactly what an attacker probes for.
+        raise HTTPException(status_code=404, detail="no collectable token")
+    try:
+        chain = _chain_for_approval(approval_id)
+    except Exception:
+        chain = None
+    if chain is not None:
+        _emit(chain, "approval.token-claimed",
+              {"approval_id": approval_id}, actor="approver",
+              result="held approval token collected by an approver "
+                     "(single use; entry consumed)")
+    return {"approval_id": approval_id, "token": token,
+            "single_use": True}
 
 
 def request_approval(action: Mapping[str, Any], actor: str, secret: str,
@@ -523,13 +618,15 @@ def approve_approval(approval_id: str, actor: str, token: str, role: str,
                   else ""))
         _save_best_effort()
         view = approval_view(approval_id)
-        _trigger_resume(approval_id, chain)
+        _trigger_resume(approval_id, chain, token=token, actor=actor,
+                        secret=secret)
         return view
 
     return _idem(approval_id, idempotency_key, _produce)
 
 
-def _trigger_resume(approval_id: str, chain: Any) -> None:
+def _trigger_resume(approval_id: str, chain: Any, token: str = "",
+                    actor: str = "", secret: str = "") -> None:
     """Hand a human-approved action to the orchestrator so the run continues.
 
     This is the seam that makes the lifecycle close. Until it existed, an
@@ -549,13 +646,35 @@ def _trigger_resume(approval_id: str, chain: Any) -> None:
     """
     try:
         from app.services import orchestrator as orchestrator_mod
-        incident_id, action = approved_action(approval_id)
-        permit = verified_permit(
-            approval_id, token="", actor="", secret="",
-            chain=chain, expected_incident=incident_id)
         worker = orchestrator_mod.ORCHESTRATOR
+        # Check the consumer before minting the credential. Minting burns a
+        # single-use nonce, so minting for a worker that is disabled or stopped
+        # would spend the one permit this approval can ever produce on nothing
+        # -- and a later legitimate mint would then be refused as a replay. The
+        # human decision stays recorded either way; only the unusable permit is
+        # skipped.
         if not worker.stats.enabled or not worker.running:
+            logger.info("approval %s approved; no running worker, resume is a "
+                        "no-op and no permit was minted", approval_id)
             return
+        incident_id, action = approved_action(approval_id)
+        if not (token and actor and secret):
+            # Refuse rather than mint. verified_permit re-checks the HMAC over
+            # (token, request, action, actor, secret) with burn=False, precisely so
+            # the approval nonce is not spent twice while the binding is still
+            # proven. Calling it with blanks -- as this did -- could only ever
+            # fail the crypto check, so every human approval silently scheduled
+            # no resume and the run sat at AWAITING_APPROVAL forever while the
+            # endpoint still answered 200. The credentials are in scope here
+            # because approve_approval just used them.
+            logger.warning(
+                "approval %s approved but resume needs the approving "
+                "credentials; refusing to mint a permit without them",
+                approval_id)
+            return
+        permit = verified_permit(
+            approval_id, token=token, actor=actor, secret=secret,
+            chain=chain, expected_incident=incident_id)
         worker.resume(incident_id, action, permit)
     except Exception:
         logger.warning("approval %s recorded but resume not scheduled",
@@ -750,6 +869,19 @@ def _guarded(fn: Any, *args: Any, **kwargs: Any) -> Any:
                             detail=str(exc)) from exc
 
 
+def _guarded_with_chain(fn: Any, chain: Any, *args: Any,
+                        **kwargs: Any) -> Any:
+    """Run a mutating helper and flush whatever it emitted."""
+    try:
+        out = fn(*args, **kwargs)
+    except Exception as exc:
+        _persist_chain(chain)
+        raise HTTPException(status_code=http_status(exc),
+                            detail=str(exc)) from exc
+    _persist_chain(chain)
+    return out
+
+
 def _settings_secret() -> str:
     from app.config import get_settings  # noqa: E402 (request-time only)
     return get_settings().APPROVAL_SECRET
@@ -912,3 +1044,9 @@ if router is not None:  # container path; host asserts wiring via AST
     router.get("/approvals/{approval_id}")(http_view)
     router.post("/approvals/{approval_id}/approve")(http_approve)
     router.post("/approvals/{approval_id}/reject")(http_reject)
+    # ADR-015: parked proposals (no token) and, in scoped_view mode only, the
+    # single-read token pickup. Both are authenticated; the pickup is
+    # approver/admin only and is deliberately its own endpoint rather than a
+    # field on the ordinary view.
+    router.get("/approval-proposals")(http_proposals)
+    router.post("/approvals/{approval_id}/token")(http_claim_token)
