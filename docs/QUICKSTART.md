@@ -322,15 +322,29 @@ the next `docker compose up`.
 
 ## Verify your install
 
-Run the host-safe suite. It needs no daemon and no network:
+Run the host-safe suite. It needs no daemon and no network, but it does need
+`APPROVAL_SECRET`, `POSTGRES_PASSWORD`, and `PROOFOPS_API_KEY` to be set,
+because the settings object is constructed at import time and all three are
+required with no defaults. If your shell has a `.env` loaded, you are already
+covered. Otherwise:
 
 ```bash
+export APPROVAL_SECRET=test-secret-16-chars-ok
+export POSTGRES_PASSWORD=test-db-password
+export PROOFOPS_API_KEY=test-key
+
 python -m pytest tests/ -q -p no:warnings \
   --ignore=tests/test_compose_runtime.py \
   --ignore=tests/test_config_runtime.py \
   --ignore=tests/test_health_runtime.py \
   --ignore=tests/test_logging_runtime.py
 ```
+
+Without those three, collection fails before a single test runs, with
+`ConfigurationError: APPROVAL_SECRET: invalid value; PROOFOPS_API_KEY: ...;
+POSTGRES_PASSWORD: ...`. That is a missing environment, not a broken tree. CI
+currently has this problem: it exports no values, so the unit job is red for
+reasons unrelated to the code under test.
 
 Those four ignored files are the runtime suites. They drive a live Docker daemon
 and mutate the running stack, so they are excluded from the default pass. See
@@ -385,3 +399,7 @@ Honest gaps, so you do not go looking for them:
 - No route rate-limits or throttles requests. PLANNED, not built.
 - `AgentsView` is the one view not covered by the rendered browser check, which
   covers the other five at three viewport widths.
+- The unit suite needs the three secrets exported (see "Verify your install").
+  CI does not export them, so the CI unit job is currently red for reasons
+  unrelated to the code under test. Do not read a red unit job as a code
+  failure until that is fixed.

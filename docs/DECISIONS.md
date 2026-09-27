@@ -734,6 +734,38 @@ None is a claim this pass verified as working.
    `error` fields, so the UI cannot render a degraded database as degraded and
    shows a positive online label instead.
 
+### CI was already red, and the documentation says so
+
+Worth recording because a documentation pass that quietly lands on a red branch
+is indistinguishable from one that caused it. `master` had failed 10 consecutive
+CI runs, back to `852cf4f`, before this commit existed. This commit's own run
+failed identically to its parent's.
+
+The cause is not in the code under test. `get_settings()` is called at import
+time in two modules (`k8s_executor.py:41`, `prom_verifier.py:239`), and
+`APPROVAL_SECRET`, `POSTGRES_PASSWORD`, and `PROOFOPS_API_KEY` are required with
+no defaults. In CI there is no `.env` (correctly gitignored) and nothing exports
+those values, so collection fails before any test executes. Proven in a clean
+clone of this commit: with the variables cleared, 7 collection errors; with three
+test values exported, 3057 tests collected and zero errors. A developer with a
+local `.env` sees a green suite and never sees the defect.
+
+`QUICKSTART.md` now states the requirement, and names the red CI unit job as
+known-broken so a reader does not misread it as a code failure.
+
+Two candidate fixes, neither taken here because both are code changes outside a
+documentation pass:
+
+1. A `tests/conftest.py` that sets the three variables for the host-safe suite.
+   Small, and it makes the suite hermetic rather than dependent on a developer's
+   shell.
+2. Have the CI unit job export the same values, or set `APP_ENV=development` with
+   explicit non-placeholder test values.
+
+Option 1 is the better fix and also removes a real footgun: today a green local
+run proves less than it appears to, because it is partly a measurement of the
+developer's `.env`. Owner: M00.7 CI foundation, PLANNED.
+
 ### A governance defect, recorded because writing cannot fix it
 
 `ADR-011` through `ADR-014` exist twice in this log: once in the M01–M03 series
