@@ -112,10 +112,30 @@ class PrometheusVerifier:
         oom_query = f'sum(kube_pod_container_status_last_terminated_reason{{reason="OOMKilled", pod=~".*{service}.*"}})'
         obs_oom = await self.query_promql(oom_query)
 
+        # Provenance per signal. A value that came from Prometheus was observed;
+        # one that came from the sandbox's own in-memory state is the mock
+        # talking about itself, and must never be reported as if it were measured.
+        observed_error = obs_error_rate is not None
+        observed_replicas = obs_replicas is not None
+        observed_oom = obs_oom is not None
+
         # Use observed Prometheus numbers if present, else fallback to state
-        err_val = obs_error_rate if obs_error_rate is not None else float(after_state.get("error_rate", 1.0))
-        replicas_val = obs_replicas if obs_replicas is not None else int(after_state.get("replicas", 0))
-        has_oom = (obs_oom is not None and obs_oom > 0) or bool(after_state.get("crashloop", False))
+        err_val = obs_error_rate if obs_error_rate is not None \
+            else float(after_state.get("error_rate", 1.0))
+        replicas_val = int(obs_replicas) if obs_replicas is not None \
+            else int(after_state.get("replicas", 0))
+        has_oom = (obs_oom is not None and obs_oom > 0) \
+            or bool(after_state.get("crashloop", False))
+
+        # Did we measure anything real? If not, this run verified nothing, and
+        # saying otherwise is the one thing an independent verifier must never do.
+        measured = observed_error or observed_replicas or observed_oom
+        evidence_source = "live-promql" if measured else "fallback-state"
+        unmeasured = [name for name, seen in (
+            ("error_rate", observed_error),
+            ("replicas", observed_replicas),
+            ("oom", observed_oom),
+        ) if not seen]
 
         error_slo = float(slo.get("error_rate_below", 0.01))
         checks: dict[str, bool] = {
@@ -126,10 +146,24 @@ class PrometheusVerifier:
         }
 
         detail = (
-            f"live-promql err={err_val:.4f} (slo<{error_slo}) "
+            f"{evidence_source} err={err_val:.4f} (slo<{error_slo}) "
             f"replicas={replicas_val} oom={has_oom} "
             f"exit={'0' if command_succeeded else 'nonzero'}"
+            + (f" UNMEASURED={','.join(unmeasured)}" if unmeasured else "")
         )
+
+        if not measured:
+            # Everything above was the sandbox agreeing with itself. RESOLVED
+            # would be a fabrication with a verdict attached, which is precisely
+            # the "exit 0 != resolved" failure this module exists to prevent --
+            # just moved one layer down, into the evidence.
+            return VerificationResult(
+                execution_id=execution_id,
+                verdict=Verdict.PARTIAL,
+                checks=FrozenDict(checks),
+                detail=detail + " -- no signal was observable; refused to "
+                               "assert RESOLVED from unmeasured state",
+            )
 
         if all(checks.values()):
             return VerificationResult(

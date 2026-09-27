@@ -28,6 +28,19 @@ scrape_configs:
       ca_file: /live/ca.crt
       insecure_skip_verify: false
 
+  # kube-state-metrics: the real, authoritative state of real workloads.
+  #
+  # This is what makes verification meaningful rather than merely live. The
+  # synthetic telemetry describes an error rate for a service that does not exist
+  # in this cluster, so a PromQL query for it returns nothing and the verifier
+  # has nothing real to say. kube-state-metrics exposes what IS true here --
+  # `kube_deployment_status_replicas_available` and friends -- so "did the
+  # workload actually become available after the action" is answered by a
+  # measured fact instead of by the mock's own in-memory opinion.
+  - job_name: kube-state-metrics
+    static_configs:
+      - targets: ["__KUBE_STATE_METRICS__"]
+
   # Prometheus's own metrics, so the verifier can confirm the scrape path is
   # alive (up == 1) before trusting any query result from it.
   - job_name: prometheus

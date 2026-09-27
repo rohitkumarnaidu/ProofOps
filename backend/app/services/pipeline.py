@@ -107,7 +107,30 @@ def _verify_action(
     slo: dict[str, Any],
     expected: dict[str, Any] | None = None,
 ) -> Any:
-    """Dispatch verification to Prometheus PromQL if reachable, otherwise fallback to verifier."""
+    """Verify at the tier the operator selected, like the executor dispatch.
+
+    This used to call the live PromQL verifier unconditionally, so a mock-tier run
+    was verified by a component that asks a real Prometheus about a service that
+    only exists in synthetic telemetry. Every query returned nothing, and the
+    verifier fell back to the sandbox's own in-memory numbers -- meaning the mock
+    run was being "independently verified" by a function whose PromQL had never
+    observed anything.
+
+    Now the deterministic verifier handles the mock tier and the PromQL verifier
+    handles the live tier, so "independent" means a different implementation in
+    each case rather than the same numbers read twice.
+    """
+    from app.config import get_settings
+
+    if not get_settings().LIVE_CLUSTER:
+        return verifier_svc.verify(
+            execution_id=execution_id,
+            before=before,
+            after=after,
+            slo=slo,
+            expected=expected,
+            command_succeeded=True,
+        )
     return PROMETHEUS_VERIFIER.verify_sync(
         execution_id=execution_id,
         service=service,

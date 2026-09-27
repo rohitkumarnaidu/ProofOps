@@ -196,10 +196,113 @@ YAML
   printf '%s' "${token}" > "${STATE_DIR}/token"
   say "kubeconfig -> ${KUBECONFIG_OUT} (server https://${cp_ip}:6443, TLS verified)"
 
+  # ---- kube-state-metrics ------------------------------------------------
+  # The real state of real workloads. Without it the only metrics in Prometheus
+  # describe the apiserver, so a verifier asking "are N/N replicas available?"
+  # has nothing real to query and is pushed back onto the mock's own opinion --
+  # which is the dishonesty this project is arguing against.
+  if kubectl get clusterrole proofops-kube-state-metrics >/dev/null 2>&1; then
+    say "reconciling kube-state-metrics RBAC (read set drifts as versions add kinds)"
+  else
+    say "deploying kube-state-metrics (real workload state)"
+  fi
+  # Applied unconditionally: `apply` is the reconciliation. Gating it on
+  # "does it exist" meant a change to the read set or to hostNetwork was never
+  # applied to an already-present install.
+  kubectl apply -f - >/dev/null <<YAML
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kube-state-metrics
+  namespace: ${NAMESPACE}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: proofops-kube-state-metrics
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps", "endpoints", "pods", "secrets", "services",
+                "limitranges", "persistentvolumeclaims", "replicationcontrollers",
+                "resourcequotas", "serviceaccounts", "nodes"]
+    verbs: ["list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["daemonsets", "deployments", "replicasets", "statefulsets"]
+    verbs: ["list", "watch"]
+  - apiGroups: ["batch"]
+    resources: ["cronjobs", "jobs"]
+    verbs: ["list", "watch"]
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    verbs: ["list", "watch"]
+  - apiGroups: ["policy"]
+    resources: ["poddisruptionbudgets"]
+    verbs: ["list", "watch"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["storageclasses", "volumeattachments"]
+    verbs: ["list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: proofops-kube-state-metrics
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: proofops-kube-state-metrics
+subjects:
+  - kind: ServiceAccount
+    name: kube-state-metrics
+    namespace: ${NAMESPACE}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kube-state-metrics
+  namespace: ${NAMESPACE}
+  labels: {app: kube-state-metrics}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: kube-state-metrics}
+  template:
+    metadata:
+      labels: {app: kube-state-metrics}
+    spec:
+      serviceAccountName: kube-state-metrics
+      # Host networking so the metrics endpoint lands on the node address, which
+      # is reachable from the Prometheus container on the kind docker network. A
+      # Kubernetes Service is only resolvable from inside the cluster, and
+      # Prometheus runs outside it, so without this the target is unresolvable.
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      containers:
+        - name: kube-state-metrics
+          image: registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.13.0
+          args: ["--port=8080"]
+          ports: [{name: http, containerPort: 8080}]
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kube-state-metrics
+  namespace: ${NAMESPACE}
+spec:
+  selector: {app: kube-state-metrics}
+  ports: [{name: http, port: 8080, targetPort: 8080}]
+YAML
+  kubectl -n "${NAMESPACE}" rollout status deploy/kube-state-metrics \
+    --timeout=180s >/dev/null 2>&1 \
+    || say "  (kube-state-metrics not ready yet; continuing)"
+
   # ---- prometheus ------------------------------------------------------
   # The apiserver address is templated in, so the config always points at the
-  # cluster this script just built rather than a stale IP.
-  sed "s|__APISERVER__|${cp_ip}:6443|" telemetry/prometheus.yml > "${STATE_DIR}/prometheus.yml"
+  # cluster this script just built rather than a stale IP. kube-state-metrics
+  # runs host-networked, so it answers on the node address too.
+  sed -e "s|__APISERVER__|${cp_ip}:6443|" -e "s|__KUBE_STATE_METRICS__|${cp_ip}:8080|" \
+    telemetry/prometheus.yml > "${STATE_DIR}/prometheus.yml"
 
   if docker ps --format '{{.Names}}' | grep -qx "${PROM_CONTAINER}"; then
     say "reconfiguring prometheus"
