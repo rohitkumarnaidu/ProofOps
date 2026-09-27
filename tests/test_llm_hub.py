@@ -22,7 +22,7 @@ def test_llm_hub_active_provider_lyzr():
     with patch.dict(os.environ, {"LYZR_API_KEY": "lyzr-secret-key"}):
         info = LLMHub.active_provider()
         assert info["provider"] == "lyzr"
-        assert info["status"] == "CONNECTED"
+        assert info["status"] == "UNVERIFIED"
         assert info["tier"] == "enterprise-studio"
 
 
@@ -30,7 +30,7 @@ def test_llm_hub_active_provider_openai():
     with patch.dict(os.environ, {"OPENAI_API_KEY": "sk-openai-key"}, clear=True):
         info = LLMHub.active_provider()
         assert info["provider"] == "openai"
-        assert info["status"] == "CONNECTED"
+        assert info["status"] == "UNVERIFIED"
         assert info["tier"] == "direct-llm"
 
 
@@ -38,14 +38,14 @@ def test_llm_hub_active_provider_anthropic():
     with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-ant-key"}, clear=True):
         info = LLMHub.active_provider()
         assert info["provider"] == "anthropic"
-        assert info["status"] == "CONNECTED"
+        assert info["status"] == "UNVERIFIED"
 
 
 def test_llm_hub_active_provider_gemini():
     with patch.dict(os.environ, {"GEMINI_API_KEY": "ai-gemini-key"}, clear=True):
         info = LLMHub.active_provider()
         assert info["provider"] == "gemini"
-        assert info["status"] == "CONNECTED"
+        assert info["status"] == "UNVERIFIED"
 
 
 def test_llm_hub_get_client_fallback_to_scripted():

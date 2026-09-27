@@ -39,7 +39,11 @@ MAX_SSE_BYTES = 8000
 # no-enum-outside-contracts rule (M00) keeps Enum definitions in
 # contracts/enums.py (frozen M01.1 surface), so agent-platform states are
 # constrained strings here instead.
-Mode = Literal["DISABLED", "FALLBACK", "CONNECTED"]
+#: UNVERIFIED is deliberately distinct from CONNECTED. It means a credential is
+#: present but no call has yet succeeded, so the integration is configured rather
+#: than proven. Collapsing the two is how a placeholder key ends up reporting a
+#: live enterprise integration that has never made a request.
+Mode = Literal["DISABLED", "FALLBACK", "UNVERIFIED", "CONNECTED"]
 
 
 @dataclass(frozen=True)
