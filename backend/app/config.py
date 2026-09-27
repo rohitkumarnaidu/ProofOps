@@ -95,6 +95,12 @@ class Settings(BaseSettings):
     KUBECONFIG: str = ""
     KUBERNETES_NAMESPACE: str = "default"
     PROMETHEUS_URL: str = "http://localhost:9090"
+    # Opt in to executing against a real cluster. False by default and false on a
+    # clean clone, because reaching a cluster is not consent to mutate it: a
+    # developer with a KIND cluster running must not acquire real mutations
+    # without asking. With this on, a live failure propagates instead of
+    # downgrading to the mock (see pipeline._apply_action).
+    LIVE_CLUSTER: bool = False
 
     # --- security ---
     APPROVAL_SECRET: str = ""
@@ -248,6 +254,7 @@ class Settings(BaseSettings):
             "KUBECONFIG": ("PUBLIC", False, "M08 live executor"),
             "KUBERNETES_NAMESPACE": ("PUBLIC", False, "M08 live executor"),
             "PROMETHEUS_URL": ("PUBLIC", False, "M09 live verifier"),
+            "LIVE_CLUSTER": ("PUBLIC", False, "M08 live executor opt-in"),
             "APPROVAL_SECRET": ("SECRET", True, "M07 HITL"),
             "APPROVAL_TTL_SECONDS": ("PUBLIC", False, "M07 HITL"),
             "POLICY_VERSION": ("PUBLIC", False, "M06 policy"),

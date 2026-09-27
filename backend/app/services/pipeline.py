@@ -60,12 +60,42 @@ APPROVER = {"role": "approver", "id": "sre-1"}
 
 
 def _apply_action(action: Any, state: dict[str, Any]) -> tuple[Any, dict[str, Any]]:
-    """Dispatch action to live Kubernetes if connected, otherwise fallback to sandbox."""
-    if K8S_EXECUTOR.is_connected:
-        try:
-            return K8S_EXECUTOR.execute(action, state)
-        except Exception:
-            pass
+    """Execute an action at the tier the operator explicitly selected.
+
+    Two things this deliberately does not do.
+
+    **It does not treat reachability as consent.** The previous version used the
+    live cluster whenever one happened to answer, so a developer with a KIND
+    cluster running would get real cluster mutations they never opted into. The
+    mock is the documented default (AGENTS.md 6.5); reaching a cluster is not a
+    decision to use it. LIVE_CLUSTER is that decision.
+
+    **It does not silently downgrade a live failure to a mock success.** The
+    previous version caught every exception from the live executor and fell
+    through to the in-memory sandbox, which then reported success. A cluster
+    refusing an action for lack of permission -- or failing mid-rollout -- was
+    therefore reported as "action applied, now verifying" against a dict that
+    never touched the cluster. That is the single most dangerous shape this
+    system could take: the audit chain would show a fix that did not happen, and
+    the independent verifier would agree with it because both were looking at
+    the same fiction.
+
+    So a live-tier failure propagates. If the operator asked for real execution,
+    a real failure is the correct result, and it is auditable as one.
+    """
+    from app.config import get_settings
+
+    if get_settings().LIVE_CLUSTER:
+        if not K8S_EXECUTOR.is_connected:
+            raise PipelineError(
+                "LIVE_CLUSTER is enabled but no Kubernetes API server is "
+                "reachable. Refusing to fall back to the mock sandbox: a live "
+                "request that silently downgrades would report a remediation "
+                "that never touched the cluster. Run scripts/live_tier.sh up, "
+                "or set LIVE_CLUSTER=false to use the mock deliberately."
+            )
+        # No try/except. A real failure here is a real failure.
+        return K8S_EXECUTOR.execute(action, state)
     return sandbox_svc.apply(action, state)
 
 

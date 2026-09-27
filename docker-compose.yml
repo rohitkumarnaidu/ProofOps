@@ -50,6 +50,10 @@ services:
       # true end to end.
       KUBERNETES_NAMESPACE: ${KUBERNETES_NAMESPACE:-proofops-demo}
       PROMETHEUS_URL: ${PROMETHEUS_URL:-http://proofops-prometheus:9090}
+      # Opt in to executing against the real cluster. Off by default: reaching a
+      # cluster is not consent to mutate it. When on, a live failure propagates
+      # rather than downgrading to the mock.
+      LIVE_CLUSTER: ${LIVE_CLUSTER:-false}
     ports:
       - "8000:8000"
     depends_on:
