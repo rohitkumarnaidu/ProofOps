@@ -454,6 +454,11 @@ def run_view(run: IncidentRun) -> dict[str, Any]:
         "handoffs": [dict(h) for h in run.handoffs],
         "audit_records": fsm_svc.audit_records(run),
         "verification_verdicts": verification_verdicts(run),
+        # The real verifier output, distinct from the FSM projection above. Named
+        # separately rather than folded into `verification_verdicts` because that
+        # field is a transition projection: keeping one name for two different
+        # shapes is what made the real evidence unreachable.
+        "verification_results": [dict(v) for v in run.verification_results],
         "rollback": rollback_summary(run),
     }
 

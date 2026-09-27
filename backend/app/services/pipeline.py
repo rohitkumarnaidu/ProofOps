@@ -327,11 +327,16 @@ def run_pipeline(incident_id: str, alerts: Sequence[Mapping[str, Any]],
         else dict(params)
     if "to_version" in plain_params:
         expected = {"version": str(plain_params["to_version"])}
-    verdict = _verify_action(execution_id, service, before, after, slo,
-                             expected).verdict
+    verification = _verify_action(execution_id, service, before, after, slo,
+                                  expected)
+    verdict = verification.verdict
     verdict_name = str(verdict.value if hasattr(verdict, "value")
                        else verdict)
     verdicts = [verdict_name]
+    # Bank the real verification output, not just its name. The evidence string
+    # is what distinguishes a measured verdict from a fallback one, so dropping
+    # it here made the distinction unobservable from the API.
+    _bank_verification(run, verification, ts)
     chain.emit("verification.verdict", actor="control-plane",
                execution_id=execution_id, result=verdict_name)
     rolled_back = False
@@ -837,6 +842,35 @@ def _park_pending_approval(action: Any, incident_id: str, chain: Any,
                    action_id=action.action_id,
                    result="token held for single-read pickup by an approver")
     return approval_id
+
+
+def _bank_verification(run: Any, verification: Any, ts: float) -> None:
+    """Record one VerificationResult on the run, in order.
+
+    Keeps the named checks, the verdict, and the evidence string. The evidence
+    string is the point: it carries whether the numbers were observed from
+    Prometheus or fell back to sandbox state, which is the difference between
+    "resolved" and "assumed resolved" and was previously unobservable.
+    """
+    checks: Any = getattr(verification, "checks", None) or {}
+    if hasattr(checks, "to_plain"):
+        checks = checks.to_plain()
+    elif hasattr(checks, "items"):
+        checks = dict(checks)
+    else:
+        checks = {}
+    verdict = getattr(verification, "verdict", "")
+    entry = {
+        "execution_id": str(getattr(verification, "execution_id", "")),
+        "verdict": str(getattr(verdict, "value", verdict)),
+        "checks": {str(k): bool(v) for k, v in dict(checks or {}).items()},
+        "detail": str(getattr(verification, "detail", "")),
+        "at": ts,
+    }
+    # Bounded: a long-lived run must not grow without limit.
+    run.verification_results.append(entry)
+    if len(run.verification_results) > 50:
+        del run.verification_results[:-50]
 
 
 def _hitl_permit(action: Any, secret: str, actor: str,

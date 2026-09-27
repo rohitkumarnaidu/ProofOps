@@ -149,6 +149,15 @@ class IncidentRun:
     consumed_refs: set[str] = field(default_factory=set)
     idem_store: dict[tuple[str, str], Any] = field(default_factory=dict)
     entered_at: dict[str, float] = field(default_factory=dict)
+    #: The actual VerificationResult objects, in order.
+    #:
+    #: These were previously discarded, and the run view's `verification_verdicts`
+    #: was a projection of FSM transitions into verdict-ish states. That made the
+    #: field a naming lie: it showed *that* the run reached VERIFYING/ESCALATED
+    #: rather than what the independent verifier concluded, and the evidence
+    #: string explaining why was unreachable from the API. An operator reading
+    #: the run could not see the single most important output of the system.
+    verification_results: list[dict[str, Any]] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if not isinstance(self.incident_id, str) or not self.incident_id.strip():

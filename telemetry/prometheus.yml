@@ -41,6 +41,14 @@ scrape_configs:
     static_configs:
       - targets: ["__KUBE_STATE_METRICS__"]
 
+  # The instrumented demo workload. This is what makes the error-rate SLO
+  # measurable: `http_requests_total{service,status}` is emitted by the same
+  # process that serves the requests, so the ratio the verifier computes is the
+  # ratio a user would experience. Nothing here is synthesised after the fact.
+  - job_name: demo-service
+    static_configs:
+      - targets: ["__DEMO_SERVICE__"]
+
   # Prometheus's own metrics, so the verifier can confirm the scrape path is
   # alive (up == 1) before trusting any query result from it.
   - job_name: prometheus

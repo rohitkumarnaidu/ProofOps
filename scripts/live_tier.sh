@@ -1,22 +1,23 @@
 #!/usr/bin/env bash
-# Provision the real live tier: a genuine Kubernetes API server and a genuine
-# Prometheus, both on this machine, with no cloud account and no credentials.
+# Provision the real live tier: a genuine Kubernetes API server, a genuine
+# Prometheus, and a genuine instrumented workload -- all on this machine, with no
+# cloud account and no credentials.
 #
-# Why KIND rather than real AWS/GCP: the safety claims this project makes are
-# about the control plane, not about whose cloud it runs in. KIND gives a real
-# API server with real RBAC on a laptop, so `delete namespace` is refused by
-# actual Kubernetes authorization rather than only by our policy engine. Two
-# independent boundaries, no billing, no keys, and it runs offline for a demo.
+# Why KIND rather than a real cloud account: the safety claims this project makes
+# are about the control plane, not about whose cloud it runs in. KIND gives real
+# API-server authorization, so `delete namespace` is refused by actual Kubernetes
+# rather than only by our policy engine. Two independent boundaries, no billing,
+# no keys, and it runs offline for a demo.
 #
 # What it creates:
-#   - kind cluster "proofops" (Kubernetes v1.31.x, real API server)
-#   - namespace proofops-demo + a deployment to act on
+#   - kind cluster (real API server, real RBAC)
+#   - namespace proofops-demo with a deployment to act on
 #   - ServiceAccount + namespaced Role: may read and scale workloads, and is
 #     structurally unable to delete namespaces, read secrets, or mutate RBAC
-#   - a kubeconfig for that ServiceAccount, written where the API container
-#     mounts it, pointed at the kind-network address so TLS verifies against a
-#     real certificate (no verification is ever disabled)
-#   - a Prometheus container scraping the real API server
+#   - kube-state-metrics, so the real state of real workloads is measurable
+#   - an instrumented demo workload that returns 5xx while unhealthy and
+#     publishes the error rate the verifier's SLO already asks for
+#   - a Prometheus scraping all of the above
 #
 # Usage:  bash scripts/live_tier.sh up      # provision everything
 #         bash scripts/live_tier.sh status  # report what is real right now
@@ -24,10 +25,9 @@
 set -euo pipefail
 
 # On a Windows host under Git Bash, MSYS rewrites any argument that looks like a
-# POSIX absolute path into a Windows one, so /etc/prometheus/prometheus.yml
-# becomes C:/Program Files/Git/etc/prometheus/prometheus.yml and Prometheus
-# cannot find its own config. Disabling the conversion is the fix; a relative or
-# Windows path would just move the breakage.
+# POSIX absolute path into a Windows one, so /live/prometheus.yml becomes
+# C:/Program Files/Git/live/prometheus.yml and Prometheus cannot find its own
+# config. Disabling the conversion is the fix.
 export MSYS_NO_PATHCONV=1
 export MSYS2_ARG_CONV_EXCL='*'
 
@@ -41,10 +41,15 @@ KUBECONFIG_OUT="${STATE_DIR}/kubeconfig"
 PROM_CONTAINER=proofops-prometheus
 PROM_PORT="${PROOFOPS_PROM_PORT:-9090}"
 PROM_NET_PORT="${PROOFOPS_PROM_CONTAINER_PORT:-9090}"
+#: Ports on the node address. Prometheus runs on the kind *docker* network, which
+#: cannot route to the CNI pod network, so everything it scrapes is host-networked
+#: and addressed by the node IP. kube-state-metrics keeps 8080 and also binds 8081 for its own self-signed
+#: endpoint, so the demo workload takes 8082 to avoid a host-port collision.
+KSM_PORT=8080
+DEMO_PORT=8082
 
 say() { printf '  %s\n' "$*"; }
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
-
 need() { command -v "$1" >/dev/null 2>&1 || fail "missing required tool: $1"; }
 
 up() {
@@ -62,10 +67,13 @@ up() {
     say "creating kind cluster '${CLUSTER}' (real API server, ~30s)"
     kind create cluster --name "${CLUSTER}" --wait 240s >/dev/null
   fi
-  ctx="kind-${CLUSTER}"
-  kubectl config use-context "${ctx}" >/dev/null
+  kubectl config use-context "kind-${CLUSTER}" >/dev/null
 
-  # ---- workload to act on ----------------------------------------------
+  cp_ip=$(docker inspect "${CLUSTER}-control-plane" \
+    --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}')
+  say "node address ${cp_ip}"
+
+  # ---- the workload an incident acts on ----------------------------------
   kubectl create namespace "${NAMESPACE}" --dry-run=client -o yaml \
     | kubectl apply -f - >/dev/null
   kubectl -n "${NAMESPACE}" apply -f - >/dev/null <<YAML
@@ -90,10 +98,9 @@ YAML
   say "namespace/${NAMESPACE} deployment/${DEPLOY} ready"
 
   # ---- RBAC: the second, independent safety boundary --------------------
-  # Our policy engine already denies destructive actions. That is our own code
-  # reasoning about our own inputs, so it is necessary but not sufficient. This
-  # Role makes the *cluster* refuse independently: if the control plane had a
-  # bypass, escalation still stops here.
+  # The policy engine already denies destructive actions, but that is our own code
+  # reasoning about our own inputs -- necessary, not sufficient. This Role makes
+  # the *cluster* refuse independently.
   kubectl -n "${NAMESPACE}" apply -f - >/dev/null <<YAML
 apiVersion: v1
 kind: ServiceAccount
@@ -131,13 +138,11 @@ subjects:
     name: ${SA}
     namespace: ${NAMESPACE}
 YAML
-  say "rbac: ${SA} may read+scale workloads; delete/secrets/rbac are NOT granted"
+  say "rbac: ${SA} may read+scale workloads; delete/secrets/rbac NOT granted"
 
-  # Prometheus needs to read the apiserver's /metrics, which is a non-resource
-  # URL and is denied by default (hence the 403). This grant is deliberately as
-  # small as a ClusterRole can be: read-only, and only that one path. It does not
-  # widen any namespaced permission, so the delete/secrets/rbac denials above are
-  # unaffected -- which the status check re-asserts on every run.
+  # Prometheus reads the apiserver's /metrics, a non-resource URL denied by
+  # default (hence the 403 it originally returned). Smallest possible grant:
+  # read-only, one path, and it widens no namespaced permission.
   kubectl apply -f - >/dev/null <<YAML
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -160,15 +165,12 @@ subjects:
     name: ${SA}
     namespace: ${NAMESPACE}
 YAML
-  say "rbac: ${SA} granted read-only /metrics (for prometheus; no other cluster grant)"
+  say "rbac: ${SA} granted read-only /metrics for prometheus"
 
-  # ---- kubeconfig for the API container --------------------------------
-  # Point at the kind-network address, not the host loopback. The apiserver
-  # certificate carries that IP as a SAN, so TLS verifies properly. Connecting
-  # through host.docker.internal would need hostname verification turned off,
-  # which is exactly the kind of shortcut this project should not take.
-  cp_ip=$(docker inspect "${CLUSTER}-control-plane" \
-    --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}')
+  # ---- kubeconfig for the API container ----------------------------------
+  # Point at the node address, not host loopback: it is a SAN on the apiserver
+  # certificate, so TLS verifies for real. Going via host.docker.internal would
+  # require disabling verification, which this project should never do.
   ca_b64=$(kubectl config view --raw --minify \
     -o jsonpath='{.clusters[0].cluster.certificate-authority-data}')
   printf '%s' "${ca_b64}" | base64 -d > "${STATE_DIR}/ca.crt"
@@ -191,24 +193,78 @@ users:
     user:
       token: ${token}
 YAML
-  # Prometheus needs the same credential to scrape the apiserver, and it is not
-  # running in-cluster, so it cannot use a projected service-account token.
   printf '%s' "${token}" > "${STATE_DIR}/token"
-  say "kubeconfig -> ${KUBECONFIG_OUT} (server https://${cp_ip}:6443, TLS verified)"
+  say "kubeconfig -> ${KUBECONFIG_OUT} (https://${cp_ip}:6443, TLS verified)"
+
+  # ---- the instrumented demo workload -----------------------------------
+  # A real service that returns 5xx while unhealthy and publishes the error rate
+  # the verifier's SLO already asks for. Without it the error-rate check has no
+  # real signal and rides the fallback path -- one honest check resting on
+  # nothing, which is the same defect as having no check at all.
+  say "building and loading the instrumented demo workload"
+  docker build -q -f telemetry/demo_service.Dockerfile \
+    -t proofops-demo-service:latest . >/dev/null
+  kind load docker-image proofops-demo-service:latest --name "${CLUSTER}" >/dev/null
+
+  # Applied unconditionally: `apply` is the reconciliation. Gating on "does it
+  # exist" meant a changed port or hostNetwork was silently never applied to an
+  # already-present install.
+  kubectl -n "${NAMESPACE}" apply -f - >/dev/null <<YAML
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo-service
+  namespace: ${NAMESPACE}
+  labels: {app: demo-service}
+spec:
+  # One replica on the host network: two pods cannot share a host port, and at
+  # this scale the point is a measurable signal, not throughput.
+  replicas: 1
+  selector:
+    matchLabels: {app: demo-service}
+  template:
+    metadata:
+      labels: {app: demo-service}
+    spec:
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      containers:
+        - name: demo-service
+          image: proofops-demo-service:latest
+          imagePullPolicy: Never
+          ports: [{name: http, containerPort: ${DEMO_PORT}}]
+          env:
+            - {name: DEMO_SERVICE, value: checkout-api}
+            - {name: DEMO_FAIL_RATE, value: "1.0"}
+            - {name: PORT, value: "${DEMO_PORT}"}
+          resources:
+            requests: {cpu: 10m, memory: 24Mi}
+          readinessProbe:
+            httpGet: {path: /healthz, port: ${DEMO_PORT}}
+            initialDelaySeconds: 2
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: demo-service
+  namespace: ${NAMESPACE}
+spec:
+  selector: {app: demo-service}
+  ports: [{name: http, port: ${DEMO_PORT}, targetPort: ${DEMO_PORT}}]
+YAML
+  kubectl -n "${NAMESPACE}" rollout status deploy/demo-service \
+    --timeout=180s >/dev/null 2>&1 \
+    || say "  (demo-service not ready yet; continuing)"
 
   # ---- kube-state-metrics ------------------------------------------------
-  # The real state of real workloads. Without it the only metrics in Prometheus
-  # describe the apiserver, so a verifier asking "are N/N replicas available?"
-  # has nothing real to query and is pushed back onto the mock's own opinion --
-  # which is the dishonesty this project is arguing against.
+  # The real state of real workloads. Without it the only metrics describe the
+  # apiserver, so "are N/N replicas available?" has no real answer and the
+  # verifier is pushed back onto the mock's own opinion.
   if kubectl get clusterrole proofops-kube-state-metrics >/dev/null 2>&1; then
     say "reconciling kube-state-metrics RBAC (read set drifts as versions add kinds)"
   else
     say "deploying kube-state-metrics (real workload state)"
   fi
-  # Applied unconditionally: `apply` is the reconciliation. Gating it on
-  # "does it exist" meant a change to the read set or to hostNetwork was never
-  # applied to an already-present install.
   kubectl apply -f - >/dev/null <<YAML
 apiVersion: v1
 kind: ServiceAccount
@@ -223,8 +279,9 @@ metadata:
 rules:
   - apiGroups: [""]
     resources: ["configmaps", "endpoints", "pods", "secrets", "services",
-                "limitranges", "persistentvolumeclaims", "replicationcontrollers",
-                "resourcequotas", "serviceaccounts", "nodes"]
+                "limitranges", "persistentvolumeclaims",
+                "replicationcontrollers", "resourcequotas", "serviceaccounts",
+                "nodes"]
     verbs: ["list", "watch"]
   - apiGroups: ["apps"]
     resources: ["daemonsets", "deployments", "replicasets", "statefulsets"]
@@ -270,17 +327,13 @@ spec:
       labels: {app: kube-state-metrics}
     spec:
       serviceAccountName: kube-state-metrics
-      # Host networking so the metrics endpoint lands on the node address, which
-      # is reachable from the Prometheus container on the kind docker network. A
-      # Kubernetes Service is only resolvable from inside the cluster, and
-      # Prometheus runs outside it, so without this the target is unresolvable.
       hostNetwork: true
       dnsPolicy: ClusterFirstWithHostNet
       containers:
         - name: kube-state-metrics
           image: registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.13.0
-          args: ["--port=8080"]
-          ports: [{name: http, containerPort: 8080}]
+          args: ["--port=${KSM_PORT}"]
+          ports: [{name: http, containerPort: ${KSM_PORT}}]
           resources:
             requests: {cpu: 10m, memory: 32Mi}
 ---
@@ -291,24 +344,25 @@ metadata:
   namespace: ${NAMESPACE}
 spec:
   selector: {app: kube-state-metrics}
-  ports: [{name: http, port: 8080, targetPort: 8080}]
+  ports: [{name: http, port: ${KSM_PORT}, targetPort: ${KSM_PORT}}]
 YAML
   kubectl -n "${NAMESPACE}" rollout status deploy/kube-state-metrics \
     --timeout=180s >/dev/null 2>&1 \
     || say "  (kube-state-metrics not ready yet; continuing)"
 
-  # ---- prometheus ------------------------------------------------------
-  # The apiserver address is templated in, so the config always points at the
-  # cluster this script just built rather than a stale IP. kube-state-metrics
-  # runs host-networked, so it answers on the node address too.
-  sed -e "s|__APISERVER__|${cp_ip}:6443|" -e "s|__KUBE_STATE_METRICS__|${cp_ip}:8080|" \
+  # ---- prometheus -------------------------------------------------------
+  # Addresses are templated in, so the config always points at the cluster this
+  # script just built rather than a stale IP.
+  sed -e "s|__APISERVER__|${cp_ip}:6443|" \
+      -e "s|__KUBE_STATE_METRICS__|${cp_ip}:${KSM_PORT}|" \
+      -e "s|__DEMO_SERVICE__|${cp_ip}:${DEMO_PORT}|" \
     telemetry/prometheus.yml > "${STATE_DIR}/prometheus.yml"
 
   if docker ps --format '{{.Names}}' | grep -qx "${PROM_CONTAINER}"; then
     say "reconfiguring prometheus"
     docker rm -f "${PROM_CONTAINER}" >/dev/null 2>&1 || true
   fi
-  say "starting real prometheus on :${PROM_PORT} (scraping ${cp_ip}:6443)"
+  say "starting real prometheus on :${PROM_PORT}"
   docker run -d --name "${PROM_CONTAINER}" \
     --network "${NETWORK}" \
     -p "${PROM_PORT}:${PROM_NET_PORT}" \
@@ -336,7 +390,7 @@ status() {
   sa="system:serviceaccount:${NAMESPACE}:${SA}"
   if kubectl auth can-i patch deployments --as="${sa}" -n "${NAMESPACE}" >/dev/null 2>&1; then
     can_scale=$(kubectl auth can-i patch deployments --as="${sa}" -n "${NAMESPACE}" 2>/dev/null || echo no)
-    can_del=$(kubectl auth can-i delete namespaces --as="${sa}" 2>/dev/null || echo no)
+    can_del=$(kubectl auth can-i delete namespaces --as="${sa}" 2>/dev/null | tail -1 || echo no)
     can_sec=$(kubectl auth can-i get secrets --as="${sa}" -n "${NAMESPACE}" 2>/dev/null || echo no)
     say "rbac        : scale=${can_scale}  delete_namespace=${can_del}  read_secrets=${can_sec}"
   fi
@@ -345,6 +399,17 @@ status() {
     targets=$(curl -sf "http://127.0.0.1:${PROM_PORT}/api/v1/targets" 2>/dev/null \
       | grep -o '"health":"[a-z]*"' | sort | uniq -c | tr '\n' ' ')
     say "prometheus  : REAL   :${PROM_PORT} targets: ${targets:-none}"
+    # The signal that decides whether verification is real or assumed.
+    err=$(curl -sf --get --data-urlencode \
+      'query=sum(rate(http_requests_total{status=~"5.."}[2m])) / sum(rate(http_requests_total[2m]))' \
+      "http://127.0.0.1:${PROM_PORT}/api/v1/query" 2>/dev/null \
+      | grep -o '"value":\["[^"]*","[0-9.e-]*"\]' | tail -1 \
+      | sed 's/.*,"//; s/"\]//' || true)
+    if [ -n "${err}" ]; then
+      say "error rate  : MEASURED  ${err} (from the instrumented workload)"
+    else
+      say "error rate  : UNMEASURED  no series yet; verification will refuse RESOLVED"
+    fi
   else
     say "prometheus  : OFF    not responding on :${PROM_PORT}"
   fi
