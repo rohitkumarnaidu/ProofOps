@@ -357,7 +357,7 @@ class TestParity:
         # M07/M08/M09 live tier (see ADR-011..015): declared in Settings and
         # read through it, with defaults that mean "not live".
         "KUBECONFIG", "KUBERNETES_NAMESPACE", "PROMETHEUS_URL", "LIVE_CLUSTER",
-        "APPROVAL_TOKEN_DELIVERY",
+        "APPROVAL_TOKEN_DELIVERY", "K8S_ROLLBACK_IMAGE",
     }
         assert not undocumented, f"undocumented template extras: {sorted(undocumented)}"
 

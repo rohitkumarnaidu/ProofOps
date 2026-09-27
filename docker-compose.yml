@@ -54,6 +54,8 @@ services:
       # cluster is not consent to mutate it. When on, a live failure propagates
       # rather than downgrading to the mock.
       LIVE_CLUSTER: ${LIVE_CLUSTER:-false}
+      # Maps the scenario's bare version onto a real image so a rollback changes
+      # something measured. Set by scripts/live_tier.sh.
     ports:
       - "8000:8000"
     depends_on:

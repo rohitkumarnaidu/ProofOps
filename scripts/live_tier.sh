@@ -201,10 +201,18 @@ YAML
   # the verifier's SLO already asks for. Without it the error-rate check has no
   # real signal and rides the fallback path -- one honest check resting on
   # nothing, which is the same defect as having no check at all.
-  say "building and loading the instrumented demo workload"
+  say "building and loading the instrumented demo workload (good + bad tags)"
+  # Two tags of the same image, differing only in the failure rate they default
+  # to. The Deployment runs the bad one, so a rollback is a real image change and
+  # the recovery is measurable rather than narrated.
   docker build -q -f telemetry/demo_service.Dockerfile \
-    -t proofops-demo-service:latest . >/dev/null
-  kind load docker-image proofops-demo-service:latest --name "${CLUSTER}" >/dev/null
+    --build-arg DEMO_FAIL_RATE=0.0 \
+    -t proofops-demo-service:good . >/dev/null
+  docker build -q -f telemetry/demo_service.Dockerfile \
+    --build-arg DEMO_FAIL_RATE=1.0 \
+    -t proofops-demo-service:bad . >/dev/null
+  kind load docker-image proofops-demo-service:good --name "${CLUSTER}" >/dev/null
+  kind load docker-image proofops-demo-service:bad --name "${CLUSTER}" >/dev/null
 
   # Applied unconditionally: `apply` is the reconciliation. Gating on "does it
   # exist" meant a changed port or hostNetwork was silently never applied to an
@@ -230,12 +238,11 @@ spec:
       dnsPolicy: ClusterFirstWithHostNet
       containers:
         - name: demo-service
-          image: proofops-demo-service:latest
+          image: proofops-demo-service:bad
           imagePullPolicy: Never
           ports: [{name: http, containerPort: ${DEMO_PORT}}]
           env:
             - {name: DEMO_SERVICE, value: checkout-api}
-            - {name: DEMO_FAIL_RATE, value: "1.0"}
             - {name: PORT, value: "${DEMO_PORT}"}
           resources:
             requests: {cpu: 10m, memory: 24Mi}

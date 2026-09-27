@@ -164,6 +164,25 @@ class KubernetesExecutor:
         # namespace explicitly; the configured one is the floor.
         namespace = str(p.get("namespace") or self._namespace or "default")
         deployment = str(p.get("deployment", action.resource_id))
+        # Map a scenario version onto a real image, if one is configured.
+        #
+        # The incident scenario says "roll back to v22". That is honest synthetic
+        # data and must stay untouched -- it is the runbook's input, not the
+        # environment's business. What "v22" resolves to in a given cluster *is*
+        # environmental, so the mapping lives here and is explicit. Without it the
+        # rollback only writes an annotation, because a bare version is not an
+        # image reference, and the "fix" would change nothing that is measured.
+        if str(p.get("to_version", "")) and "/" not in str(p["to_version"]):
+            mapped = get_settings().K8S_ROLLBACK_IMAGE.strip()
+            if mapped:
+                # Action parameters are a frozen contract type, so the mapped
+                # version is threaded through separately rather than mutating
+                # them -- the contract stays immutable.
+                to_version_override = mapped
+            else:
+                to_version_override = str(p.get("to_version", ""))
+        else:
+            to_version_override = str(p.get("to_version", ""))
 
         if not self.is_connected:
             # Fallback to local sandbox if cluster is offline
@@ -180,7 +199,7 @@ class KubernetesExecutor:
         ]
 
         if action.action_type == "rollback_deployment":
-            to_version = str(p.get("to_version", ""))
+            to_version = to_version_override or str(p.get("to_version", ""))
             # In live K8s, patch container image or annotations to trigger rollout
             # Annotated as Any: this is a free-form JSON merge patch, and the two
             # shapes below (string annotations vs. a container list vs. an int

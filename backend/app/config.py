@@ -117,6 +117,11 @@ class Settings(BaseSettings):
     #     only, over a dedicated audited endpoint. Convenience, at the cost of a
     #     live credential crossing a read path -- hence not the default.
     APPROVAL_TOKEN_DELIVERY: ApprovalTokenDelivery = "approver_minted"
+    #: Maps a scenario's bare version (e.g. "v22") onto a real image reference
+    #: for the live executor. Empty = the scenario's version is used verbatim,
+    #: which means a rollback writes only an annotation and changes nothing that
+    #: is measured. Set by scripts/live_tier.sh to the known-good tag.
+    K8S_ROLLBACK_IMAGE: str = ""
 
     # --- security ---
     APPROVAL_SECRET: str = ""
@@ -272,6 +277,7 @@ class Settings(BaseSettings):
             "PROMETHEUS_URL": ("PUBLIC", False, "M09 live verifier"),
             "LIVE_CLUSTER": ("PUBLIC", False, "M08 live executor opt-in"),
             "APPROVAL_TOKEN_DELIVERY": ("PUBLIC", False, "M07 HITL token carrier"),
+            "K8S_ROLLBACK_IMAGE": ("PUBLIC", False, "M08 live executor image map"),
             "APPROVAL_SECRET": ("SECRET", True, "M07 HITL"),
             "APPROVAL_TTL_SECONDS": ("PUBLIC", False, "M07 HITL"),
             "POLICY_VERSION": ("PUBLIC", False, "M06 policy"),
