@@ -16,6 +16,18 @@ the README-planned 4; leaving them absent kept M00.6 at 66/100 (spec-coverage
 gap). ADR-007 records the additive fix: 3 honest foundation docs (status +
 spec links + owning modules + PLANNED, no implementation claimed). No doc
 removed; all 8 originals still pinned below.
+
+PIN UPDATE 2 (ADR-016): the 11-doc set described how the system is built and
+governed, but not how to start it. The gap was measurable, not aesthetic: the
+set contained no tutorial and no how-to, so a reader's first move was to
+hand-assemble a compose start from scattered env comments. QUICKSTART.md closes
+it as an operator entry point, owned by M00 (it documents the M00.1-M00.4
+reproducible surface) and reviewed alongside API.md. It is additive: no doc
+removed, no gate relaxed. It is put in CANONICAL_DOCS rather than known_extra
+because it is a first-class entry point, not a lane description, so it inherits
+the presence, nontrivial, owning-module and no-fabrication gates; and it is put
+in CONTROLLED rather than left ungated because a quickstart is the single most
+likely place for a placeholder credential to leak.
 """
 
 from __future__ import annotations
@@ -28,7 +40,8 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 DOCS = ROOT / "docs"
 
-# Canonical 11-docs set: 4 frozen (M00.2-M00.5) + 7 foundation (M00.6).
+# Canonical 12-docs set: 4 frozen (M00.2-M00.5) + 7 foundation (M00.6)
+# + QUICKSTART.md (added by ADR-016, see the pin-update note below).
 CANONICAL_DOCS = [
     "CONFIGURATION.md",  # M00.2 frozen
     "COMPOSE.md",  # M00.3 frozen (+ authorized M00.6 line edits, see ADR-007)
@@ -41,9 +54,17 @@ CANONICAL_DOCS = [
     "ARCHITECTURE.md",  # M00.6 90+ new (system owned by later phases)
     "API.md",  # M00.6 90+ new (full surface owned by later phases)
     "TESTING.md",  # M00.6 90+ new (suites owned by later phases)
+    "QUICKSTART.md",  # ADR-016 new: clone -> first incident, operator entry point
 ]
 NEW_4 = ["EVALUATION.md", "SECURITY.md", "DECISIONS.md", "DEMO.md"]
 NEW_90PLUS = ["ARCHITECTURE.md", "API.md", "TESTING.md"]
+# Docs created after the M00.6 foundation that must satisfy the same three
+# content gates as the 90+ set: cite the authoritative spec directly, mark
+# unbuilt work PLANNED, and leak no secret markers. QUICKSTART earns this
+# strictly, not ceremonially: it is the one doc a newcomer opens first, so it is
+# exactly where a placeholder credential would leak.
+ENTRYPOINT = ["QUICKSTART.md"]
+CONTROLLED = NEW_4 + NEW_90PLUS + ENTRYPOINT
 
 SPEC_REF = "PS03_FINAL_SPEC_V2"
 
@@ -119,8 +140,8 @@ class TestPresence:
         present = {"a.md", "b.md"}
         required = {"a.md", "b.md", "c.md"}
         assert required - present == {"c.md"}
-        assert len(CANONICAL_DOCS) == 11  # 4 frozen + 7 foundation (ADR-007)
-        assert len(set(CANONICAL_DOCS)) == 11
+        assert len(CANONICAL_DOCS) == 12  # 4 frozen + 7 foundation + QUICKSTART
+        assert len(set(CANONICAL_DOCS)) == 12
 
     def test_tree_has_no_ungoverned_docs(self):  # STATIC
         # LACK-6 fix: the canonical pin used to cover only the list constant,
@@ -158,7 +179,7 @@ class TestPresence:
 
 
 class TestSpecLinks:
-    @pytest.mark.parametrize("name", NEW_4 + NEW_90PLUS)
+    @pytest.mark.parametrize("name", CONTROLLED)
     def test_new_docs_link_authoritative_spec(self, name):  # STATIC
         # M00.6 controls these seven: direct spec reference is mandatory.
         assert _has_spec_ref(_read(name)), (
@@ -205,7 +226,7 @@ class TestNoFabrication:
         denial = "Nothing here claims production readiness or certification."
         assert _forbidden_claims(denial) == []
 
-    @pytest.mark.parametrize("name", NEW_4 + NEW_90PLUS)
+    @pytest.mark.parametrize("name", CONTROLLED)
     def test_future_marked_planned_with_owner(self, name):  # STATIC
         body = _read(name)
         assert "PLANNED" in body, f"{name} must mark unbuilt work PLANNED"
@@ -228,7 +249,7 @@ class TestComposeReconciliation:
 
 
 class TestDocSecrets:
-    @pytest.mark.parametrize("name", NEW_4 + NEW_90PLUS)
+    @pytest.mark.parametrize("name", CONTROLLED)
     def test_no_secret_markers_in_new_docs(self, name):  # SECURITY
         hits = _secret_markers(_read(name))
         assert not hits, f"{name} leaks secret markers: {hits}"

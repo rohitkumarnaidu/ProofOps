@@ -1,7 +1,9 @@
-# ProofOps — Complete Module Registry (183 controlled units)
+# ProofOps — Complete Module Registry (185 controlled units)
 
 > Authoritative spec: `docs/PS03_FINAL_SPEC_V2.md`. One module at a time. No auto-continue.
-> Progress: **176/183 with implementation** (60 APPROVED: M00.1–M00.7, M01.1–M01.15, M02.1–M02.10, M03.1–M03.6, M04.1–M04.6, M05.1–M05.6, M06.1–M06.10 · 116 IMPLEMENTED_TESTED hardening-pending: M07–M21.9) · Overall project score: NOT COMPUTED.
+> Progress: **178/185 with implementation** (60 APPROVED: M00.1–M00.7, M01.1–M01.15, M02.1–M02.10, M03.1–M03.6, M04.1–M04.6, M05.1–M05.6, M06.1–M06.10 · 118 IMPLEMENTED_TESTED hardening-pending: M07–M21.9) · Overall project score: NOT COMPUTED.
+> This header tally is a convenience, not the authority. The per-row table below
+> is; when the two disagree, the per-row status wins and the header is stale.
 
 ## Global Verification Gate (applies to every unit)
 
@@ -134,7 +136,7 @@ registry tracks unit-level status only.
 | M07.7 | replay protection | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | replay→DENY + audit tests |
 | M07.8 | approval audit | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | approve/deny/expire event tests |
 
-## PHASE 08 — Sandbox (6)
+## PHASE 08 — Sandbox (7)
 
 | ID | Unit | Status | Safety | Ground | Hall | Retr | Verify method |
 |---|---|---|---|---|---|---|---|
@@ -144,8 +146,18 @@ registry tracks unit-level status only.
 | M08.4 | execution logging | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | tier + diff + log-record tests |
 | M08.5 | Docker executor | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | allowlist-mutate + RED-refuse tests |
 | M08.6 | isolation checks | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | unpriv + no-secret-mount + net-isolated tests |
+| M08.7 | live Kubernetes executor (opt-in `LIVE_CLUSTER`) | IMPLEMENTED_TESTED (live-tier lane; hardening pending) | R | N | N | N | `tests/test_k8s_executor.py` + `tests/test_live_dispatch_safety.py`; RBAC scope asserted via `kubectl auth can-i` in `scripts/live_tier.sh status` |
 
-## PHASE 09 — Verification (8)
+M08.7 is registered here because the capability shipped with no module ID: a real
+API-server executor is a sandbox-tier concern, and M08 is that tier. It is
+opt-in and off by default. Two honest limits are recorded here rather than
+discovered later: a real Kubernetes patch is currently recorded in the execution
+row under the `docker` execution-record tier because `ExecutorTier` has no
+Kubernetes member, and `Settings.KUBECONFIG` is declared and documented but not
+read by the executor, so the path is resolved by the Kubernetes client library
+from the environment instead. Owner for both fixes: live-tier lane, PLANNED.
+
+## PHASE 09 — Verification (9)
 
 | ID | Unit | Status | Safety | Ground | Hall | Retr | Verify method |
 |---|---|---|---|---|---|---|---|
@@ -157,6 +169,17 @@ registry tracks unit-level status only.
 | M09.6 | CrashLoop checks | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | zero-new-CrashLoop-60s tests |
 | M09.7 | verification verdict | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | RESOLVED/PARTIAL/FAILED/WORSENED matrix tests |
 | M09.8 | rollback trigger | IMPLEMENTED_TESTED (build-first; hardening pending) | R | N | N | N | exit-0-bad-SLO→FAILED + trigger tests |
+| M09.9 | live PromQL verifier (opt-in `LIVE_CLUSTER`) | IMPLEMENTED_TESTED (live-tier lane; hardening pending) | R | N | N | N | `tests/test_prom_verifier.py` + `tests/test_verifier_honesty.py`; refuses RESOLVED when no signal was observed |
+
+M09.9 is registered here for the same reason as M08.7: it shipped with no module
+ID, and verification independence is an M09 concern. It records per-signal
+provenance (`live-promql` vs `fallback-state`) and names unobserved signals in
+the detail string, and returns `PARTIAL` rather than asserting `RESOLVED` when
+nothing was measurable. One residual gap is recorded rather than hidden: when
+Prometheus is unreachable the verifier delegates wholesale to the deterministic
+verifier, whose detail string carries no provenance marker, so an outage can
+still yield `RESOLVED` without a `fallback-state` label. Owner: live-tier lane,
+PLANNED.
 
 ## PHASE 10 — Rollback (5)
 
@@ -334,4 +357,4 @@ registry tracks unit-level status only.
 
 ## Totals
 
-7+15+10+6+6+6+10+8+6+8+5+6+7+10+8+6+9+7+10+10+7+9+7 = **183 units** across 23 phases (00–22).
+7+15+10+6+6+6+10+9+6+9+5+6+7+10+8+6+9+7+10+10+7+9+7 = **185 units** across 23 phases (00–22).

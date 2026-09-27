@@ -23,7 +23,8 @@ blameless RCA → hash-chained audit → six-checkpoint evaluation scorecard.
 | FSM, validator, policy, HMAC HITL, sandbox, verifier, rollback | CUSTOM-DETERMINISTIC | FastAPI + Postgres (connectivity/probe today), 100% tested |
 | Hash-chained audit, eval runner, pre-digestion | CUSTOM-DETERMINISTIC | Exportable proof, labelled non-AIMS |
 | Telemetry, mock K8s, mock executor | SIMULATED | Deterministic seeds; docker tier local-real |
-| Kind default, voice, vendor connectors, SSO/SIEM | FUTURE | Not claimed |
+| Live tier: kind cluster + real Prometheus | LOCAL-REAL (opt-in) | `scripts/live_tier.sh` provisions it; `LIVE_CLUSTER=false` by default, so a clean clone never claims a connection it does not have |
+| Kind as the *default* tier, voice, vendor connectors, SSO/SIEM | FUTURE | Not claimed |
 
 ## Setup
 ```bash
@@ -31,6 +32,12 @@ cp .env.example .env   # fill LYZR_* when available; mock fallback works without
 docker compose up --build
 # api http://localhost:8000/healthz · ui http://localhost:5173
 ```
+
+New here? [`docs/QUICKSTART.md`](docs/QUICKSTART.md) is the full walkthrough:
+every env value that needs attention, health and readiness checks, how to get a
+first incident, and troubleshooting. Two values must be set before the first
+start: `POSTGRES_PASSWORD` (compose fails closed without it) and a real
+`APPROVAL_SECRET` (it signs every human approval token).
 
 Supported runtime: Docker (`python:3.12-slim`, the container is the source of
 truth). Host Python 3.13/3.14 is NOT supported for running the API (Starlette
@@ -46,9 +53,11 @@ architecture; per-module maturity is in the registry, not claimed here.
 Configuration trust boundary (typed Settings, fail-closed validation,
 secret-safe snapshot): `docs/CONFIGURATION.md`.
 Architecture target + built-today map: `docs/ARCHITECTURE.md`.
-API surface (live `/healthz` + `/readyz` plus the M19 routers for approvals,
-audit, eval, and runs; full contract in `docs/API.md`).
-Testing layers (host-safe green + daemon-owned runtime): `docs/TESTING.md`.
+API surface (36 live routes across nine routers, including approvals, audit,
+runs, auth, agents, ingest, and the live stream; full contract in
+`docs/API.md`).
+Testing layers (85 host-safe files, 4 daemon-owned runtime files; the suite map
+is in `docs/TESTING.md`).
 
 ## Architecture diagram (M00.6 foundation; ASCII, spec §62 target)
 
@@ -68,9 +77,12 @@ Seed `bad-deploy/NORMAL` → 1 P1 → evidence → diagnosis → RED block of
 M22 (demo harden) — no demo script claimed yet.
 
 ## Tests / Benchmarks / Safety
-`pytest` (policy/sandbox/verifier/audit 100%), `python scripts/verify_lyzr.py`.
-Docs: `docs/EVALUATION.md`, `docs/SECURITY.md`, `docs/DECISIONS.md`,
-`docs/DEMO.md`, `docs/ARCHITECTURE.md`, `docs/API.md`, `docs/TESTING.md`.
+`pytest` (policy/sandbox/verifier/audit), `python scripts/verify_lyzr.py`.
+Docs: [`docs/QUICKSTART.md`](docs/QUICKSTART.md),
+[`docs/EVALUATION.md`](docs/EVALUATION.md), [`docs/SECURITY.md`](docs/SECURITY.md),
+[`docs/DECISIONS.md`](docs/DECISIONS.md), [`docs/DEMO.md`](docs/DEMO.md),
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), [`docs/API.md`](docs/API.md),
+[`docs/TESTING.md`](docs/TESTING.md).
 PLANNED (not yet present, owned by future modules): eval + demo checker
 entry-point scripts (`scripts/eval.sh`, `scripts/demo.sh --check` in
 M16/M22; the backend eval runner itself landed in M16).

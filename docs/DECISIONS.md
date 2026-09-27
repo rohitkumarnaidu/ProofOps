@@ -592,3 +592,155 @@ The probe should test the capability we actually need. A probe that demands more
 permission than the runtime path uses makes correct least-privilege look like a
 misconfiguration, and invites widening the grant until the probe passes.
 "Offline" was the right answer to the wrong question.
+
+---
+
+## ADR-022 - Documentation truth reconciliation, and one new entry-point doc
+
+Status: LANDED. Owner: documentation pass, reviewed alongside the modules named
+per row in `docs/MODULE_REGISTRY.md`.
+
+### Context
+
+The last documentation pass landed before the live tier, the token carriers, the
+honesty work, and the integration lanes. Those commits added real capability and
+did not update the docs that describe it. The result was not cosmetic drift: the
+document set contained statements that were false against the tree, and a reader
+could not reach a running system from the documentation alone.
+
+Every finding below was verified by reading the implementation or by executing
+it, not by pattern-matching on what a doc ought to say.
+
+### False claims that were corrected
+
+These were not omissions. Each was a positive assertion contradicted by code.
+
+- `SECURITY.md` claimed "no host networking, no host binds". There is exactly one
+  host bind (`./var/live:/live:ro`) and the `api` container joins the external
+  `kind` network. `cap_drop: ALL` and `no-new-privileges` are on `api` only, not
+  on `db` or `ui`. A security document that overstates its own isolation is worse
+  than one that admits a gap, because it suppresses the review that would find the
+  gap.
+- `API.md` described the incident stream as "REPLAY-ONLY. There is no push, no
+  publish/subscribe, no long-poll, no heartbeat/keep-alive". The route holds the
+  connection open with a 15s keepalive for up to an hour and delivers new events
+  to an open subscriber. `tests/test_stream_live.py` exists to pin exactly this
+  distinction.
+- `API.md` claimed alerts ingest and the four webhook routes were "not
+  implemented". They are implemented and live.
+- `TESTING.md` opened by calling the host-safe suites green and quoted a pass
+  count measured on 2026-09-16, then described eval, adversarial, and M20 as
+  PLANNED. All three had landed. The count is withdrawn rather than restated: no
+  current run supports any number, and a stale pass count reads as current.
+- `EVALUATION.md` stated `scripts/` ships `ci.sh` only. It ships eight files,
+  including the very script that doc tells the reader to run.
+- `DEMO.md` described the LIVE/REPLAY/MOCK/OFFLINE vocabulary as "not
+  implemented" and referred to "the five UI views". The badge ships in five of
+  six views; there are six views.
+- `README.md` and `ARCHITECTURE.md` filed Kind under FUTURE. It is a shipped,
+  scripted, opt-in tier.
+- `docs/README.md` claimed 19 `docs/*.md` on disk. There were 20, and
+  `PROOF_OPS_REAL_CLOUD_AND_SECURITY_ARCHITECTURE.md` had no index row at all.
+
+### Stale citations, fixed against the current tree
+
+`API.md` carried 9 `file:line` citations pointing at the wrong lines, and
+`SECURITY.md` carried 7 more, including three that anchored the security
+argument itself (`require_role`, `check_key_role`, `identity_view`). Each was
+re-derived by locating the symbol in the current source rather than by adjusting
+the number until it looked plausible. `EVALUATION.md` had four more, plus a
+`.gitignore` line reference that had drifted by eleven lines.
+
+### The gap that was structural, not a stale detail
+
+The set had no tutorial and no how-to. It described how the system is built and
+how it is governed, and a reader's first move was to assemble a compose start
+from scattered env comments. That is the friction that produced a request to
+"run the backend and frontend and give me links" during this very pass, which is
+the cheapest possible evidence that the gap was real.
+
+`docs/QUICKSTART.md` closes it. It was written by executing every step, not by
+reading the compose file.
+
+### Pin change, and why it is justified
+
+AGENTS.md §12 requires a justification to change the canonical doc set. Here it
+is: the set had no way to start the product, and that is a coverage gap of the
+same class ADR-007 fixed when `ARCHITECTURE.md`, `API.md`, and `TESTING.md` were
+absent.
+
+- `CANONICAL_DOCS` goes 11 to 12. Additive; no doc removed, no gate relaxed.
+- `QUICKSTART.md` is placed in `CANONICAL_DOCS` rather than `known_extra` because
+  it is a first-class entry point, not a lane description, so it inherits the
+  presence, owning-module, and no-fabrication gates.
+- It is additionally placed in a new `CONTROLLED` list so it inherits the spec
+  link, PLANNED marking, and secret-marker gates. That is not ceremonial: a
+  quickstart is the single most likely document in a repository to leak a
+  placeholder credential, and this one instructs the reader to generate a real
+  approval secret.
+- `CANONICAL_DOCS` count assertions in `test_exact_canonical_set` updated from
+  11 to 12. Those assertions are self-checks on the list constant, so they must
+  move with it.
+
+### Registry: two shipped capabilities had no module ID
+
+A real API-server executor and a real PromQL verifier landed with no row in
+`docs/MODULE_REGISTRY.md`, meaning two capabilities had no owner, no status, and
+no score. They are now `M08.7` and `M09.9`, in the phases that own their concerns
+(sandbox tier, verification independence). The header tally moves 183 to 185 units
+and 176 to 178 implemented, and the header now states that the per-row table wins
+when the two disagree, because that header had already been observed drifting
+from its own table.
+
+### Frozen docs were not touched
+
+`CONFIGURATION.md` (M00.2), `COMPOSE.md` (M00.3), `HEALTH.md` (M00.4), and
+`LOGGING.md` (M00.5) remain frozen. Live-tier material that would naturally have
+gone into `COMPOSE.md` went into `QUICKSTART.md` instead, which is why the new doc
+carries a live-tier section at all.
+
+One frozen doc now carries a defect this pass could not fix: `CONFIGURATION.md`
+declares `KUBECONFIG`, and the executor does not read `Settings.KUBECONFIG`.
+Correcting a frozen document requires an ADR that unfreezes it. Owner: M00.2,
+PLANNED.
+
+### Known defects found while writing, recorded rather than fixed
+
+This was a documentation pass. The following are code or governance defects,
+discovered by reading for documentation accuracy, and left in place with owners.
+None is a claim this pass verified as working.
+
+1. A real Kubernetes patch is recorded in the execution row under the `docker`
+   execution-record tier, because `ExecutorTier` has no Kubernetes member.
+2. `Settings.KUBECONFIG` is declared and documented but unread; the path is
+   resolved by the Kubernetes client library from the environment, and a
+   non-existent path is skipped silently rather than refused. ADR-013 in the
+   live-tier series describes a hard boundary the code does not itself enforce.
+3. `scripts/live_tier.sh down` deletes the kind cluster and therefore the `kind`
+   Docker network, which `docker-compose.yml` declares external, so the next
+   `docker compose up` fails until that network is recreated.
+4. `scripts/live_tier.sh` uses an unpinned `prom/prometheus:latest`, against the
+   no-`:latest` rule this repository applies to compose services.
+5. `APPROVAL_TOKEN_DELIVERY=out_of_band` writes outside the writable state
+   directory, so it raises a permission error inside the container.
+6. `CommandCenter.tsx` tests `llm_hub.status === "CONNECTED"`, a value the backend
+   cannot emit since the honesty fix, so that branch is unreachable and the tile
+   always renders the non-live label.
+7. `ExecutionView.tsx` renders the literals `TERMINAL /bin/k8s-exec` and
+   `EXIT CODE 0` rather than run data, which is the exact framing AGENTS.md §6.6
+   forbids.
+8. The frontend `EngineStatus` type is missing `database.degraded`,
+   `database.fallback_reason`, and the Kubernetes `version`, `namespace`, and
+   `error` fields, so the UI cannot render a degraded database as degraded and
+   shows a positive online label instead.
+
+### A governance defect, recorded because writing cannot fix it
+
+`ADR-011` through `ADR-014` exist twice in this log: once in the M01–M03 series
+and once in the live-tier series. Code comments in `config.py`,
+`token_delivery.py`, `pipeline.py`, and `approvals.py` cite `ADR-015` as the
+authority for the approval token carrier decision, but the live-tier series stops
+at `ADR-014` and the other `ADR-015` is an unrelated M03 decision. Renaming
+either series would invalidate citations in at least five files, which is a code
+change and not this pass's scope. Owner: unassigned, PLANNED. The correct fix is
+to renumber one series and update the citing comments in the same commit.

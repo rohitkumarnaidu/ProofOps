@@ -132,19 +132,23 @@ Reporter); no 5th without `docs/DECISIONS.md` justification.
 | FSM/validator/policy/HITL/sandbox/verifier/rollback | IMPLEMENTED (M06–M11/M14) | CUSTOM-DETERMINISTIC (FastAPI + Postgres) |
 | Telemetry/mock K8s/mock executor | IMPLEMENTED (M02/M08) | SIMULATED (deterministic seeds; docker tier local-real) |
 | Eval/benchmarks/adversarial | IMPLEMENTED (M16–M18 machinery + M20 budgets). Pipeline runs to date are SCRIPTED-ORACLE SIMULATIONS — see `docs/EVALUATION.md`. | MEASURED SYSTEM RUN with live-model agents: PLANNED, UNMEASURED today |
-| UI + incident stream | IMPLEMENTED (M19: 5 views, approvals API, SSE client; M21 identity + audit-chain replay stream). The stream is a **finite replay with a `?since=` cursor** — no push, no heartbeat, unauthenticated read (`docs/API.md`). | push/long-poll stream, M22 demo hardening |
-| Kind/voice/vendor/SSO/SIEM | FUTURE, never claimed | FUTURE post-hackathon |
+| UI + incident stream | IMPLEMENTED (M19: 6 views, approvals API, SSE client; M21 identity + audit-chain stream). The stream is **live with a replay backlog**: it sends the backlog, a completion marker, then holds the connection open with a 15s keepalive for up to an hour (`docs/API.md`). | M22 demo hardening |
+| Live execution + verification tier | IMPLEMENTED, opt-in (live-tier lane: real kind cluster via `scripts/live_tier.sh`, real PromQL verification, RBAC-scoped ServiceAccount, credentials mounted read-only). Off by default: `LIVE_CLUSTER=false` and `EXECUTOR=mock`. | Kind as the default tier; real cloud accounts |
+| Kind as default, voice, vendor connectors, SSO/SIEM | FUTURE, never claimed | FUTURE post-hackathon |
 
 ## PLANNED (owning modules, not implemented)
 
-- Demo hardening (M22).
-- Execute/verify/rollback HTTP endpoints and the rest of the spec §40 surface
-  (alerts ingest, triage/evidence/diagnose/remediation, RCA publish,
-  `POST /demo/seed`).
+- Demo hardening (M22), including `POST /demo/seed` and `scripts/demo.sh --check`.
+- Discrete triage, evidence, diagnosis, remediation, execution, verify, rollback,
+  and RCA-publish endpoints. The behavior is reachable through
+  `POST /alerts/ingest` plus the orchestrator; the per-stage HTTP surface is
+  what is missing (M21/M22).
 - Live Lyzr execution where keyed — UNVERIFIED today.
-- A push or long-poll incident stream, plus rate limiting, SSO/OIDC, key
-  expiry/revocation, and reconciliation of the durable-state path modules onto
+- Rate limiting, SSO/OIDC, key expiry/revocation, a credential on the webhook
+  ingest routes, and reconciliation of the durable-state path modules onto
   `paths.state_dir()` — all unassigned.
+- An end-to-end P50 latency gate. The eval engine asserts six per-stage budgets
+  and has no e2e field; see `docs/EVALUATION.md`.
 
 ## Repro (host-safe)
 

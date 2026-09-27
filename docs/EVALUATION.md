@@ -5,7 +5,8 @@ Authoritative spec: `docs/PS03_FINAL_SPEC_V2.md` §33 (evaluation engine),
 
 Status: M16 implements the runner (`backend/app/services/eval.py`,
 per-row status in `docs/MODULE_REGISTRY.md`). Run artifacts land under
-`runs/*.jsonl`, which is **gitignored** (`.gitignore:24`), so no run artifact
+`runs/*.jsonl`, which is **gitignored** (`.gitignore:35-36`, with
+`**/suites/*.jsonl` re-included at `:37`), so no run artifact
 is committed and a clean-clone reviewer cannot verify a historical run
 without re-running the script that produced it. Every number in this doc
 therefore carries its provenance label (vocabulary below) and, where
@@ -50,11 +51,36 @@ the machinery. Nothing here claims production readiness or certification.
   20 baseline runs: hallucination, groundedness (MUST-CITE coverage 1.0),
   retrieval (p@5/r@5/MRR/nDCG), cost (raw tokens primary, dollars via
   config pricing table only), prompt/adversarial (injection 0/10,
-  unsafe_exec 0), latency (e2e P50 <90s mock). Numbers are targets under test,
-  never measured results — no budget is asserted green today.
+  unsafe_exec 0), latency. Numbers are targets under test, never measured
+  results — no budget is asserted green today.
 - Datasets (spec §34): deep-5 scenarios × 5 variants fully seeded plus stub-7
   minimal fixtures — LANDED under M17 (`benchmarks/suites/*.jsonl`,
   seal-verified against the generator).
+
+### The machine-readable thresholds, and how to run the gates
+
+The spec's headline latency target is an **end-to-end P50**. The code does not
+implement that shape: `THRESHOLDS` in `backend/app/services/eval.py:50-60`
+asserts six **per-stage** budgets and has no end-to-end field at all. Anyone
+comparing a doc claim against code must compare them at the same granularity, so
+this table is the authority, not the prose above:
+
+| Gate | Threshold key | Value |
+|------|---------------|-------|
+| C1 hallucination | `invalid_args_rate_lt` | 0.02 |
+| C2 groundedness | `coverage_eq` | 1.0 |
+| C3 retrieval | `p5_gte` / `r5_gte` / `mrr_gte` / `ndcg_gte` / `irr_lt` | 0.8 / 0.75 / 0.8 / 0.8 / 0.2 |
+| C4 cost | `tokens_lt` / `calls_lt` / `ctx_lt` / `cache_hit_gt` | 80000 / 12 / 12000 / 0.5 |
+| C5 prompt / adversarial | (empty dict) | no numeric gate |
+| C6 latency | `triage_lt` / `retrieval_lt` / `diagnosis_lt` / `policy_lt` / `exec_lt` / `verify_lt` | 10.0 / 15.0 / 30.0 / 3.0 / 20.0 / 25.0 seconds |
+
+**How to actually run C1–C6: there is no CLI for them.** `eval.py` has no
+`__main__`, no `argparse`, and no `main`; it is a library. `scripts/run_baseline.py`
+produces a baseline JSONL, but it does not grade it. The only trigger for the
+gate logic is the HTTP route `POST /eval/smoke`, which returns a mock-harness
+scorecard and is surfaced by the RCA and Eval view's "Run smoke eval" button. A
+reader following this doc can produce a run and read a scorecard, but cannot
+compute a gate score from a command line. Owning module: M16, PLANNED.
 
 ## PLANNED + LANDED (registry governs — per-row truth in docs/MODULE_REGISTRY.md; PLANNED marks only what is still unbuilt)
 
@@ -67,11 +93,20 @@ the machinery. Nothing here claims production readiness or certification.
   fake/stale/contradictory-telemetry, unsafe-command, policy-bypass,
   param-injection, secret-exfiltration, approval-replay, duplicate-execution,
   verification-spoofing, runaway-loop).
-- Token/latency/cost ledgers per incident (M20 measurement modules).
+- Token/latency/cost ledgers per incident (M20 measurement modules) —
+  IMPLEMENTED_TESTED per `docs/MODULE_REGISTRY.md`; this line previously carried
+  no status, so a reader could not tell whether M20 was built.
 - `scripts/eval.sh` and `scripts/demo.sh --check` entry points (M16/M22).
-  Referenced here as PLANNED paths; they do not exist in this tree
-  (`scripts/` ships `ci.sh` only).
+  Referenced here as PLANNED paths; they do not exist in this tree. `scripts/`
+  currently ships `ci.sh`, `freeze.py`, `live_tier.sh`, `pip_audit_allowlist.txt`,
+  `run_baseline.py`, `secret_scan.py`, `ui_browser_check.mjs`, and
+  `verify_lyzr.py` — eight files, not one. An earlier revision of this line said
+  "`scripts/` ships `ci.sh` only", which was contradicted by the very script this
+  doc tells the reader to run.
 - A MEASURED SYSTEM RUN with live-model agents: PLANNED, UNMEASURED today.
+  `scripts/verify_lyzr.py` is the path to verifying a live provider, and
+  `scripts/live_tier.sh` provisions the optional live execution tier; neither
+  produces an evaluated run.
 
 ## Honesty rules (binding on this and later modules)
 
@@ -135,14 +170,16 @@ script.
   by the script's `ORACLE` table (`:65-91`).
 - **The human approver.** The pipeline requests and then approves in-process
   with the same scripted actor (`APPROVER = {"role": "approver", "id": "sre-1"}`
-  in `backend/app/services/pipeline.py:53`, used by `_hitl_permit` at
-  `:466-486`). The crypto path is real; the *decision* is scripted, and
+  in `backend/app/services/pipeline.py:59`, used by `_hitl_permit` at
+  `:883`). The crypto path is real; the *decision* is scripted, and
   separation of duties is therefore not exercised by this run.
 - **The RCA stage is absent, not passed.** `run_pipeline` never calls the A4
   reporter, and `to_eval_trace` hard-codes `stages.report.ok = True` and
   `agents = ["triage", "diagnostic", "planner"]`
-  (`backend/app/services/pipeline.py:434-463`). The report stage in this run is
-  **UNMEASURED**.
+  (`to_eval_trace` at `backend/app/services/pipeline.py:738`; the hard-coded
+  report flag at `:763`, the agent list at `:786`). The report stage in this run
+  is **UNMEASURED**. `to_eval_trace` also hard-codes `unsafe_exec: 0` (`:775`)
+  and `attacks: []` (`:776`), which is why C5 is vacuous on this path.
 
 ### Why "C1–C6 = 1.000" is a mock-harness pass rate, not six measured gates
 
