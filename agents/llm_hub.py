@@ -16,7 +16,6 @@ import httpx
 
 from agents import AGENTS
 from agents.lyzr_client import ClientConfig, ClientResult, LyzrClient, Mode
-from agents.schemas import OutputRejected
 
 
 def _get_env_key(key: str) -> str:
@@ -97,14 +96,17 @@ class DirectLLMClient:
                 "anthropic-version": "2023-06-01",
                 "Content-Type": "application/json",
             }
-            body = {
+            # Annotated as a JSON body: `max_tokens` is an int, and mypy
+            # otherwise infers the dict from the nested `messages` value and
+            # rejects every scalar alongside it.
+            anthropic_body: dict[str, Any] = {
                 "model": self.model or "claude-3-5-sonnet-20241022",
                 "max_tokens": 4096,
                 "system": system_prompt,
                 "messages": [{"role": "user", "content": message}],
             }
             with httpx.Client(timeout=30.0) as client:
-                res = client.post("https://api.anthropic.com/v1/messages", headers=headers, json=body)
+                res = client.post("https://api.anthropic.com/v1/messages", headers=headers, json=anthropic_body)
                 res.raise_for_status()
                 return str(res.json()["content"][0]["text"])
 

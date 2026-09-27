@@ -8,9 +8,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 
 from app.contracts.action import Action
-from app.contracts.enums import ActionType, Environment, ExecutorTier, RiskLevel
+from app.contracts.enums import Environment, RiskLevel
 from app.contracts.incident import FrozenDict
-from app.services.k8s_executor import KubernetesExecutor, ClusterUnreachableError, K8S_EXECUTOR
+from app.services.k8s_executor import KubernetesExecutor, ClusterUnreachableError
 
 
 def _make_action(action_type: str, resource_id: str = "web-api", params: dict | None = None) -> Action:

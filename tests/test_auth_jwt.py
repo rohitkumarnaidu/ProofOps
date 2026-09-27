@@ -1,7 +1,5 @@
 """Tests for Enterprise JWT Authentication and Role-Based Access Control (RBAC)."""
-import os
 import sys
-import time
 from pathlib import Path
 import pytest
 

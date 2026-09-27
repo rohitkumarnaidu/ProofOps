@@ -38,6 +38,18 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-proofops}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/${POSTGRES_DB:-proofops}
+      # Live tier. Both default to a non-live value so a plain `docker compose
+      # up` on a clean clone is honest: no kubeconfig, no Prometheus, and the
+      # health surface reports OFF rather than pretending. Run
+      # `bash scripts/live_tier.sh up` to provision real ones.
+      KUBECONFIG: ${KUBECONFIG:-/live/kubeconfig}
+      # The namespace the agent identity is scoped to. This is not cosmetic: the
+      # live ServiceAccount has a namespaced Role in exactly one namespace, so
+      # probing anywhere else is a 403. Scoping the executor to the same
+      # namespace the RBAC grants is what keeps "may act here, nowhere else"
+      # true end to end.
+      KUBERNETES_NAMESPACE: ${KUBERNETES_NAMESPACE:-proofops-demo}
+      PROMETHEUS_URL: ${PROMETHEUS_URL:-http://proofops-prometheus:9090}
     ports:
       - "8000:8000"
     depends_on:
@@ -50,6 +62,20 @@ services:
     # and chowns /app/var; an empty named volume inherits that ownership.
     volumes:
       - api_state:/app/var
+      # The live tier's credentials and CA, mounted read-only and at a path
+      # separate from the api_state volume. Read-only matters: this directory
+      # holds a live ServiceAccount token, and an api container that could write
+      # to its own credentials would be a self-escalation path. Absent on a clean
+      # clone (scripts/live_tier.sh creates it), which compose tolerates.
+      - ./var/live:/live:ro
+    # The kind cluster and Prometheus both live on the external `kind` docker
+    # network, so the api container joins it to reach the API server by its
+    # in-network address. That address is a SAN on the apiserver certificate, so
+    # TLS verifies for real -- going via host.docker.internal would have required
+    # turning verification off, which this project should never do.
+    networks:
+      - default
+      - kind
     # Explicit compose-level healthcheck mirroring the image HEALTHCHECK
     # (LACK-13 fix): `service_healthy` must not depend on an implicit image
     # contract. Same stdlib /healthz probe, same budgets as Dockerfile.
@@ -89,3 +115,12 @@ services:
 volumes:
   pgdata:
   api_state:
+
+networks:
+  # Created by scripts/live_tier.sh (`kind create cluster` makes it). Declared
+  # external so a clean clone does not fail to start before the live tier is
+  # provisioned; `docker compose up` still works without it.
+  kind:
+    name: kind
+    external: true
+    internal: false

@@ -13,8 +13,7 @@ from __future__ import annotations
 
 import json
 import time
-from typing import Any, Mapping
-from pydantic import BaseModel, Field
+from typing import Any
 
 from fastapi import APIRouter, Header, HTTPException, Request
 

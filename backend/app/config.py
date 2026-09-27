@@ -83,6 +83,19 @@ class Settings(BaseSettings):
     # --- execution ---
     EXECUTOR: Executor = "mock"
 
+    # --- live tier (M08/M09) ---
+    # All three default to values that mean "not live", so a clean clone with no
+    # provisioning reports the live tier as offline instead of inventing a
+    # connection. scripts/live_tier.sh provisions the real thing and
+    # docker-compose.yml passes these through.
+    #
+    # KUBECONFIG is a path, not a credential, so it is not in SECRET_FIELDS; the
+    # ServiceAccount token it points at is never read by Settings and is mounted
+    # read-only.
+    KUBECONFIG: str = ""
+    KUBERNETES_NAMESPACE: str = "default"
+    PROMETHEUS_URL: str = "http://localhost:9090"
+
     # --- security ---
     APPROVAL_SECRET: str = ""
     APPROVAL_TTL_SECONDS: int = 600
@@ -232,6 +245,9 @@ class Settings(BaseSettings):
             "LOG_LEVEL": ("PUBLIC", False, "M00.5 logging"),
             "DEBUG": ("PUBLIC", False, "M00.2 modes"),
             "EXECUTOR": ("PUBLIC", False, "M00.2 → executor tiers"),
+            "KUBECONFIG": ("PUBLIC", False, "M08 live executor"),
+            "KUBERNETES_NAMESPACE": ("PUBLIC", False, "M08 live executor"),
+            "PROMETHEUS_URL": ("PUBLIC", False, "M09 live verifier"),
             "APPROVAL_SECRET": ("SECRET", True, "M07 HITL"),
             "APPROVAL_TTL_SECONDS": ("PUBLIC", False, "M07 HITL"),
             "POLICY_VERSION": ("PUBLIC", False, "M06 policy"),

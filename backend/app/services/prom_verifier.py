@@ -12,6 +12,7 @@ from __future__ import annotations
 import httpx
 from typing import Any
 
+from app.config import get_settings
 from app.contracts.enums import Verdict
 from app.contracts.incident import FrozenDict
 from app.contracts.verification import VerificationResult
@@ -196,4 +197,9 @@ class PrometheusVerifier:
 
 
 # Singleton verifier
-PROMETHEUS_VERIFIER = PrometheusVerifier()
+# Resolved from Settings so the verifier talks to the Prometheus this deployment
+# was actually given. Hardcoding localhost made the live tier unreachable by
+# construction: the API runs in a container, where localhost is that container,
+# not the Prometheus. A verifier that can only ever query itself is a verifier
+# that always agrees with itself.
+PROMETHEUS_VERIFIER = PrometheusVerifier(get_settings().PROMETHEUS_URL)

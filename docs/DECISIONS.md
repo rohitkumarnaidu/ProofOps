@@ -463,3 +463,132 @@ in blast context is benign-small; blast comes from trusted callers);
 - RAI per-agent placement, policy engine as authz boundary (M06/M13).
 - HMAC token crypto shape: scope hash, nonce burn, TTL (M07).
 - mock-default executor with docker/kind tiers (M08).
+
+## ADR-011: KIND for the live tier, not a cloud account
+
+**Status:** accepted
+**Date:** 2026-09-27
+**Module:** M08 (live executor), M09 (live verifier)
+
+### Context
+
+The live tier reported \kubernetes: offline\ and \prometheus: standby-sandbox\.
+Three of the four engines in \/api/meta/engines\ were decorative. The question
+was what to connect to: a real cloud account, or a real cluster on the machine.
+
+### Decision
+
+Use KIND (a real Kubernetes API server in Docker) plus a real Prometheus
+container, provisioned by \scripts/live_tier.sh\.
+
+### Rationale
+
+The claims this project makes are about the control plane, not about whose cloud
+it runs in. KIND gives genuine API-server authorization, so the safety argument
+is testable: the ServiceAccount may read and scale workloads in one namespace
+and is refused \delete namespaces\, \get secrets\, and \create roles\ by
+Kubernetes itself. That is a second, independent boundary -- our policy engine
+is our own code reasoning about our own inputs, so it is necessary but not
+sufficient. Real AWS or GCP would add credential handling, cost, and network
+dependency without making the safety claim any more true.
+
+### Consequences
+
+- Works offline, costs nothing, reproduces on a clean clone, and is safe to run
+  during a live demo.
+- The API container joins the external \kind\ docker network and reaches the
+  apiserver at its in-network address, which is a SAN on the apiserver
+  certificate. TLS therefore verifies for real. Routing through
+  \host.docker.internal\ would have required disabling verification, which this
+  project should never do.
+- \ar/live/\ (CA + ServiceAccount token) is mounted **read-only**. A container
+  that could write its own credentials could escalate its own permissions.
+- Not production. Real clusters need IRSA/workload identity, admission control,
+  and network policy. Tracked as \[FUTURE]\ in AGENTS.md 0.3.
+
+## ADR-012: the live tier depends on declared drivers, not ambient ones
+
+**Status:** accepted
+**Date:** 2026-09-27
+
+### Context
+
+The live tier could not start, and the failure was invisible. Three independent
+causes, one shape:
+
+- \kubernetes\ was imported by \services/k8s_executor.py\ but never declared in
+  \equirements.txt\, so the import failed inside the image while the host had
+  it. Surfaced as a generic "unreachable".
+- \iosqlite\ was likewise undeclared, so the documented DB-down fallback
+  (\AGENTS.md\ 16.2) could not start and the API 500'd.
+- \PROMETHEUS_VERIFIER\ hardcoded \localhost:9090\, which inside a container is
+  the container itself. A verifier that can only query itself always agrees with
+  itself.
+
+### Decision
+
+Declare every driver the code imports. Resolve all runtime endpoints through
+\Settings\ (never a literal), and make the lock the source of truth via
+\scripts/freeze.py\. Report the failure *reason* -- exception type, not just
+\alse\ -- on every engine's status.
+
+### Rationale
+
+"Offline" is not an actionable diagnosis. A missing driver, an absent
+kubeconfig, and a live cluster refusing our identity are three different problems
+with three different fixes, and collapsing them into one boolean is what let a
+broken integration read as a deliberately-disabled one. The existing
+\	est_no_direct_environ_outside_allowlist\ rule already required routing through
+\Settings\; this ADR records why that rule exists and why the fields are
+registered in the inventory and CONFIGURATION.md rather than read ad hoc.
+
+## ADR-013: an explicit kubeconfig path is a hard boundary
+
+**Status:** accepted
+**Date:** 2026-09-27
+
+### Context
+
+\KubernetesExecutor.connect()\ fell through to the ambient \~/.kube/config\
+when a configured \kubeconfig_path\ did not exist. That is a fail-open: a
+deployment configured for an unreachable sandbox silently connected to whatever
+cluster the host had a current context for, possibly production, and the control
+plane would then execute against a cluster nobody chose.
+
+### Decision
+
+A configured \kubeconfig_path\ that does not exist is \KubeconfigNotFound\.
+No fallback to ambient config. Ambient lookup happens only when no path was
+configured at all.
+
+### Rationale
+
+An explicit path expresses an operator's intent. Treating a missing file as
+"try something else" inverts that intent precisely when the environment is
+already wrong, which is the moment it matters most.
+
+## ADR-014: the connection probe must match the granted scope
+
+**Status:** accepted
+**Date:** 2026-09-27
+
+### Context
+
+The probe was \get_api_resources()\ -- an API-discovery call. Discovery is
+cluster-scoped, so it is denied by exactly the RBAC this project wants. A
+correctly-scoped ServiceAccount therefore failed the probe and the engine
+reported a healthy cluster as offline.
+
+### Decision
+
+Probe with the narrowest call the granted scope permits: the apiserver
+\/version\ (unauthenticated, so it proves the server is real with no
+permission at all) followed by a namespaced read in the namespace the identity
+is scoped to.
+
+### Rationale
+
+The probe should test the capability we actually need. A probe that demands more
+permission than the runtime path uses makes correct least-privilege look like a
+misconfiguration, and invites widening the grant until the probe passes.
+"Offline" was the right answer to the wrong question.

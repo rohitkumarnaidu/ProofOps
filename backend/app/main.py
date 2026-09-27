@@ -4,7 +4,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import app.compat  # noqa: F401 (Starlette host compatibility shim)
+from app import compat  # noqa: F401  (Starlette host compatibility shim)
 import time  # noqa: E402  (Lane 2: middleware latency clock)
 from collections.abc import Awaitable, Callable  # noqa: E402  (Lane 2)
 from typing import Any  # noqa: E402  (M19b lifespan signature)

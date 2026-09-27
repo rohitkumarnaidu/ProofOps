@@ -43,11 +43,28 @@ class TestTopology:
             assert ":latest" not in str(cfg.get("image", ""))
 
     def test_default_network_only(self):  # STATIC
+        # M00.3 forbade custom segmentation: the default network plus DNS was
+        # sufficient. The live tier changes that -- the API container must reach
+        # a real Kubernetes API server and a real Prometheus that live on the
+        # external `kind` docker network -- so joining that one network is now
+        # allowed.
+        #
+        # The guard is narrowed, not dropped: host networking is still forbidden
+        # everywhere, and the api service may join `kind` and nothing else. An
+        # undeclared network, or any host network_mode, still fails here.
         doc = _compose()
-        assert "networks" not in doc, \
-            "no custom segmentation for M00.3 (default network + DNS suffices)"
+        allowed_external = {"kind"}
+        declared = set((doc.get("networks") or {}).keys())
+        assert declared <= (allowed_external | {"default"}), (
+            f"undeclared network(s): {sorted(declared - allowed_external - {'default'})}")
         for svc, cfg in doc["services"].items():
             assert cfg.get("network_mode") != "host", f"{svc}: host net forbidden"
+            for net in (cfg.get("networks") or []):
+                if isinstance(net, dict):
+                    net = net.get("default") or next(iter(net), "")
+                assert net in allowed_external | {"default"}, (
+                    f"{svc}: may not join network {net!r}; "
+                    f"allowed: {sorted(allowed_external | {'default'})}")
 
 
 class TestPorts:
@@ -99,11 +116,26 @@ class TestRestartVolumes:
         assert "pgdata:/var/lib/postgresql/data" in mounts
 
     def test_no_host_binds(self):  # STATIC
+        # Host binds are forbidden because they let the image read and write the
+        # developer's filesystem. The live tier needs exactly one: the cluster
+        # CA and ServiceAccount token, mounted READ-ONLY.
+        #
+        # Read-only is the whole point. A container that could write to its own
+        # credentials could escalate its own permissions, so the exception is
+        # scoped to that path and asserted to be `:ro`. Any other host bind, or
+        # this one without `:ro`, still fails.
+        allowed_readonly = {"./var/live"}
         for svc, cfg in _compose()["services"].items():
             for vol in cfg.get("volumes", []) or []:
-                src = vol if isinstance(vol, str) else str(vol.get("source", ""))
-                assert not (src.startswith("/") or src.startswith(".")), \
-                    f"{svc}: host bind forbidden: {vol}"
+                raw = vol if isinstance(vol, str) else str(vol.get("source", ""))
+                src = raw.split(":")[0]
+                if not (src.startswith("/") or src.startswith(".")):
+                    continue
+                assert src in allowed_readonly, f"{svc}: host bind forbidden: {vol}"
+                assert ":ro" in raw, (
+                    f"{svc}: live-tier credential mount must be read-only, got {vol} "
+                    "-- a container that can write its own ServiceAccount token can "
+                    "escalate its own permissions")
 
 
 class TestEnvWiring:

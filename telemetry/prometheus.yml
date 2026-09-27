@@ -1,0 +1,35 @@
+# Prometheus for the live tier: scrapes the real Kubernetes API server.
+#
+# The point is not to have a dashboard. It is that the verifier issues real
+# PromQL against a real TSDB and gets real numbers back, so "exit 0 does not
+# mean resolved" is demonstrated against measured data rather than a mock dict.
+#
+# Both files below are written by scripts/live_tier.sh:
+#   var/live/ca.crt    the cluster CA
+#   var/live/token     a short-lived ServiceAccount token
+# `insecure_skip_verify` is false on purpose. A metrics pipeline that disables
+# certificate verification teaches the reader that disabling it is normal, and
+# this project exists to argue the opposite.
+
+global:
+  scrape_interval: 5s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # Real Kubernetes control-plane metrics. This is what makes cluster and
+  # workload availability a measured fact rather than an assumption.
+  - job_name: kubernetes-apiserver
+    scheme: https
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["__APISERVER__"]
+    bearer_token_file: /live/token
+    tls_config:
+      ca_file: /live/ca.crt
+      insecure_skip_verify: false
+
+  # Prometheus's own metrics, so the verifier can confirm the scrape path is
+  # alive (up == 1) before trusting any query result from it.
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

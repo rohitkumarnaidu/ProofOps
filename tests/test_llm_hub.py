@@ -2,14 +2,12 @@
 import os
 import sys
 from pathlib import Path
-from unittest.mock import patch, MagicMock
-import pytest
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 
-from agents.llm_hub import LLMHub, DirectLLMClient, _get_env_key
-from agents.lyzr_client import LyzrClient
+from agents.llm_hub import LLMHub, DirectLLMClient
 
 
 def test_llm_hub_active_provider_default():

@@ -1,6 +1,4 @@
 """Tests for enterprise database persistence (SQLAlchemy 2.0 async engine + repository)."""
-import asyncio
-import os
 import sys
 import uuid
 from pathlib import Path
@@ -10,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 
 from app.db.session import init_db, db_health, get_db_session
-from app.db.models import IncidentRecord, ApprovalRecordModel, ExecutionRecordModel, AuditEventRecordModel
+from app.db.models import ApprovalRecordModel, ExecutionRecordModel, AuditEventRecordModel
 from app.db.repository import (
     save_incident_run,
     load_incident_run,

@@ -9,9 +9,9 @@ _BACKEND = _ROOT / "backend"
 sys.path.insert(0, str(_BACKEND))
 sys.path.insert(0, str(_ROOT))
 
-import app.compat  # noqa: F401
-from starlette.testclient import TestClient
-from app.main import app
+import app.compat  # noqa: F401,E402  (Starlette host shim; after sys.path setup)
+from starlette.testclient import TestClient  # noqa: E402  (after sys.path setup)
+from app.main import app  # noqa: E402  (after sys.path setup)
 
 
 @pytest.fixture
