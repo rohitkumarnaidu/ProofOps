@@ -360,7 +360,8 @@ def http_proposals() -> dict[str, Any]:
 
 
 def http_claim_token(approval_id: str,
-                     x_api_key: str | None = Header(default=None)
+                     x_api_key: str | None = Header(default=None),
+                     authorization: str | None = Header(default=None),
                      ) -> dict[str, Any]:
     """Hand a held approval token to an approver, exactly once (ADR-015).
 
@@ -377,7 +378,7 @@ def http_claim_token(approval_id: str,
     A caller who cannot already mint a token cannot obtain one here, which is
     the property that makes this acceptable at all.
     """
-    identity = _require_key(x_api_key)
+    identity = _require_key(x_api_key, authorization)
     _authorize(identity, "approver", "admin")
     from app.services import token_delivery as delivery
 
@@ -895,12 +896,20 @@ def _chain_for(incident_id: str) -> Any:
     return None
 
 
-def _require_key(x_api_key: str | None) -> dict[str, Any]:
-    """Authenticate the caller and return its server-resolved identity."""
+def _require_key(x_api_key: str | None,
+                 authorization: str | None = None) -> dict[str, Any]:
+    """Authenticate the caller and return its server-resolved identity.
+
+    Accepts a Bearer JWT as well as the raw key, matching runs.py. Without this
+    the token minted by POST /auth/token was only usable on two routes, so an
+    operator who signed in through the UI still got 401 on every approval --
+    the Safety Gate was reachable and unusable at the same time.
+    """
     from app.config import get_settings  # noqa: E402 (request-time only)
     from app.routers import auth as auth_mod
     return auth_mod.guard_http(
-        x_api_key, lambda: get_settings().PROOFOPS_API_KEY, HTTPException)
+        x_api_key, lambda: get_settings().PROOFOPS_API_KEY, HTTPException,
+        authorization=authorization)
 
 
 def _authorize(identity: dict[str, Any], *roles: str) -> None:
@@ -986,9 +995,10 @@ def _chain_for_approval(approval_id: str) -> Any:
 
 
 def http_request(body: ApprovalBody,
-                 x_api_key: str | None = Header(default=None)
+                 x_api_key: str | None = Header(default=None),
+                 authorization: str | None = Header(default=None),
                  ) -> dict[str, Any]:
-    identity = _require_key(x_api_key)
+    identity = _require_key(x_api_key, authorization)
     # Raising an approval request WRITES to the queue, mints a live HMAC
     # token, and appends an approval.request record to the exported chain, so
     # it needs a write role -- otherwise a read-only viewer key could do all
@@ -1011,9 +1021,10 @@ def http_view(approval_id: str) -> dict[str, Any]:
 
 
 def http_approve(approval_id: str, body: DecideBody,
-                 x_api_key: str | None = Header(default=None)
+                 x_api_key: str | None = Header(default=None),
+                 authorization: str | None = Header(default=None),
                  ) -> dict[str, Any]:
-    identity = _require_key(x_api_key)
+    identity = _require_key(x_api_key, authorization)
     _authorize(identity, "approver", "admin")
     actor = _actor_for(identity, body.actor)
     chain = _chain_for_approval(approval_id)
@@ -1026,9 +1037,10 @@ def http_approve(approval_id: str, body: DecideBody,
 
 
 def http_reject(approval_id: str, body: DecideBody,
-                x_api_key: str | None = Header(default=None)
+                x_api_key: str | None = Header(default=None),
+                authorization: str | None = Header(default=None),
                 ) -> dict[str, Any]:
-    identity = _require_key(x_api_key)
+    identity = _require_key(x_api_key, authorization)
     _authorize(identity, "approver", "admin")
     actor = _actor_for(identity, body.actor)
     chain = _chain_for_approval(approval_id)

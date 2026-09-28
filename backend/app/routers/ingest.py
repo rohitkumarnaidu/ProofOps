@@ -80,14 +80,17 @@ def _require_telemetry_shape(telemetry: Mapping[str, Any]) -> str:
 
 
 def ingest_incident(body: IngestBody,
-                    x_api_key: str | None = Header(default=None)) -> dict[str, Any]:
+                    x_api_key: str | None = Header(default=None),
+                    authorization: str | None = Header(default=None),
+                    ) -> dict[str, Any]:
     """Submit a telemetry bundle for the orchestrator to process."""
     from app.config import get_settings  # noqa: E402 (request-time only)
     from app.routers import auth as auth_mod
     from app.services import orchestrator as orchestrator_mod
 
     identity = auth_mod.guard_http(
-        x_api_key, lambda: get_settings().PROOFOPS_API_KEY, HTTPException)
+        x_api_key, lambda: get_settings().PROOFOPS_API_KEY, HTTPException,
+        authorization=authorization)
     try:
         auth_mod.require_role(identity, "operator", "approver", "admin")
     except auth_mod.KeyRejected as exc:
@@ -125,11 +128,13 @@ def ingest_incident(body: IngestBody,
 
 
 def http_ingest(body: IngestBody,
-                x_api_key: str | None = Header(default=None)) -> dict[str, Any]:
+                x_api_key: str | None = Header(default=None),
+                authorization: str | None = Header(default=None),
+                ) -> dict[str, Any]:
     # No Body(...) default: FastAPI binds a Pydantic model parameter from its
     # annotation, and using Body() here would need an import that only exists
     # on the container path.
-    return ingest_incident(body, x_api_key)
+    return ingest_incident(body, x_api_key, authorization)
 
 
 def orchestrator_state() -> dict[str, Any]:
@@ -168,7 +173,9 @@ def http_state() -> dict[str, Any]:
     return orchestrator_state()
 
 
-def stop_orchestrator(x_api_key: str | None = Header(default=None)) -> dict[str, Any]:
+def stop_orchestrator(x_api_key: str | None = Header(default=None),
+                      authorization: str | None = Header(default=None),
+                      ) -> dict[str, Any]:
     """Kill-switch: stop accepting and driving incidents.
 
     Write-gated, because stopping the control plane is a privileged action. The
@@ -179,7 +186,8 @@ def stop_orchestrator(x_api_key: str | None = Header(default=None)) -> dict[str,
     from app.services import orchestrator as orchestrator_mod
 
     identity = auth_mod.guard_http(
-        x_api_key, lambda: get_settings().PROOFOPS_API_KEY, HTTPException)
+        x_api_key, lambda: get_settings().PROOFOPS_API_KEY, HTTPException,
+        authorization=authorization)
     try:
         auth_mod.require_role(identity, "operator", "approver", "admin")
     except auth_mod.KeyRejected as exc:

@@ -411,14 +411,22 @@ def _settings_key() -> str:
     return get_settings().PROOFOPS_API_KEY
 
 
-def http_identity(x_api_key: str | None = Header(default=None)
+def http_identity(x_api_key: str | None = Header(default=None),
+                  authorization: str | None = Header(default=None)
                   ) -> dict[str, Any]:
     """``GET /identity``: who the server thinks the caller is.
 
     Exists so a client never has to assert its own identity or role: the UI
     reads the server-resolved principal and its roles, and shows ``mode``.
+
+    Accepts a Bearer JWT as well as the raw key. Without that, a caller who
+    signed in through POST /auth/token could not read its own identity back,
+    so the sign-in control kept showing "not authenticated" even though the
+    token it held was valid for every write -- the operator was told they were
+    not signed in while being the only authenticated party in the system.
     """
-    identity = guard_http(x_api_key, _settings_key, HTTPException)
+    identity = guard_http(x_api_key, _settings_key, HTTPException,
+                          authorization=authorization)
     return identity_view(identity)
 
 
