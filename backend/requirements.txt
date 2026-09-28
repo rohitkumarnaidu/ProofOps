@@ -29,6 +29,15 @@ httpx>=0.27,<0.29
 # the module imported `kubernetes` and the failure surfaced as a generic
 # "unreachable" rather than a missing driver. Same class of bug as aiosqlite.
 kubernetes>=29.0,<35
+# JWT bearer tokens for operator sign-in (routers/auth.py issue_jwt_token /
+# verify_jwt_token, both `import jwt` + HS256). Undeclared until now, so
+# POST /auth/token answered HTTP 500 with `ModuleNotFoundError: No module named
+# 'jwt'` in the image while the host had it -- the same class of bug as
+# aiosqlite and kubernetes above. Consequence: the only way for the UI to obtain
+# a credential for the write-gated routes did not work at runtime, so ingest,
+# approval and the kill-switch were unusable in the deployed bundle even though
+# the client code for them was present and correct.
+PyJWT>=2.8,<3
 pytest>=8.2,<9
 pytest-asyncio>=0.23,<0.25
 ruff>=0.5,<0.6
