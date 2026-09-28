@@ -39,6 +39,48 @@ first incident, and troubleshooting. Two values must be set before the first
 start: `POSTGRES_PASSWORD` (compose fails closed without it) and a real
 `APPROVAL_SECRET` (it signs every human approval token).
 
+### Signing in (required for anything that changes state)
+
+Every write is server-gated: ingesting an incident, the kill switch, raising an
+approval and granting one all answer `401` without a credential. Reads work
+signed-out, so a fresh deployment looks healthy and is completely read-only
+until you sign in.
+
+In the UI, paste the deployment key (`PROOFOPS_API_KEY` from `.env`) into the
+**Operator API key** field in the header. The key is exchanged for a short-lived
+JWT at `POST /auth/token`; the key itself is never stored, and every later
+request carries the token. There is also an "API key configured" path for demos:
+build the UI with `VITE_PROOFOPS_API_KEY` and no sign-in is needed, at the cost
+of shipping a shared key in the bundle.
+
+Identity mode is always displayed. `bootstrap` means the deployment fell back to
+the single configured key, has **no** per-user identity and **no** server-side
+roles, and separation of duties is not enforced — a demo-grade credential, not
+an authenticated user. Deploy `var/api_keys.json` for per-key roles.
+
+### The operator path, end to end
+
+1. **Command Center → Ingest an incident.** Pick a scenario and the observed
+   facts (service, environment, error signature, error rate). Severity,
+   fingerprint, SLO breach, evidence, the plan and the policy verdict are all
+   derived server-side from those numbers.
+2. The run reaches `AWAITING_APPROVAL` for a YELLOW action and the **Safety
+   Gate** lists the pipeline's own parked proposal with its policy risk tier.
+   Load it to fill the request form, then request and grant the approval.
+3. The action executes in a real executor tier and the independent verifier
+   banks a verdict with its per-check results. **Execution** shows the tier, the
+   executor output and the state diff.
+4. The post-incident stage runs the MUST-CITE coverage gate and, if it accepts,
+   publishes a blameless postmortem; the run reaches the terminal `AUDITED`
+   state. **Audit & Postmortem** shows the document, the chain (with timestamps,
+   policy decisions and evidence per event), a re-computed chain verdict, and
+   the six-gate scorecard.
+
+Two controls worth knowing: **Engage kill-switch** stops the orchestrator
+accepting work, and **Sweep stage / approval TTLs** force-escalates a run whose
+agent stage or human approval has lapsed. Without the sweep such a run sits
+parked indefinitely.
+
 Supported runtime: Docker (`python:3.12-slim`, the container is the source of
 truth). Host Python 3.13/3.14 is NOT supported for running the API (Starlette
 v1 ABI drift — see `backend/requirements.txt` header); host may run the

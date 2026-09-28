@@ -38,6 +38,7 @@ every gate is documented in `SECURITY.md`.
 | `GET /incidents/{id}/audit` | M15 | Chain view: `origin: "custom-hash-chain"`, `valid`, `checked`, `events`. **CUSTOM hash audit, not AIMS.** |
 | `POST /incidents/{id}/audit/verify` | M15 | Chain validity verdict: `incident_id`, `valid`, `checked`, `first_bad_seq`, `reason`. |
 | `GET /incidents/{id}/audit/export` | M15 | Chain export with `exported_at`. |
+| `GET /incidents/{id}/rca` | M21.7 | The published blameless postmortem, or an explicit statement that none exists. See "Postmortem" below. |
 | `GET /stream/incidents/{id}?since=` | M21 | **Live SSE with replay backlog.** See "Incident stream" below. |
 | `GET /agents/{id}/thread` | M13 | `incident_id`, `session_id`, `turns[]`. Read-only transcript of the investigation surface. |
 | `GET /alerts/webhook/{alertmanager,cloudwatch,datadog,pagerduty}` | M21 | Vendor alert ingestion. See the honest note in "Credential handling" below. |
@@ -51,6 +52,7 @@ every gate is documented in `SECURITY.md`.
 | `POST /runs/{id}/sweep` | key + `RUN_WRITE_ROLES` | M14 | TTL sweep; staged approvals escalate on expiry. |
 | `POST /alerts/ingest` | key + `operator`/`approver`/`admin` | M21 | Queue a telemetry bundle and, with `process: true`, hand it to the worker that runs the real pipeline. 422 on a bad bundle or unknown scenario, 503 when the worker is disabled by the kill switch. **This route is implemented**, contrary to earlier revisions of this doc. |
 | `POST /orchestrator/stop` | key + `operator`/`approver`/`admin` | M21 | Kill switch. Disables the worker; ingest then answers 503 rather than silently dropping work. |
+| `POST /incidents/{id}/rca/publish` | key + `operator`/`approver`/`admin` | M21.7 | Drive or retry the post-incident stage. Write-gated because publication appends to the chain that is exported as proof. Idempotent. See "Postmortem" below. |
 | `POST /approvals` | key + `operator`/`approver`/`admin` | M19 (M07 crypto) | Queue an approval request and mint its HMAC token. Actions are re-validated as contracts + the M06.1 validator. Write-role gated: this route writes the queue, mints a live token, and appends to the exported chain, so a read-only `viewer` key is refused 403. |
 | `POST /approvals/{id}/approve` | key + `approver`/`admin` | M19 (M07 crypto) | HMAC verify, nonce burn, single-use, per-key separation of duties. |
 | `POST /approvals/{id}/reject` | key + `approver`/`admin` | M19 | Deny + reason; separation of duties deliberately not applied (reason below). |
@@ -89,13 +91,25 @@ API key" will be wrong in both directions.
   at the store level: a present but corrupt store is a 500, never a silent
   downgrade to bootstrap.
 
-**`Authorization: Bearer <jwt>` (secondary, partial).** HS256 over
-`APPROVAL_SECRET`. `guard_http` accepts it, but only two call sites forward the
-header, so Bearer works on `POST /token`, `POST /auth/token`, `POST /runs`,
-`POST /runs/{id}/advance`, and `POST /runs/{id}/sweep`, and **not** on
-`/identity`, `/approvals*`, `/audit*`, `/alerts/ingest`, `/orchestrator/stop`, or
-`/eval/smoke`. An invalid bearer yields 403, not 401. Treat this as a partial
-implementation, not a platform-wide second factor.
+**`Authorization: Bearer <jwt>` (secondary).** HS256 over `APPROVAL_SECRET`.
+`guard_http` accepts it. Bearer is honoured on `POST /token`,
+`POST /auth/token`, `GET /identity`, every `POST /approvals*`,
+`POST /alerts/ingest`, `POST /orchestrator/stop`,
+`POST /incidents/{id}/rca/publish`, `POST /runs`, `POST /runs/{id}/advance`,
+and `POST /runs/{id}/sweep`. An invalid bearer yields 403, not 401.
+
+This used to be genuinely partial: `runs.py` forwarded the header and the
+approvals and ingest routers did not, so a token minted by `POST /auth/token`
+was useless for the routes an operator actually needs — sign-in succeeded and
+every write still answered 401. The routers now forward it consistently, and
+`tests/test_frontend_e2e_integration.py` fails if one of them stops, because
+the failure is a missing parameter and no response-shape test can see it.
+
+A token is only as good as the key it was minted from, and it is signed with
+`APPROVAL_SECRET`: it cannot be forged without that secret, and the identity it
+carries is the one the server resolved when it was issued. Note the operational
+property: revoking a key does not invalidate tokens already issued to it, which
+is bounded by the 24h `expires_in`.
 
 **Accepted and ignored.** `POST /agents/investigate` and all four webhook routes
 declare an `X-API-Key` parameter and never verify it. `/agents/investigate` is
@@ -155,16 +169,81 @@ presenting `bootstrap` as an authenticated user would be a false claim.
 
 ## Run view (`GET /runs/{id}`)
 
-`run_view` (`backend/app/routers/runs.py:440-463`) returns `incident_id`,
-`state`, `replans`, `rolled_back`, `permit_pending`, `state_diff`,
-`execution_logs`, `history`, `handoffs`, `audit_records`,
-`verification_verdicts`, `verification_results`, and `rollback`.
+`run_view` (`backend/app/routers/runs.py`) returns `incident_id`, `state`,
+`replans`, `rolled_back`, `permit_pending`, `state_diff`, `execution_logs`,
+`execution_tier`, `history`, `handoffs`, `audit_records`,
+`verification_verdicts`, `verification_results`, `rca_report`, and `rollback`.
 
-`state_diff` and `execution_logs` are `None`/`[]` until an action actually
-executes, which is why the Execution view renders an explicit empty state
-instead of a blank panel. `verification_results` was added when the verifier's
-verdict was being computed and then discarded; the verdicts are now banked and
-retrievable.
+`state_diff`, `execution_logs` and `execution_tier` are empty/`""` until an
+action actually executes, which is why the Execution view renders an explicit
+empty state instead of a blank panel. `rca_report` is `null` when no postmortem
+has been published — `null` means "never published", which is deliberately
+distinct from "published and empty". `POST /runs/{id}/sweep` additionally
+returns `escalated`.
+
+All four of `state_diff`, `execution_logs`, `execution_tier` and `rca_report`
+are attached to the run with `setattr` rather than declared on `IncidentRun`, so
+they are durable only because the run store serialises them as declared
+**optional** keys. Two consequences worth knowing:
+
+- They are validated when present and ignored when absent, so a store written
+  before a key existed still loads. Requiring them would turn a schema addition
+  into a load failure for every previously persisted run.
+- `resume_from_approval` (the human-approved path) attaches them explicitly.
+  It previously emitted the state diff and verdict to the audit chain and
+  returned, so the single most important path in the product left no evidence on
+  `run_view` at all.
+
+`verification_results` carries the real verifier output — `execution_id`,
+`verdict`, per-check `checks`, `detail`, `at` — and is distinct from
+`verification_verdicts`, which is an FSM *transition* projection. One name over
+two shapes is what made the real evidence unreachable: the panel titled
+"Verification verdicts" was rendering state moves while the checks the verifier
+actually ran were never shown.
+
+## Postmortem (`GET /incidents/{id}/rca`, `POST /incidents/{id}/rca/publish`)
+
+The blameless postmortem is A4's output, published only after the MUST-CITE
+coverage gate accepts it.
+
+`GET` returns one of three states, which are deliberately distinct:
+
+| State | Meaning |
+|---|---|
+| `published: true` + `report` | A document exists and passed the gate. |
+| `published: false`, run at `RCA_PENDING` | The stage ran and the gate **refused**. `detail` says so. |
+| `published: false`, run elsewhere | The post-incident stage has not run. `detail` names the state. |
+
+Collapsing these is how a UI ends up rendering an empty postmortem as though one
+had been written.
+
+`report` is `RCAReport`: `summary`, `timeline` (audit-chain rows carrying
+ts + actor + hash), `root_cause`, `claim_ids`, `remediation_log`,
+`prevention`, `gated`, `gate_reason`, `agent: "reporter"`,
+`model_tier: "economical"`.
+
+Fail-closed properties, all covered by `tests/test_rca_stage.py`:
+
+- Publication goes through the hardened path only. A cited evidence id grounds a
+  claim only when it resolves to evidence that is fresh, not `LOW` trust, and
+  sealed; the valid-evidence set is measured from the evidence pack, never from
+  the claims, so a claim cannot ground itself by citing its own citation.
+- A below-coverage draft is **denied**, audited as `rca.publish … DENIED`, and
+  the run stays at `RCA_PENDING`. It is never advanced to `RCA_PUBLISHED`, so
+  the run cannot claim a postmortem that does not exist.
+- Every input is derived from banked artifacts (run handoffs, FSM history,
+  verification results, audit chain), never from live telemetry and never
+  invented. A postmortem that fabricates its own timeline is worse than none.
+- Personal-blame prose is rejected by the blameless lint, not softened.
+
+Retry and idempotency: a failure after the `RCA_PENDING` advance is retryable
+from `RCA_PENDING` (an earlier version only accepted `RESOLVED`/`ESCALATED`, so
+any mid-stage failure stranded the incident permanently), and re-publishing
+returns the stored document rather than appending a second one.
+
+The stage is driven automatically by the orchestrator after a run reaches
+`RESOLVED`/`ESCALATED`, which is what makes `AUDITED` — the FSM's terminal state
+— reachable at all.
 
 ## Approvals (request / approve / reject)
 

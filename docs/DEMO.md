@@ -88,8 +88,26 @@ diff → VERIFIED badge → gated RCA → six-gate scorecard → Lyzr-vs-custom 
 "Agent reasons. Control plane decides."
 
 Full beat map: spec §55. Every element except the scripted ordering is present
-in the product today; what is missing is the deterministic walkthrough and its
-timing.
+in the product today — including the gated RCA, which the post-incident stage
+publishes after the MUST-CITE coverage gate accepts it (a denial is audited and
+the run stays at `RCA_PENDING`); what is missing is the deterministic
+walkthrough and its timing.
+
+## Driving it in the browser
+
+The demo path is a sequence of UI actions, not API calls. Sign in first (see the
+README "Signing in" section) — reads work signed-out, but every state change is
+gated and answers `401`. Then: **Command Center → Ingest an incident** →
+**Safety Gate** (load the parked proposal, request, grant) → **Execution** (tier,
+output, state diff, verifier checks) → **Audit & Postmortem** (the published
+document, the chain, the scorecard).
+
+`scripts/ui_flow_check.mjs` drives exactly this path in a real browser and
+asserts on the rendered result — 35 checks, including that the run reaches
+`AUDITED` and that the postmortem is rendered rather than merely served. It is
+a gate: `pytest tests/test_ui_flow_gate.py`. It skips when the stack is down or
+no operator key is available, and it waits for API readiness first so a cold
+stack cannot report a phantom failure.
 
 ## Optional live tier for the demo
 
@@ -112,8 +130,6 @@ read-only mount is in [`SECURITY.md`](SECURITY.md).
 - `POST /demo/seed`, so a demo does not depend on the generator interval.
 - REPLAY pack, fallback triggers, 3× rehearsal logs, and a final evidence
   package (M22.3–M22.7 in `docs/MODULE_REGISTRY.md`).
-- An RCA document renderer. The RCA view renders the audit chain and the
-  six-gate scorecard, and says so on screen; it does not render an RCA document.
 - Eval scorecard feed into the 4:00 board moment (M16).
 
 ## Honest demo risks
