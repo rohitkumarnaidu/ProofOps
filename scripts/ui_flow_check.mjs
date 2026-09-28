@@ -453,9 +453,23 @@ async function main() {
         .includes(run.state)) break;
       await sleep(1000);
     }
+    // Terminal state, with the target named rather than demanded.
+    //
+    // AUDITED is the honest destination: the FSM declares
+    // RESOLVED -> RCA_PENDING -> RCA_PUBLISHED -> AUDITED, and only publishing a
+    // gated postmortem gets there. Requiring it today would make this gate red
+    // for a feature that is not built -- the resume path after a human approval
+    // finishes at RESOLVED and never drives the post-incident stage -- and a
+    // gate that is always red is a gate people switch off. So the terminal state
+    // is asserted, and the shortfall is named in the detail so it is visible in
+    // the report rather than hidden or promoted into a false failure.
+    const reached = run?.state;
+    const shortOfAudited = Boolean(reached) && reached !== "AUDITED";
     check("the approved run reached a terminal state",
-      run && ["RESOLVED", "AUDITED", "ESCALATED", "ROLLBACK", "BLOCKED"].includes(run.state),
-      `run ended in ${run?.state}`);
+      Boolean(reached) && ["RESOLVED", "AUDITED", "ESCALATED", "ROLLBACK", "BLOCKED"].includes(reached),
+      shortOfAudited
+        ? `run ended in ${reached}. AUDITED is the target: the resume path does not yet drive the post-incident stage, so no gated postmortem was published. Owner: RCA renderer lane.`
+        : `run ended in ${reached}`);
 
     // ---------------------------------------------------------------- step 5
     // The evidence the Execution view exists to show.
