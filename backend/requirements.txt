@@ -28,7 +28,16 @@ httpx>=0.27,<0.29
 # Undeclared until now, so the live tier could never actually start in the image:
 # the module imported `kubernetes` and the failure surfaced as a generic
 # "unreachable" rather than a missing driver. Same class of bug as aiosqlite.
-kubernetes>=29.0,<35
+#
+# Upper bound raised <35 -> <36 deliberately. 34.1.0 requires urllib3<2.4.0, and
+# urllib3 needs >=2.6.3 to clear two published advisories (a decompression-bomb
+# resource-consumption pair, CWE-409). Those two floors are incompatible, so
+# staying on 34.1.0 would mean either an exception entry for a known-unpatched
+# library or a permanently unsatisfiable lock. 35.0.0 requires only
+# urllib3!=2.6.0,>=1.24.2, which is compatible, and it is the version this tree
+# already has installed and passing against, so the lock is being brought in
+# line with reality rather than forward into the unknown.
+kubernetes>=29.0,<36
 # JWT bearer tokens for operator sign-in (routers/auth.py issue_jwt_token /
 # verify_jwt_token, both `import jwt` + HS256). Undeclared until now, so
 # POST /auth/token answered HTTP 500 with `ModuleNotFoundError: No module named
