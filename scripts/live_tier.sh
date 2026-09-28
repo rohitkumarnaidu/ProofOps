@@ -374,7 +374,7 @@ YAML
     --network "${NETWORK}" \
     -p "${PROM_PORT}:${PROM_NET_PORT}" \
     -v "${PWD}/${STATE_DIR}:/live:ro" \
-    prom/prometheus:latest \
+    prom/prometheus:v3.15.0 \
     --config.file=/live/prometheus.yml \
     --storage.tsdb.retention.time=2h >/dev/null
   say "prometheus -> http://host.docker.internal:${PROM_PORT}"
@@ -428,7 +428,19 @@ down() {
   docker rm -f "${PROM_CONTAINER}" >/dev/null 2>&1 || true
   say "deleting kind cluster '${CLUSTER}'"
   kind delete cluster --name "${CLUSTER}" >/dev/null 2>&1 || true
+  # `kind delete cluster` also removes the 'kind' Docker network, and
+  # docker-compose.yml declares that network `external: true` with the api
+  # service attached to it. Compose treats a missing external network as a hard
+  # error, not a warning, so tearing the live tier down used to break the next
+  # `docker compose up` for reasons that had nothing to do with the live tier.
+  # Recreate it empty so the stack still starts. `|| true` because the network
+  # may legitimately still exist if the cluster was already gone.
+  docker network create "${NETWORK}" >/dev/null 2>&1 || true
   say "done"
+  cat <<EOF
+next:  docker compose up -d        # the '${NETWORK}' network has been recreated
+        bash scripts/live_tier.sh up  # to bring the live tier back
+EOF
 }
 
 case "${1:-up}" in

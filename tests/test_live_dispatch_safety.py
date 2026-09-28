@@ -25,6 +25,7 @@ PIPELINE = ROOT / "backend" / "app" / "services" / "pipeline.py"
 CONFIG = ROOT / "backend" / "app" / "config.py"
 COMPOSE = ROOT / "docker-compose.yml"
 ENV_EXAMPLE = ROOT / ".env.example"
+LIVE_TIER = ROOT / "scripts" / "live_tier.sh"
 
 
 def _fn(name: str) -> ast.FunctionDef:
@@ -164,3 +165,64 @@ def test_both_tiers_remain_reachable(marker):
     """
     body = ast.unparse(_fn("_apply_action"))
     assert marker in body, f"{marker} must remain a dispatch target"
+
+
+# ---------------------------------------------------------------------------
+# The provisioning script. These are the two ways it could be "green" while
+# leaving the operator worse off than before.
+# ---------------------------------------------------------------------------
+
+
+def test_live_tier_pulls_no_unpinned_images() -> None:
+    """No `:latest` in the provisioning script.
+
+    The repository pins every base it builds, and `tests/test_compose.py`
+    asserts that for compose services. This script was outside that assertion,
+    so it had drifted to `prom/prometheus:latest`: the live tier would pull a
+    different Prometheus on every machine and on every rebuild, and a green run
+    would not mean the version anyone tested.
+    """
+    source = LIVE_TIER.read_text(encoding="utf-8")
+    offenders = [
+        line.strip() for line in source.splitlines()
+        if ":latest" in line and not line.strip().startswith("#")
+    ]
+    assert not offenders, (
+        "live_tier.sh must pin every image it pulls; unpinned: "
+        f"{offenders}. A demo that silently upgrades itself is not a demo you "
+        "can trust or reproduce."
+    )
+
+
+def test_teardown_leaves_the_stack_startable() -> None:
+    """`down` must not break the next `docker compose up`.
+
+    `kind delete cluster` also removes the `kind` Docker network, and
+    docker-compose.yml declares that network `external: true` with the api
+    service attached to it. Compose treats a missing external network as a hard
+    error, not a warning. So tearing down the live tier used to make the stack
+    unstartable, for a reason that had nothing to do with the live tier and
+    nothing in its own output to hint at.
+    """
+    source = LIVE_TIER.read_text(encoding="utf-8")
+    compose = COMPOSE.read_text(encoding="utf-8")
+
+    # Precondition: the hazard is real, so this test cannot rot into a no-op.
+    assert "external: true" in compose, (
+        "compose no longer declares an external network; if the kind network is "
+        "no longer external this test is obsolete and should be deleted rather "
+        "than left passing"
+    )
+
+    delete_at = source.index("kind delete cluster")
+    down_at = source.index("down() {")
+    after_delete = source[delete_at:]
+    assert "docker network create" in after_delete, (
+        "down() must recreate the 'kind' network after deleting the cluster, or "
+        "the next `docker compose up` fails on a missing external network"
+    )
+    # And the recreate must be inside down(), not somewhere unrelated.
+    assert down_at < delete_at < source.index("case \"${1:-up}\""), (
+        "the network recreation has drifted outside down(); the teardown path is "
+        "the only place it is correct"
+    )
