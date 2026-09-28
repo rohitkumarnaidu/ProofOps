@@ -211,7 +211,15 @@ def test_empty_not_found_and_rca_labels_are_honest() -> None:
     assert "Audit &amp; Evaluation" in rca
     assert "does not render an RCA document" in rca
     assert "diff={null}" in execution
-    assert "no state transition is fabricated" in execution
+    # The empty state must not blame a non-existent missing endpoint. It used to
+    # read "no retrieval endpoint is exposed ... so no state transition is
+    # fabricated", which was false on both counts: run_view does return
+    # state_diff, and the reason the panel was empty was that the run had not
+    # executed (or, before the store fix, that a setattr field was not
+    # persisted). The honest statement names the real precondition.
+    assert "No state diff recorded" in execution
+    assert "no retrieval endpoint is exposed" not in execution
+    assert "AWAITING_APPROVAL" in execution
 
 
 def test_audit_view_matches_the_real_endpoint_contract() -> None:

@@ -53,14 +53,41 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     headers["X-API-Key"] = API_KEY;
   }
   try {
-    response = await fetch(`${API_URL}${path}`, {
+    // apiBase(), not the raw API_URL: a configured base with a trailing slash
+    // used to produce `https://host//runs` here while the stream URLs built
+    // from apiBase() were correct. Two base normalisations cannot both be
+    // right, so every path goes through the one that strips them.
+    response = await fetch(`${apiBase()}${path}`, {
       ...init,
       headers: { ...headers, ...init?.headers },
     });
   } catch (error) {
     throw new ApiError(0, `backend unreachable: ${String(error)}`);
   }
-  const body = (await response.json().catch(() => ({}))) as unknown;
+  if (response.status === 204) return undefined as T;
+  // Read the body as text first. `response.json().catch(() => ({}))` turned any
+  // non-JSON 200 -- the SPA HTML fallback, a proxy error page, an empty body --
+  // into a well-typed `{}`, and a caller doing `.filter`/`.map` on it then threw
+  // an uncaught TypeError and blanked the screen. That exact failure shipped
+  // once. A body we cannot parse is now a loud error, never a silent `{}`.
+  const text = await response.text();
+  let body: unknown;
+  if (text.trim() !== "") {
+    try {
+      body = JSON.parse(text);
+    } catch {
+      if (response.ok) {
+        throw new ApiError(
+          response.status,
+          `expected JSON from ${path} but got ${describeType(response, text)} -- ` +
+            "the request probably hit the SPA fallback, not the API",
+        );
+      }
+      body = {};
+    }
+  } else {
+    body = {};
+  }
   if (!response.ok) {
     const detail =
       typeof body === "object" && body !== null && "detail" in body
@@ -71,10 +98,42 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
+/** Short, safe description of a non-JSON body. Never echoes the whole page. */
+function describeType(response: Response, text: string): string {
+  const contentType = response.headers.get("content-type") ?? "no content-type";
+  const shape = text.trimStart().slice(0, 24).replace(/\s+/g, " ");
+  return `${contentType} starting "${shape}"`;
+}
+
 export interface Healthz {
   status: string;
   service: string;
   spec: string;
+}
+
+/**
+ * One real verifier verdict.
+ *
+ * Distinct from `verification_verdicts` on RunView, which is an FSM *transition*
+ * projection. Folding one name over two shapes is what made the real evidence
+ * unreachable: the panel titled "Verification verdicts" was rendering state
+ * moves, and the checks the verifier actually ran were never shown.
+ */
+export interface VerificationResult {
+  execution_id: string;
+  /** RESOLVED | PARTIAL | FAILED | WORSENED | ROLLBACK_REQUIRED | ESCALATED */
+  verdict: string;
+  /** Per-check pass/fail as the independent verifier computed it. */
+  checks: Record<string, boolean>;
+  detail: string;
+  at: number;
+}
+
+/** Sandbox state snapshot before/after an action, and the per-key delta. */
+export interface StateDiff {
+  before?: Record<string, unknown>;
+  after?: Record<string, unknown>;
+  changed?: Record<string, { before: unknown; after: unknown }>;
 }
 
 export interface RunView {
@@ -94,6 +153,7 @@ export interface RunView {
   }>;
   handoffs: Array<Record<string, unknown>>;
   audit_records: Array<Record<string, unknown>>;
+  /** FSM transitions whose target carries verification meaning. Projections. */
   verification_verdicts?: Array<{
     seq: number;
     frm: string;
@@ -102,13 +162,15 @@ export interface RunView {
     refs: string[];
     at: number;
   }>;
+  /** The independent verifier's own output. Always present (possibly empty). */
+  verification_results: VerificationResult[];
   rollback?: { eligible: boolean; attempted: boolean };
-  state_diff?: {
-    before?: Record<string, unknown>;
-    after?: Record<string, unknown>;
-    changed?: Record<string, { before: unknown; after: unknown }>;
-  } | null;
+  state_diff?: StateDiff | null;
   execution_logs?: string[];
+  /** Real executor tier ("mock" | "docker" | "k8s"). "" when never executed. */
+  execution_tier?: string;
+  /** Present only on the sweep response: whether the sweep force-escalated. */
+  escalated?: boolean;
 }
 
 export interface ApprovalView {
@@ -148,6 +210,9 @@ export interface Meta {
   spec: string;
   executor_tier: string;
   mode: string;
+  /** Whether the single-use nonce store behind the HITL token is durable. */
+  nonce_store_durable: boolean;
+  nonce_store_degraded: boolean;
 }
 
 function auditPath(incidentId: string): string {
@@ -171,10 +236,40 @@ export async function probeMode(): Promise<Mode> {
 }
 
 export interface EngineStatus {
-  database: { healthy: boolean; dialect: string; database: string; error: string | null };
-  kubernetes: { connected: boolean; host: string | null; tier: string };
-  prometheus: { connected: boolean; url: string; tier: string };
-  llm_hub: { provider: string; status: string; tier: string };
+  database: {
+    healthy: boolean;
+    dialect: string;
+    database: string;
+    error: string | null;
+    /**
+     * True when persistence fell back to local sqlite. The backend reports
+     * this deliberately: an operator reading "healthy" must be able to tell
+     * that the audit trail is not in Postgres right now. Dropping this field
+     * renders a degraded audit chain as a healthy green badge.
+     */
+    degraded: boolean;
+    fallback_reason: string | null;
+  };
+  kubernetes: {
+    connected: boolean;
+    host: string | null;
+    tier: string;
+    version?: string | null;
+    namespace?: string | null;
+    error?: string | null;
+  };
+  prometheus: { connected: boolean; url: string; tier: string; error?: string | null };
+  llm_hub: {
+    provider: string;
+    /**
+     * Only "UNVERIFIED" and "OFFLINE" are ever returned. Typed as a closed
+     * union on purpose: comparing against a value outside this set is how a
+     * dead "LIVE" branch shipped while every real provider rendered as
+     * "DETERMINISTIC".
+     */
+    status: "UNVERIFIED" | "OFFLINE";
+    tier: string;
+  };
 }
 
 export const metaApi = {
@@ -216,6 +311,15 @@ export const runsApi = {
     }),
   get: (incidentId: string) =>
     request<RunView>(`/runs/${encodeURIComponent(incidentId)}`),
+  /**
+   * Force a stage/approval TTL sweep. This is what turns a stuck run into a
+   * real ESCALATED instead of leaving it parked forever; without it an
+   * AWAITING_APPROVAL run never leaves that state once its approval lapses.
+   */
+  sweep: (incidentId: string) =>
+    request<RunView>(`/runs/${encodeURIComponent(incidentId)}/sweep`, {
+      method: "POST",
+    }),
   advance: (
     incidentId: string,
     to: string,
@@ -232,7 +336,148 @@ export const runsApi = {
     }),
 };
 
+/* -------------------------------------------------------------------------- */
+/* Ingestion (the front door) + orchestrator control                           */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The scenarios the backend has a pinned oracle + runbook for. Must match
+ * `orchestrator.ORACLE`; the server rejects anything else with a 422 rather
+ * than guessing, and that list is returned in the error detail.
+ */
+export const INGEST_SCENARIOS = [
+  { id: "bad-deploy", label: "Bad deployment" },
+  { id: "crashloop-oom", label: "CrashLoop / OOM" },
+  { id: "db-exhaust", label: "DB connection exhaustion" },
+  { id: "net-dep-fail", label: "Network / dependency failure" },
+  { id: "injection", label: "Malicious log injection" },
+] as const;
+
+export type IngestScenario = (typeof INGEST_SCENARIOS)[number]["id"];
+
+/** SLO threshold the backend compares the observed error rate against. */
+export const DEFAULT_SLO_ERROR_RATE_BELOW = 0.01;
+
+export interface IngestBody {
+  incident_id: string;
+  scenario: string;
+  /** service/env/metrics/error_signature are all required by the server. */
+  telemetry: {
+    service: string;
+    env: string;
+    error_signature: string;
+    metrics: Array<{ name: string; value: number }>;
+    logs?: Array<Record<string, unknown>>;
+    deploys?: Array<Record<string, unknown>>;
+    slo?: Record<string, unknown>;
+  };
+  process?: boolean;
+}
+
+export interface IngestResult {
+  accepted: boolean;
+  processed: boolean;
+  incident_id: string;
+  mode?: string;
+  /** Present on every branch; the server states plainly what it did. */
+  detail: string;
+}
+
+/**
+ * Submit a telemetry bundle. This is the ONLY route that drives the pipeline:
+ * the orchestrator picks the incident up, runs real triage -> evidence ->
+ * diagnosis -> plan -> policy, and (if policy says so) parks a proposal for
+ * the Safety Gate. `POST /runs` merely opens an empty run in state NEW and
+ * never moves it, so it is not a substitute for this.
+ */
+export const ingestApi = {
+  submit: (body: IngestBody) =>
+    request<IngestResult>("/alerts/ingest", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  /** The kill-switch. Privileged: the server requires operator/approver/admin. */
+  stop: () =>
+    request<{ stopped: boolean; running: boolean; enabled: boolean }>(
+      "/orchestrator/stop",
+      { method: "POST" },
+    ),
+};
+
+/* -------------------------------------------------------------------------- */
+/* SLO alerting (GET /alerts)                                                  */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * One evaluated SLO alert from `GET /alerts`.
+ *
+ * Field names taken from `AlertState.to_dict`, not guessed: the wire shape is
+ * `state` (not `status`) and `observed`/`target` (not `value`/`threshold`).
+ * Guessing here produced a `.toUpperCase()` on undefined that crashed the
+ * whole Command Center on render.
+ */
+export interface SloAlert {
+  name: string;
+  /** "ok" | "firing" -- the SLO's own evaluation, not an HTTP status. */
+  state: string;
+  metric: string;
+  /** null when the counter is not wired yet, which is a real state. */
+  observed: number | null;
+  target: number | null;
+  op: string;
+  window: string;
+  owner: string;
+  severity: string;
+  note: string;
+}
+
+export const sloApi = {
+  alerts: async () => {
+    const res = await request<{ alerts?: SloAlert[] }>("/alerts");
+    return res.alerts ?? [];
+  },
+};
+
+/**
+ * An action the pipeline planned and parked for a human to decide on.
+ *
+ * In the default `approver_minted` delivery mode the backend mints NO token:
+ * it parks the whole action server-side and the approver raises the request
+ * themselves, so the token they spend is one they created. That makes this
+ * endpoint mandatory for the HITL flow -- without it the Safety Gate has an
+ * empty hand-written template, the request 422s, and every Approve/Deny button
+ * stays permanently disabled.
+ *
+ * `risk_level` here is the POLICY-RECOMPUTED risk on the action that was
+ * actually planned, not a UI guess.
+ */
+export interface ApprovalProposal {
+  action_id: string;
+  incident_id: string;
+  action_type: string;
+  /** GREEN | YELLOW | RED, as classified by the policy engine. */
+  risk_level: string;
+  runbook_id: string;
+  parked_at: number;
+  /** Whether an approver could still collect a held token. Never the token. */
+  token_available: boolean;
+  /** The complete action, which is what gets submitted back to raise approval. */
+  action: Record<string, unknown>;
+}
+
 export const approvalsApi = {
+  /**
+   * Parked proposals across all incidents, for the Safety Gate to list.
+   *
+   * The server wraps the list in `{proposals: [...]}`, so this unwraps rather
+   * than casting: treating the envelope as the array would make
+   * `proposals.filter(...)` throw on a missing method, and `proposals.length`
+   * would read the envelope's key count.
+   */
+  proposals: async () => {
+    const res = await request<{ proposals?: ApprovalProposal[] }>("/approval-proposals");
+    return res.proposals ?? [];
+  },
   request: (action: Record<string, unknown>) =>
     request<ApprovalIssued>("/approvals", {
       method: "POST",
@@ -240,6 +485,15 @@ export const approvalsApi = {
     }),
   view: (approvalId: string) =>
     request<ApprovalView>(`/approvals/${encodeURIComponent(approvalId)}`),
+  /**
+   * Collect a token the server is already holding for this approval, in the
+   * delivery modes where the server mints it. Returns a view, never a token --
+   * a token reaches the approver out of band, by design.
+   */
+  claimToken: (approvalId: string) =>
+    request<ApprovalView>(`/approvals/${encodeURIComponent(approvalId)}/token`, {
+      method: "POST",
+    }),
   approve: (approvalId: string, token: string, idempotencyKey?: string) =>
     request<ApprovalView>(
       `/approvals/${encodeURIComponent(approvalId)}/approve`,
@@ -276,31 +530,60 @@ export interface AuditView {
   events: Array<Record<string, unknown>>;
 }
 
+/** Result of recomputing the whole hash chain. Tampering is detectable here. */
+export interface AuditVerify {
+  incident_id: string;
+  valid: boolean;
+  checked: number;
+  /** Set when invalid: which sequence number first failed, and why. */
+  first_bad_seq: number | null;
+  reason: string;
+}
+
 export const auditApi = {
   view: (incidentId: string) => request<AuditView>(auditPath(incidentId)),
   pollUrl: (incidentId: string) => auditPath(incidentId),
+  /**
+   * Recompute every link and the ordering. `GET .../audit` reports a `valid`
+   * flag but not WHERE it broke, so an invalid chain was undiagnosable in the
+   * UI; this returns first_bad_seq + reason.
+   */
+  verify: (incidentId: string) =>
+    request<AuditVerify>(`${auditPath(incidentId)}/verify`, { method: "POST" }),
+  /** The exportable proof artifact, origin-labelled, with its own validity. */
+  export: (incidentId: string) =>
+    request<AuditView & { exported_at: string }>(`${auditPath(incidentId)}/export`),
 };
+
+/** One config's scored set: the run configuration, the sample size, the rates. */
+export interface EvalCapture {
+  config: {
+    name: string;
+    retrieval_mode: string;
+    model_tier: string;
+    predigest: boolean;
+  };
+  /** Sample size. Required on every gate card -- a rate without an n is noise. */
+  n: number;
+  pass_rate: number;
+  gates_rate?: Record<string, number>;
+}
 
 export interface SmokeResult {
   system: string;
+  /** The backend's own anti-overclaim statement. Render it; do not hide it. */
   note: string;
   cases: number;
-  baseline: {
-    n: number;
-    pass_rate: number;
-    gates_rate?: Record<string, number>;
-  };
-  optimized: {
-    n: number;
-    pass_rate: number;
-    gates_rate?: Record<string, number>;
-  };
+  baseline: EvalCapture;
+  optimized: EvalCapture;
+  /** baseline/optimized config names, n as [base, opt], d_pass_rate, d_C1..d_C6. */
   delta: Record<string, number | string | [number, number]>;
   rubric: {
     lyzr_30: Record<string, number>;
     safety_30: Record<string, number>;
     code_20: Record<string, number | string[]>;
     ux_20: Record<string, number | string[]>;
+    /** Each sub-score carries its own `subtotal`. */
     total_100: number;
     n: number;
   };

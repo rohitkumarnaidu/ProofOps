@@ -158,16 +158,23 @@ def test_api_base_is_never_empty(env, expected):
 
 
 def test_api_base_is_used_for_request_paths_not_only_helpers():
-    """`request()` must build URLs from the same API_URL constant `apiBase()` reads.
+    """`request()` and the stream helpers must resolve URLs identically.
 
-    The shipped bug hid in this seam: `apiBase()` can be correct while `request()`
-    reads the raw constant. Both must resolve through one value, or the fixes
-    disagree and the UI silently regresses.
+    The shipped bug hid in this seam: `apiBase()` can be correct while
+    `request()` reads the raw constant, so a configured base with a trailing
+    slash produced `https://host//runs` from `request()` while the SSE URLs
+    built from `apiBase()` were correct -- two normalisations, one of them
+    wrong. Now both go through `apiBase()`, so there is one value to be right
+    and this asserts the raw constant is NOT interpolated directly.
     """
     source = _strip_line_comments(_raw_api_source())
-    assert "${API_URL}${path}" in source, (
-        "request() must build its URL from the API_URL constant that apiBase() "
-        "normalizes, so the two cannot drift"
+    assert "${apiBase()}${path}" in source, (
+        "request() must build its URL through apiBase(), the single normaliser, "
+        "so it cannot drift from the stream/stream-URL helpers"
+    )
+    assert "${API_URL}${path}" not in source, (
+        "request() must not interpolate the raw API_URL constant: a configured "
+        "base ending in '/' yields a double slash on every request path"
     )
     assert 'API_URL.replace(/\\/+$/, "")' in source, (
         "apiBase() must normalize the same API_URL constant used by request()"

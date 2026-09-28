@@ -11,6 +11,14 @@ export const INCIDENT_EVENT_TYPES = [
   "transition",
   "policy.decision",
   "verification.verdict",
+  // Both are emitted by the backend and both mean the run moved in a way an
+  // operator must see. `handoff` fires on every triage->diagnostic and
+  // diagnostic->planner stage change; `permit.minted` fires when a policy
+  // permit is issued. The cursor advances before the type is matched, so an
+  // unmatched type is consumed and silently dropped: the refresh it should
+  // have triggered never happened.
+  "handoff",
+  "permit.minted",
 ] as const;
 
 export const INCIDENT_EVENT_PREFIXES = [

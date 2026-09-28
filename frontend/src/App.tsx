@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   HashRouter,
   Link,
@@ -7,8 +7,19 @@ import {
   useLocation,
   useNavigate,
 } from "react-router-dom";
-import { ApiError, runsApi } from "./api";
-import { ErrorState, SelectField } from "./components/ui";
+import {
+  ApiError,
+  authApi,
+  identityApi,
+  runsApi,
+  type IdentityView,
+} from "./api";
+import {
+  Button,
+  ErrorState,
+  SelectField,
+  TextField,
+} from "./components/ui";
 import { AgentsView } from "./views/AgentsView";
 import { CommandCenter } from "./views/CommandCenter";
 import { ExecutionView } from "./views/ExecutionView";
@@ -22,17 +33,133 @@ interface RunSummary {
   history_len: number;
 }
 
+const HEADER_REFRESH_MS = 5000;
+
 function incidentFromLocation(pathname: string, search: string): string {
-  if (pathname === "/safety") {
+  if (pathname === "/safety" || pathname === "/agents") {
     return new URLSearchParams(search).get("incident_id")?.trim() ?? "";
   }
-  const match = /^\/(?:incidents|execution|rca)\/([^/]+)/.exec(pathname);
+  // `agents` belongs here as well as on the /agents/ branch below. It was
+  // missing, so deep-linking or reloading on /agents/<id> parsed to "" and the
+  // whole header -- including the Agent link itself -- went aria-disabled while
+  // the agent view was displaying that incident.
+  const match = /^\/(?:incidents|execution|rca|agents)\/([^/]+)/.exec(pathname);
   if (match === null) return "";
   try {
     return decodeURIComponent(match[1]);
   } catch {
     return match[1];
   }
+}
+
+/**
+ * Operator sign-in.
+ *
+ * Every write in this product is server-gated: ingest, the kill-switch,
+ * approval request and approval decision all answer 401 without a credential.
+ * `VITE_PROOFOPS_API_KEY` covers a build-time demo, but it means the shipped
+ * bundle carries a shared key and there is no way to sign in as a specific
+ * operator at runtime -- so the ingest form and the Safety Gate buttons were
+ * present, correctly wired, and unusable in the default deployment.
+ *
+ * This exchanges a key for a short-lived JWT via POST /auth/token, which the
+ * request layer then sends as a bearer token. The key is typed into the page
+ * and exchanged; it is never written to storage, and the server remains the
+ * only thing that decides who the caller is.
+ */
+function IdentityBar() {
+  const [identity, setIdentity] = useState<IdentityView | null>(null);
+  const [issue, setIssue] = useState("");
+  const [key, setKey] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const refresh = useCallback(async () => {
+    try {
+      setIdentity(await identityApi.view());
+      setIssue("");
+    } catch (error) {
+      setIdentity(null);
+      setIssue(error instanceof ApiError ? error.message : String(error));
+    }
+  }, []);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  async function signIn() {
+    const value = key.trim();
+    if (value === "") return;
+    setBusy(true);
+    setIssue("");
+    try {
+      await authApi.login(value);
+      // The key is not retained in the page: only the issued token is, and the
+      // token is what every later request presents.
+      setKey("");
+      await refresh();
+    } catch (error) {
+      setIssue(
+        `Sign-in rejected: ${error instanceof ApiError ? error.message : String(error)}`,
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function signOut() {
+    authApi.logout();
+    setIdentity(null);
+    setIssue("");
+    void refresh();
+  }
+
+  const signedIn = identity !== null;
+
+  return (
+    <div className="mt-2 flex flex-wrap items-end gap-2 border-t border-line pt-2">
+      {signedIn ? (
+        <>
+          <div className="text-xs text-fg-subtle" data-testid="identity-summary">
+            Signed in as <span className="font-mono text-fg">{identity.owner}</span>{" "}
+            ({identity.key_id}) · identity mode{" "}
+            <span className="font-semibold text-fg">{identity.mode}</span> · roles{" "}
+            {identity.roles.length === 0 ? "none reported" : identity.roles.join(", ")}
+          </div>
+          <Button size="sm" tone="ghost" onClick={signOut} data-testid="sign-out">
+            Sign out
+          </Button>
+        </>
+      ) : (
+        <div className="flex flex-wrap items-end gap-2" data-testid="sign-in">
+          <TextField
+            label="Operator API key"
+            id="operator-api-key"
+            type="password"
+            autoComplete="off"
+            placeholder="paste the deployment key to enable writes"
+            className="w-full min-w-0 sm:w-72"
+            value={key}
+            onChange={(event) => setKey(event.target.value)}
+          />
+          <Button
+            size="sm"
+            tone="primary"
+            onClick={() => void signIn()}
+            disabled={busy || key.trim() === ""}
+          >
+            {busy ? "Signing in…" : "Sign in"}
+          </Button>
+        </div>
+      )}
+      {!signedIn && issue !== "" && (
+        <p role="status" data-testid="identity-issue" className="w-full text-xs text-warn">
+          {issue} — reads work, but every write (ingest, approval, kill-switch)
+          will answer 401 until you sign in.
+        </p>
+      )}
+    </div>
+  );
 }
 
 function AppShell() {
@@ -43,22 +170,32 @@ function AppShell() {
   const [selectedIncident, setSelectedIncident] = useState("");
   const [queueError, setQueueError] = useState("");
 
+  // The header list is polled rather than fetched once. The Command Center can
+  // now ingest an incident, and a list loaded only on mount meant a newly
+  // created incident was not selectable from the dropdown until a full page
+  // reload -- the operator could see a run in the table and not be able to
+  // select it. Polled on a slow interval; the list is small.
   useEffect(() => {
     let cancelled = false;
-    void runsApi.list().then((items) => {
-      if (!cancelled) {
-        setRuns(items);
-        setQueueError("");
-      }
-    })
-      .catch((error: unknown) => {
-        if (!cancelled) {
+    const load = () => {
+      const pending = runsApi.list();
+      void pending
+        .then((items) => {
+          if (cancelled) return;
+          setRuns(items);
+          setQueueError("");
+        })
+        .catch((error: unknown) => {
+          if (cancelled) return;
           setRuns([]);
           setQueueError(error instanceof ApiError ? error.message : String(error));
-        }
-      });
+        });
+    };
+    load();
+    const timer = window.setInterval(load, HEADER_REFRESH_MS);
     return () => {
       cancelled = true;
+      window.clearInterval(timer);
     };
   }, []);
 
@@ -201,6 +338,7 @@ function AppShell() {
               </option>
             ))}
           </SelectField>
+          <IdentityBar />
         </div>
       </header>
       <main id="main-content" ref={mainRef} tabIndex={-1} className="px-4 py-4 sm:px-6 sm:py-6">

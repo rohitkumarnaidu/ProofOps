@@ -104,10 +104,43 @@ def test_the_five_primary_views_are_the_unchanged_set():
 def test_execution_view_honesty():
     view = _src("views/ExecutionView.tsx")
     for marker in ("exec-state", "exec-timeline", "exec-empty",
-                   "rollback-eligible", "rollback-ineligible",
-                   "M21"):
+                   "rollback-eligible", "rollback-ineligible"):
         assert marker in view
     assert "StateDiff" in view
+    # The empty state must not assert a cause that is false. It previously read
+    # "No M21 execution or state-diff retrieval endpoint is exposed by the
+    # current API" -- but run_view DOES return state_diff, so that text
+    # described a missing endpoint that exists and blamed a module for a
+    # persistence gap. The honest statement is that no diff exists until an
+    # action executes in a sandbox tier.
+    assert "No state diff recorded" in view
+    assert "no retrieval endpoint is exposed" not in view
+    assert "M21" not in view
+    # No fabricated process status. The executor returns logs and a state diff,
+    # never an exit code, so "EXIT CODE 0" under a /bin/k8s-exec header was a
+    # number this view invented for work no cluster performed.
+    assert "EXIT CODE" not in view
+    assert "/bin/k8s-exec" not in view
+    # The tier label must come from the real executor tier, not a constant.
+    assert "execution_tier" in view
+    # The real verifier output must be rendered, distinct from the transition
+    # projection: the panel titled "Verification verdicts" used to show FSM
+    # moves and the checks the verifier actually ran were unreachable.
+    assert "verification_results" in view
+    assert "verdict.checks" in view
+
+
+def test_execution_view_shows_real_verdicts_not_transitions():
+    """`verification_results` is the verifier; `verification_verdicts` is a
+    transition projection. One name over two shapes is what hid the evidence."""
+    view = _src("views/ExecutionView.tsx")
+    assert "const verdicts = run?.verification_results ?? []" in view, (
+        "the verdict list must read the real verifier output"
+    )
+    assert "Verification-phase transitions" in view, (
+        "the FSM transition projection must be labelled as transitions, not "
+        "presented as verdicts"
+    )
 
 
 def test_rca_view_audit_and_gates():

@@ -14,7 +14,35 @@ import {
   LoadingState,
   Panel,
   StatusPill,
+  type StatusTone,
 } from "../components/ui";
+
+/** Verdict -> tone, from the verifier's own closed verdict set. */
+function verdictTone(verdict: string): StatusTone {
+  switch (verdict.toUpperCase()) {
+    case "RESOLVED":
+      return "ok";
+    case "PARTIAL":
+    case "ROLLBACK_REQUIRED":
+      return "warn";
+    case "FAILED":
+    case "WORSENED":
+    case "ESCALATED":
+      return "danger";
+    default:
+      return "neutral";
+  }
+}
+
+/** Run state -> tone. Shared across views so one state is not red on one
+    screen and calm blue on another. */
+function stateTone(state: string): StatusTone {
+  if (state === "RESOLVED" || state === "AUDITED") return "ok";
+  if (state === "AWAITING_APPROVAL" || state === "ROLLBACK") return "warn";
+  if (state === "ESCALATED" || state === "BLOCKED") return "danger";
+  if (state === "EXECUTING" || state === "VERIFYING") return "info";
+  return "neutral";
+}
 
 export function ExecutionView() {
   const { id } = useParams<{ id: string }>();
@@ -57,7 +85,6 @@ export function ExecutionView() {
       void load(false);
     },
   });
-
   const phaseHistory =
     run?.history.filter((history) =>
       ["EXECUTING", "VERIFYING", "ROLLBACK", "RESOLVED", "ESCALATED"].includes(
@@ -72,7 +99,13 @@ export function ExecutionView() {
         !run.rolled_back;
   const rollbackAttempted =
     run?.rollback !== undefined ? run.rollback.attempted : run?.rolled_back === true;
-  const verdicts =
+  // The real verifier output. Distinct from the transition projection below,
+  // which is what this panel used to render -- so the panel titled
+  // "Verification verdicts" showed state moves and the actual checks the
+  // verifier ran were never displayed anywhere.
+  const verdicts = run?.verification_results ?? [];
+  // The FSM transitions that carry verification meaning, shown separately.
+  const transitions =
     run?.verification_verdicts ??
     phaseHistory.filter(
       (history) => history.to === "VERIFYING" || history.to === "ROLLBACK",
@@ -84,6 +117,19 @@ export function ExecutionView() {
       record.type === "transition" &&
       ["EXECUTING", "VERIFYING", "ROLLBACK"].includes(String(record.to)),
   );
+  // Real tier from the executor. "" means the run has not executed; say so
+  // rather than defaulting to a mock-looking terminal.
+  const tier = run?.execution_tier ?? "";
+  const tierLabel =
+    tier === ""
+      ? "no execution has occurred"
+      : tier === "mock"
+        ? "MOCK SANDBOX (in-process state dict)"
+        : tier === "docker"
+          ? "DOCKER (unprivileged container)"
+          : tier === "k8s"
+            ? "KUBERNETES"
+            : tier;
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-4">
@@ -103,7 +149,7 @@ export function ExecutionView() {
         )}
         {run !== null && (
           <span data-testid="exec-state" className="inline-flex">
-            <StatusPill tone="info">{run.state}</StatusPill>
+            <StatusPill tone={stateTone(run.state)}>{run.state}</StatusPill>
           </span>
         )}
       </div>
@@ -176,33 +222,39 @@ export function ExecutionView() {
               <>
                 <StateDiff diff={null} />
                 <p className="mt-2 text-xs text-fg-subtle">
-                  No M21 execution or state-diff retrieval endpoint is exposed by the
-                  current API, so no state transition is fabricated here.
+                  No state diff recorded. The run_view projection carries one only
+                  after an action actually executed in a sandbox tier; a run parked
+                  at AWAITING_APPROVAL has produced no diff yet.
                 </p>
               </>
             )}
           </Panel>
 
-          {/* Real-time Rollout & Execution Terminal Logs */}
+          {/* Executor output, labelled from the REAL tier the action ran in. */}
           <Panel
-            title="Execution Terminal Logs"
-            description="Live stdout/stderr stream from container sandbox or Kubernetes API server."
+            title="Executor output"
+            description="Lines returned by the executor that performed the action, with the tier it ran in."
           >
             {(run.execution_logs ?? []).length === 0 ? (
               <EmptyState
-                title="No execution logs streamed yet"
-                hint="Logs appear here in real-time when the action reaches EXECUTING."
+                title="No executor output recorded"
+                hint="Output appears here once the action reaches EXECUTING in a sandbox tier."
               />
             ) : (
-              <div className="rounded border border-line bg-black p-3 font-mono text-xs text-emerald-400">
-                <div className="flex items-center justify-between pb-2 mb-2 border-b border-zinc-800 text-fg-subtle">
-                  <span>TERMINAL · /bin/k8s-exec</span>
-                  <span className="text-ok">EXIT CODE 0 (VERIFICATION PENDING)</span>
+              <div className="rounded border border-line bg-surface-sunken p-3 font-mono text-xs text-fg">
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2 border-b border-line pb-2 text-fg-subtle">
+                  <span>EXECUTOR · {tierLabel}</span>
+                  {/* No process status is shown. The executor returns logs and
+                      a state diff, never a status code, so a green success
+                      badge here was a number this page invented -- and on a
+                      mock tier it sat under a Kubernetes-exec header for work
+                      no cluster performed. */}
+                  <span>no exit code is reported by this executor</span>
                 </div>
-                <div className="max-h-60 overflow-y-auto space-y-1">
+                <div className="max-h-60 space-y-1 overflow-y-auto">
                   {(run.execution_logs ?? []).map((line, idx) => (
                     <div key={idx} className="flex gap-2">
-                      <span className="text-zinc-600 select-none">&gt;</span>
+                      <span className="select-none text-fg-subtle">&gt;</span>
                       <span className="break-all">{line}</span>
                     </div>
                   ))}
@@ -227,31 +279,52 @@ export function ExecutionView() {
           </Panel>
 
           <Panel
-            title={`Verification verdicts (${verdicts.length}, run_view slice)`}
-            description="Exit status is not resolution; a verdict is the independent check."
+            title={`Verification verdicts (${verdicts.length})`}
+            description="The independent verifier's own output. Exit status is not resolution: a verdict is the check."
           >
             {verdicts.length === 0 ? (
               <div data-testid="verdicts-empty">
                 <EmptyState
-                  title="No verification transitions recorded yet"
-                  hint="Verdicts appear here once the run reaches VERIFYING."
+                  title="No verification verdict recorded yet"
+                  hint="A verdict appears here once the verifier has run, which is after EXECUTING."
                 />
               </div>
             ) : (
               <ol data-testid="verdicts-list" className="text-sm">
-                {verdicts.map((verdict) => (
+                {verdicts.map((verdict, index) => (
                   <li
-                    key={verdict.seq}
+                    key={verdict.execution_id || `verdict-${String(index)}`}
                     className="border-b border-line py-2 last:border-b-0"
                   >
-                    <span className="mr-2 text-xs tabular-nums text-fg-subtle">
-                      #{verdict.seq}
-                    </span>
-                    <span className="font-medium">
-                      {verdict.frm} → {verdict.to}
-                    </span>
-                    {verdict.reason !== "" && (
-                      <span className="text-fg-muted"> — {verdict.reason}</span>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <StatusPill tone={verdictTone(verdict.verdict)}>
+                        {verdict.verdict === "" ? "UNKNOWN" : verdict.verdict}
+                      </StatusPill>
+                      {verdict.execution_id !== "" && (
+                        <span className="break-all font-mono text-xs text-fg-subtle">
+                          {verdict.execution_id}
+                        </span>
+                      )}
+                      {verdict.at > 0 && (
+                        <span className="text-xs text-fg-subtle">
+                          {new Date(verdict.at * 1000).toLocaleTimeString()}
+                        </span>
+                      )}
+                    </div>
+                    {Object.keys(verdict.checks).length > 0 && (
+                      <ul className="mt-1 flex flex-wrap gap-2 text-xs">
+                        {Object.entries(verdict.checks).map(([name, passed]) => (
+                          <li key={name} className="flex items-center gap-1">
+                            <StatusPill tone={passed ? "ok" : "danger"}>
+                              {passed ? "PASS" : "FAIL"}
+                            </StatusPill>
+                            <span className="font-mono text-fg-muted">{name}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    {verdict.detail !== "" && (
+                      <p className="mt-1 text-fg-muted">{verdict.detail}</p>
                     )}
                   </li>
                 ))}
@@ -259,9 +332,37 @@ export function ExecutionView() {
             )}
           </Panel>
 
+          {/* FSM transitions that carry verification meaning, kept separate so
+              they are never mistaken for the verifier's output above. */}
+          {transitions.length > 0 && (
+            <Panel
+              title={`Verification-phase transitions (${transitions.length})`}
+              description="FSM moves into and out of the verification states. These are state transitions, not verdicts."
+            >
+              <ol className="text-sm">
+                {transitions.map((transition) => (
+                  <li
+                    key={transition.seq}
+                    className="border-b border-line py-2 last:border-b-0"
+                  >
+                    <span className="mr-2 text-xs tabular-nums text-fg-subtle">
+                      #{transition.seq}
+                    </span>
+                    <span className="font-medium">
+                      {transition.frm} → {transition.to}
+                    </span>
+                    {transition.reason !== "" && (
+                      <span className="text-fg-muted"> — {transition.reason}</span>
+                    )}
+                  </li>
+                ))}
+              </ol>
+            </Panel>
+          )}
+
           <Panel
-            title={`Execution records (${executions.length}, audit-sourced)`}
-            description="Read from the hash-chained audit log, not from a live cluster."
+            title={`FSM execution records (${executions.length})`}
+            description="Transitions projected from the run's own FSM record, not from a live cluster and not from the hash-chained audit log."
           >
             {executions.length === 0 ? (
               <div data-testid="exec-records-empty">

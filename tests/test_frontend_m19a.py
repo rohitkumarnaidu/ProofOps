@@ -280,8 +280,36 @@ def test_safety_gate_card_renders_server_fields_only():
     for field in ("view.incident_id", "view.action_id", "view.actor",
                   "view.scope", "view.params_hash"):
         assert field in gate, field
-    # approval_view returns NO risk/blast/policy-rule: inventing them here
-    # would fabricate safety data, so they must stay absent.
-    for invented in ("blast_radius", "risk_level", "policy_rule",
-                     "policy-rule"):
+    # approval_view returns NO risk/blast/policy-rule. A risk tier may still be
+    # SHOWN, but only when it came from the server: the parked proposal at
+    # GET /approval-proposals carries the risk the policy engine classified on
+    # the action that was actually planned. The card must not read a risk off
+    # the approval view, and above all must not hardcode one -- a literal
+    # "YELLOW (Reversible)" told the approver every action was reversible,
+    # whatever tier policy had assigned, on the one screen whose whole purpose
+    # is an informed authorization decision.
+    assert "view.risk_level" not in gate, (
+        "approval_view returns no risk field; a risk shown on the card must come "
+        "from the parked proposal, not from the approval view"
+    )
+    assert "YELLOW (Reversible)" not in gate, (
+        "a hardcoded risk/reversibility claim fabricates the single most "
+        "consequential fact on the Safety Gate"
+    )
+    assert "Auto-Rollback: " not in gate, (
+        "the rollback policy is not derivable from the approval view and must "
+        "not be asserted as a fixed policy"
+    )
+    # The proposal IS the gate's entry point: without it the operator cannot
+    # obtain the action the pipeline proposed, so the request 422s and every
+    # decision button stays disabled.
+    assert "approvalsApi.proposals" in gate, (
+        "the gate must load parked proposals; that is how the operator obtains "
+        "the action they are being asked to authorise"
+    )
+    assert "ApprovalProposal" in gate
+    # Blast radius is now real: read off the planned action, every field
+    # optional so an absent field says "not stated" instead of defaulting.
+    assert "BlastRadius" in gate
+    for invented in ("blast_radius", "policy_rule", "policy-rule"):
         assert invented not in gate, invented

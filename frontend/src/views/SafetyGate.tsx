@@ -6,6 +6,7 @@ import {
   approvalsApi,
   hasApiKey,
   identityApi,
+  type ApprovalProposal,
   type ApprovalView,
   type IdentityView,
 } from "../api";
@@ -46,26 +47,122 @@ function statusTone(status: string): StatusTone {
   return APPROVAL_TONE[status.toLowerCase()] ?? "neutral";
 }
 
+/** Risk tier as the policy engine classified it. Unknown values stay neutral. */
+function riskTone(risk: string): StatusTone {
+  const normalized = risk.toUpperCase();
+  if (normalized === "GREEN") return "ok";
+  if (normalized === "YELLOW") return "warn";
+  if (normalized === "RED") return "danger";
+  return "neutral";
+}
+
+/**
+ * A blank Action for manual entry.
+ *
+ * Every contract field is present, including `namespace`, which was missing
+ * and so could not be filled in by hand. Prefer loading a parked proposal: a
+ * hand-typed action with blank required fields only 422s, and a human inventing
+ * one is exactly what the pipeline's own plan exists to prevent.
+ */
 function actionTemplate(incidentId: string): string {
   return JSON.stringify(
     {
+      action_id: "",
       incident_id: incidentId,
       agent_id: "",
       action_type: "",
       resource_type: "",
       resource_id: "",
       environment: "",
+      namespace: "",
       parameters: {},
+      risk_level: "",
       reason: "",
       evidence_ids: [],
       runbook_id: "",
       runbook_version: "",
       expected_outcome: "",
-      verification_plan: [],
       rollback_action: null,
+      verification_plan: [],
     },
     null,
     2,
+  );
+}
+
+/**
+ * Blast radius, read off the action the system actually planned.
+ *
+ * Every field is optional because a proposal is only as complete as the
+ * planner made it. An absent field renders as "not stated" rather than a
+ * default: a guessed resource or an assumed parameter count is exactly the
+ * kind of invented blast radius an operator must not authorise against.
+ */
+function BlastRadius({ action }: { action: Record<string, unknown> }) {
+  const text = (key: string): string => {
+    const value = action[key];
+    if (value === undefined || value === null) return "not stated";
+    if (typeof value === "string") return value === "" ? "not stated" : value;
+    return JSON.stringify(value);
+  };
+  const params = action.parameters;
+  const paramCount =
+    typeof params === "object" && params !== null && !Array.isArray(params)
+      ? Object.keys(params as Record<string, unknown>).length
+      : 0;
+  const evidence = Array.isArray(action.evidence_ids)
+    ? (action.evidence_ids as unknown[]).filter((e) => typeof e === "string")
+    : [];
+  const plan = Array.isArray(action.verification_plan)
+    ? (action.verification_plan as unknown[]).filter((p) => typeof p === "string")
+    : [];
+  const rollback = action.rollback_action;
+
+  return (
+    <div className="grid grid-cols-2 gap-2 text-xs">
+      <div>
+        <span className="text-fg-subtle">Resource type: </span>
+        <span className="font-mono text-fg">{text("resource_type")}</span>
+      </div>
+      <div>
+        <span className="text-fg-subtle">Resource id: </span>
+        <span className="font-mono text-fg">{text("resource_id")}</span>
+      </div>
+      <div>
+        <span className="text-fg-subtle">Environment: </span>
+        <span className="font-mono text-fg">{text("environment")}</span>
+      </div>
+      <div>
+        <span className="text-fg-subtle">Namespace: </span>
+        <span className="font-mono text-fg">{text("namespace")}</span>
+      </div>
+      <div>
+        <span className="text-fg-subtle">Parameters: </span>
+        <span className="font-mono text-fg">
+          {paramCount === 0 ? "none" : `${paramCount} supplied`}
+        </span>
+      </div>
+      <div>
+        <span className="text-fg-subtle">Evidence cited: </span>
+        <span className="font-mono text-fg">
+          {evidence.length === 0 ? "none cited" : evidence.length}
+        </span>
+      </div>
+      <div>
+        <span className="text-fg-subtle">Verification plan: </span>
+        <span className="font-mono text-fg">
+          {plan.length === 0 ? "none stated" : plan.join(", ")}
+        </span>
+      </div>
+      <div>
+        <span className="text-fg-subtle">Rollback action: </span>
+        <span className="font-mono text-fg">
+          {rollback === undefined || rollback === null
+            ? "none (not reversible)"
+            : "declared"}
+        </span>
+      </div>
+    </div>
   );
 }
 
@@ -135,6 +232,66 @@ export function SafetyGate() {
   const [loadToken, setLoadToken] = useState("");
   const [isLoadingApproval, setIsLoadingApproval] = useState(false);
   const [loadIssue, setLoadIssue] = useState<GateIssue | null>(null);
+  // Parked proposals are the gate's discovery mechanism. Without them the
+  // operator cannot obtain the action the system proposed, so the request
+  // 422s and every decision button stays disabled -- the whole HITL flow was
+  // unreachable from the UI.
+  const [proposals, setProposals] = useState<ApprovalProposal[] | null>(null);
+  const [proposalsIssue, setProposalsIssue] = useState<GateIssue | null>(null);
+  const [selectedProposalId, setSelectedProposalId] = useState("");
+  const [denyReason, setDenyReason] = useState("");
+
+  /**
+   * The proposal currently loaded into the editor, if any.
+   *
+   * `risk_level` comes from here and nowhere else. It is the risk the policy
+   * engine classified on the action that was actually planned. A hardcoded
+   * reversibility label in this JSX previously told the operator that every
+   * approval was a reversible YELLOW action, whatever tier policy had assigned,
+   * on the one screen whose entire purpose is an informed decision.
+   */
+  const selectedProposal =
+    proposals?.find((p) => p.action_id === selectedProposalId) ?? null;
+
+  /** All parked actions when no incident is in scope, else just this one's. */
+  const proposalsForIncident =
+    proposals === null
+      ? []
+      : incidentId === ""
+        ? proposals
+        : proposals.filter((p) => p.incident_id === incidentId);
+
+  const loadProposals = useCallback(async () => {
+    try {
+      const all = await approvalsApi.proposals();
+      setProposals(all);
+      setProposalsIssue(null);
+    } catch (error) {
+      setProposals([]);
+      setProposalsIssue(issueFromError(error, "approval proposals"));
+    }
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const all = await approvalsApi.proposals();
+        if (!cancelled) {
+          setProposals(all);
+          setProposalsIssue(null);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setProposals([]);
+          setProposalsIssue(issueFromError(error, "approval proposals"));
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [incidentId]);
 
   async function loadExistingApproval() {
     const target = loadApprovalId.trim();
@@ -146,7 +303,10 @@ export function SafetyGate() {
       applyApproval(loaded);
       setIssuedApprovalId(loaded.approval_id);
       if (loadToken.trim()) setToken(loadToken.trim());
-      setExpiredTerminal(loaded.status !== "pending");
+      // ONLY an actually-expired approval is a terminal expiry. Any non-pending
+      // status used to set this, so a load of an APPROVED or DENIED approval
+      // reported "Terminal state: expired" to the operator.
+      setExpiredTerminal(loaded.status === "expired");
     } catch (error) {
       setLoadIssue(issueFromError(error, "approval lookup"));
     } finally {
@@ -316,7 +476,7 @@ export function SafetyGate() {
             )
           : await approvalsApi.reject(
               view.approval_id,
-              "",
+              denyReason.trim(),
               idempotencyKey,
             );
       applyApproval(next);
@@ -413,6 +573,81 @@ export function SafetyGate() {
         </Notice>
       )}
 
+      {/* Parked proposals: the gate's entry point. */}
+      <Panel
+        title="Actions awaiting a decision"
+        description="Planned actions the pipeline parked server-side. No token exists yet in the default delivery mode; selecting one loads the exact action so it can be submitted for approval."
+        actions={
+          <Button size="sm" onClick={() => void loadProposals()}>
+            Refresh proposals
+          </Button>
+        }
+      >
+        {proposalsIssue !== null ? (
+          <IssueMessage issue={proposalsIssue} />
+        ) : proposals === null ? (
+          <LoadingState label="Loading parked proposals" />
+        ) : proposalsForIncident.length === 0 ? (
+          <EmptyState
+            title={
+              proposals.length === 0
+                ? "No actions are parked for approval."
+                : `No parked action for ${incidentId}.`
+            }
+            hint="An action is parked when the planner produces one and policy escalates it. Ingest an incident and let the pipeline run to produce one."
+          />
+        ) : (
+          <ul data-testid="proposal-list" className="flex flex-col gap-2">
+            {proposalsForIncident.map((proposal) => (
+              <li
+                key={proposal.action_id}
+                className="rounded border border-line bg-surface-raised p-3"
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <StatusPill tone={riskTone(proposal.risk_level)}>
+                    {proposal.risk_level === "" ? "UNCLASSIFIED" : proposal.risk_level}
+                  </StatusPill>
+                  <span className="font-mono text-sm font-semibold text-fg">
+                    {proposal.action_type === "" ? "(no action type)" : proposal.action_type}
+                  </span>
+                  {proposal.runbook_id !== "" && (
+                    <span className="text-xs text-fg-subtle">
+                      runbook {proposal.runbook_id}
+                    </span>
+                  )}
+                  <span className="text-xs text-fg-subtle">
+                    parked {new Date(proposal.parked_at * 1000).toLocaleTimeString()}
+                  </span>
+                </div>
+                <p className="mt-1 break-all font-mono text-[11px] text-fg-subtle">
+                  {proposal.action_id}
+                </p>
+                <div className="mt-2">
+                  <Button
+                    size="sm"
+                    tone={selectedProposalId === proposal.action_id ? "primary" : "secondary"}
+                    onClick={() => {
+                      setSelectedProposalId(proposal.action_id);
+                      setActionText(
+                        JSON.stringify(
+                          { ...proposal.action, incident_id: incidentId },
+                          null,
+                          2,
+                        ),
+                      );
+                    }}
+                  >
+                    {selectedProposalId === proposal.action_id
+                      ? "Loaded into the request form"
+                      : "Load this action"}
+                  </Button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Panel>
+
       {/* items-start: without it the grid stretches the shorter panel to the
           taller one's height, leaving a large dead area beside the form. */}
       <div className="grid items-start gap-4 lg:grid-cols-2">
@@ -423,7 +658,7 @@ export function SafetyGate() {
           <TextAreaField
             label="Action JSON"
             id="action-json"
-            hint="Empty fields are intentional. The server validates the completed action; this view does not supply incident evidence or risk claims."
+            hint="Load a parked action from the panel above to fill this from the pipeline's own plan. Every required field is min_length=1, so a blank template will be rejected by the server."
             rows={20}
             spellCheck={false}
             value={actionText}
@@ -543,7 +778,11 @@ export function SafetyGate() {
                 [
                   "Decided by",
                   <span className="break-all">
-                    {view.decided_by ?? "not yet decided"} · SoD: {view.sod}
+                    {/* decided_by is always a string on the wire ("" when
+                        undecided), so `?? "not yet decided"` could never fire
+                        and the row rendered blank. Test the empty string. */}
+                    {view.decided_by === "" ? "not yet decided" : view.decided_by}{" "}
+                    · SoD: {view.sod}
                   </span>,
                 ],
               ]}
@@ -560,17 +799,38 @@ export function SafetyGate() {
                 </div>
                 <div>
                   <span className="text-fg-subtle">Risk Classification: </span>
-                  <span className="font-semibold text-warn">YELLOW (Reversible)</span>
+                  {/* From the parked proposal the policy engine classified, or
+                      explicitly unknown. Never a hardcoded tier: a RED action
+                      must not be shown to the approver as YELLOW. */}
+                  {selectedProposal === null ? (
+                    <span className="font-semibold text-fg-muted">
+                      not shown &mdash; no parked action selected
+                    </span>
+                  ) : (
+                    <StatusPill tone={riskTone(selectedProposal.risk_level)}>
+                      {selectedProposal.risk_level === ""
+                        ? "UNCLASSIFIED"
+                        : selectedProposal.risk_level}
+                    </StatusPill>
+                  )}
                 </div>
                 <div>
                   <span className="text-fg-subtle">Separation of Duties: </span>
                   <span className="font-mono text-ok">{view.sod}</span>
                 </div>
                 <div>
-                  <span className="text-fg-subtle">Auto-Rollback: </span>
-                  <span className="text-fg">1 attempt on SLO breach</span>
+                  <span className="text-fg-subtle">Params bound: </span>
+                  <span className="break-all font-mono text-fg">
+                    {view.params_hash}
+                  </span>
                 </div>
               </div>
+              {/* Real resource-level blast radius, from the planned action. */}
+              {selectedProposal !== null && (
+                <div className="mt-3 border-t border-line pt-2">
+                  <BlastRadius action={selectedProposal.action} />
+                </div>
+              )}
             </div>
             {(expiredTerminal || view.status === "expired") && (
               <Notice tone="warn" testId="approval-terminal" live className="mt-3">
@@ -607,10 +867,21 @@ export function SafetyGate() {
                 <Notice tone="danger" testId="sod-bootstrap-warning" live>
                   Bootstrap identity carries no server-side roles, so the server
                   cannot attribute this decision to a person and separation of
-                  duties is not enforced. Deploy a per-key store
+                  duties is not enforced. The buttons are left enabled in this
+                  mode only so the flow is demonstrable in the default
+                  deployment &mdash; the server still refuses any decision its
+                  own policy does not permit. Deploy a per-key store
                   (var/api_keys.json) for four-eyes control.
                 </Notice>
               )}
+              <TextAreaField
+                label="Denial reason (recorded in the audit chain)"
+                id="deny-reason"
+                rows={2}
+                value={denyReason}
+                onChange={(event) => setDenyReason(event.target.value)}
+                hint="Required by good practice, optional by the server. A denial with an empty reason reaches the audit chain with no operator rationale."
+              />
               <div className="flex flex-wrap gap-2">
                 <Button
                   tone="primary"

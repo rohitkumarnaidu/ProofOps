@@ -174,9 +174,11 @@ def test_form_controls_have_programmatic_labels() -> None:
     )
     assert 'id="action-json"' in gate
     assert 'id="approval-token"' in gate
-    # The action-JSON hint is still required: it is what tells the operator the
-    # empty fields are deliberate rather than a bug.
-    assert "this view does not supply incident evidence or risk claims" in gate
+    # The action-JSON hint must still tell the operator that a blank template
+    # is expected rather than a bug -- and must point at the parked-proposal
+    # panel, which is how they get a fillable action without inventing one.
+    assert "Load a parked action from the panel above" in gate
+    assert "min_length=1" in gate
 
 
 def test_tables_have_captions_scopes_and_overflow_containers() -> None:

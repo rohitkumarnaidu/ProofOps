@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ApiError, runsApi, type RunView } from "../api";
-import { ModeBadge } from "../components/badges";
+import { ModeBadge, SeverityChip } from "../components/badges";
 import {
   isTerminalIncidentState,
   useIncidentEvents,
@@ -32,6 +32,21 @@ const STATE_TONE: Record<string, StatusTone> = {
 
 function stateTone(state: string): StatusTone {
   return STATE_TONE[state] ?? "neutral";
+}
+
+/** Risk tier as a pill. Unknown values stay neutral rather than borrowing the
+    red of RED -- an unrecognised string is not evidence of danger. */
+function riskTone(risk: string): StatusTone {
+  switch (risk.toUpperCase()) {
+    case "GREEN":
+      return "ok";
+    case "YELLOW":
+      return "warn";
+    case "RED":
+      return "danger";
+    default:
+      return "neutral";
+  }
 }
 
 interface HypothesisItem {
@@ -111,6 +126,58 @@ export function IncidentDetail() {
   const hypotheses = Array.isArray(diagnosticData?.hypotheses)
     ? (diagnosticData.hypotheses as HypothesisItem[])
     : [];
+
+  // Contract defaults are "" / GREEN, never null, so `?? "<something>"`
+  // could never fire and an absent value rendered blank. Read the raw value
+  // and render an explicit unknown instead of a client-side default -- a
+  // fabricated "1.0.0" version or a fabricated "YELLOW" risk is exactly what
+  // the deterministic policy engine exists to prevent.
+  const runbookVersion =
+    diagnosticData !== null && typeof diagnosticData.runbook_version === "string"
+      ? diagnosticData.runbook_version
+      : "";
+  const riskLevel =
+    plannedAction !== null && typeof plannedAction.risk_level === "string"
+      ? plannedAction.risk_level
+      : "";
+  const triageOwner =
+    triageData !== null && typeof triageData.owner === "string" ? triageData.owner : "";
+  const proposedSeverity =
+    triageData !== null && typeof triageData.severity === "string" ? triageData.severity : "";
+  const triageFingerprint =
+    triageData !== null && typeof triageData.fingerprint === "string"
+      ? triageData.fingerprint
+      : "";
+
+  /**
+   * The real policy decision, read off the run's own audit records.
+   *
+   * This is the authority on effective risk. The planner's `risk_level` is
+   * contractually advisory, so showing only that labelled the run "SAFETY
+   * LEVEL" from the model's own opinion.
+   */
+  const policyDecision = (() => {
+    for (const record of run?.audit_records ?? []) {
+      if (
+        typeof record !== "object" ||
+        record === null ||
+        record.type !== "policy.decision"
+      ) {
+        continue;
+      }
+      const policy = record.policy;
+      if (typeof policy !== "object" || policy === null) return null;
+      const p = policy as Record<string, unknown>;
+      const result = typeof p.result === "string" ? p.result : "";
+      if (result === "") return null;
+      return {
+        result,
+        version: typeof p.version === "string" ? p.version : "not reported",
+        rule: typeof p.rule === "string" ? p.rule : "not reported",
+      };
+    }
+    return null;
+  })();
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-4">
@@ -292,11 +359,18 @@ export function IncidentDetail() {
                       <span className="font-mono font-bold text-accent">
                         {String(diagnosticData?.runbook_id)}
                       </span>
-                      <span className="ml-2 text-fg-muted font-mono">
-                        v{String(diagnosticData?.runbook_version ?? "1.0.0")}
+                      {/* runbook_version defaults to "" in the contract, so `??`
+                          never fired and the row rendered a bare "v". Read the
+                          real value and say so when the planner pinned none. */}
+                      <span className="ml-2 font-mono text-fg-muted">
+                        {runbookVersion === "" ? "version not reported" : `v${runbookVersion}`}
                       </span>
                     </div>
-                    <StatusPill tone="ok">INTEGRITY PINNED</StatusPill>
+                    {/* No "INTEGRITY PINNED" badge. Nothing on this page fetches
+                        or compares a runbook hash, so the badge asserted a sha256
+                        verification that was never performed. The version is
+                        shown because it is real; the pin is not claimed. */}
+                    <StatusPill tone="info">VERSION PINNED BY PLANNER</StatusPill>
                   </div>
                 )}
               </div>
@@ -321,15 +395,36 @@ export function IncidentDetail() {
                 </div>
 
                 <div className="rounded border border-line bg-surface-raised p-3">
-                  <div className="text-xs font-semibold text-fg-subtle">SAFETY LEVEL &amp; REVERSIBILITY</div>
-                  <div className="mt-1 flex items-center gap-2">
-                    <StatusPill tone={String(plannedAction.risk_level) === "GREEN" ? "ok" : String(plannedAction.risk_level) === "YELLOW" ? "warn" : "danger"}>
-                      {String(plannedAction.risk_level ?? "YELLOW")}
-                    </StatusPill>
+                  <div className="text-xs font-semibold text-fg-subtle">PLANNER-ADVISED RISK &amp; REVERSIBILITY</div>
+                  <div className="mt-1 flex flex-wrap items-center gap-2">
+                    {riskLevel === "" ? (
+                      <span className="text-sm text-fg-muted">not stated by the planner</span>
+                    ) : (
+                      <StatusPill tone={riskTone(riskLevel)}>{riskLevel}</StatusPill>
+                    )}
+                    {/* Reversibility comes from the run's own rollback
+                        projection, not from the mere presence of a rollback
+                        template: an action can carry a rollback template while
+                        the run is not rollback-eligible. */}
                     <span className="text-xs text-fg-muted">
-                      {plannedAction.rollback_action ? "Reversible (Auto-Rollback ready)" : "No rollback"}
+                      {run.rollback === undefined
+                        ? "rollback state not reported"
+                        : run.rollback.attempted
+                          ? "rollback already attempted once"
+                          : run.rollback.eligible
+                            ? "rollback eligible now"
+                            : "rollback not available in this state"}
                     </span>
                   </div>
+                  {/* Action.risk_level is contractually ADVISORY: the policy
+                      engine recomputes effective risk and that decision is the
+                      authority. Never present the model's label as the
+                      classified one. */}
+                  <p className="mt-1.5 text-[11px] text-fg-subtle">
+                    The planner&apos;s own self-assessment. The policy engine
+                    recomputes effective risk; its decision is in the audit
+                    chain.
+                  </p>
                   {Boolean(plannedAction.expected_outcome) && (
                     <div className="mt-1.5 text-xs text-fg-subtle">
                       Expected: {String(plannedAction.expected_outcome)}
@@ -346,15 +441,21 @@ export function IncidentDetail() {
               title={`Evidence Pack (${evidencePack.length} items)`}
               description="Context-compacted Evidence Pack ingested by diagnostic reasoning."
             >
-              <div className="max-h-60 overflow-y-auto space-y-2">
+              <div className="max-h-60 space-y-2 overflow-y-auto">
                 {evidencePack.map((ev, i) => (
-                  <div key={String(ev.evidence_id ?? i)} className="rounded border border-line bg-surface-raised p-2 text-xs font-mono">
-                    <div className="flex items-center justify-between text-fg-subtle mb-1">
-                      <span className="font-semibold text-accent">{String(ev.evidence_id ?? "")}</span>
-                      <span>{String(ev.source_type ?? "telemetry")}</span>
+                  <div key={String(ev.evidence_id ?? i)} className="rounded border border-line bg-surface-raised p-2 font-mono text-xs">
+                    <div className="mb-1 flex items-center justify-between text-fg-subtle">
+                      <span className="font-semibold text-accent">
+                        {ev.evidence_id === undefined ? "(no id reported)" : String(ev.evidence_id)}
+                      </span>
+                      {/* Never "telemetry": an evidence item whose source we
+                          cannot read must not be attributed to a source. */}
+                      <span>
+                        {ev.source_type === undefined ? "source not reported" : String(ev.source_type)}
+                      </span>
                     </div>
-                    <div className="text-fg-muted break-all">
-                      {String(ev.snippet ?? JSON.stringify(ev))}
+                    <div className="break-all text-fg-muted">
+                      {ev.snippet === undefined ? JSON.stringify(ev) : String(ev.snippet)}
                     </div>
                   </div>
                 ))}
@@ -366,14 +467,53 @@ export function IncidentDetail() {
           {triageData !== null && (
             <Panel
               title="Triage Signals &amp; Ownership"
-              description="A1 Triage Agent proposal and deterministic correlation grouping."
+              description="A1 Triage Agent proposal. Severity here is the agent's proposal; the deterministic correlation severity is the authority."
             >
               <KeyValue
                 items={[
-                  ["Owner", String(triageData.owner ?? "unassigned")],
-                  ["Proposed Severity", <StatusPill tone="warn">{String(triageData.severity ?? "P2")}</StatusPill>],
-                  ["Fingerprint", <span className="font-mono text-xs">{String(triageData.fingerprint ?? "")}</span>],
-                  ["Signals", Array.isArray(triageData.signals) ? triageData.signals.join(", ") : "none"],
+                  ["Owner", triageOwner === "" ? "not stated by the agent" : triageOwner],
+                  [
+                    "Proposed severity",
+                    proposedSeverity === "" ? (
+                      <span className="text-fg-muted">not stated</span>
+                    ) : (
+                      <SeverityChip severity={proposedSeverity} />
+                    ),
+                  ],
+                  [
+                    "Fingerprint",
+                    triageFingerprint === "" ? (
+                      <span className="text-fg-muted">not reported</span>
+                    ) : (
+                      <span className="break-all font-mono text-xs">{triageFingerprint}</span>
+                    ),
+                  ],
+                  [
+                    "Signals",
+                    // "none" was also shown when signals was merely a non-array,
+                    // silently turning a shape mismatch into "no signals".
+                    !Array.isArray(triageData.signals)
+                      ? "not reported in the expected shape"
+                      : triageData.signals.length === 0
+                        ? "none listed"
+                        : (triageData.signals as unknown[]).join(", "),
+                  ],
+                ]}
+              />
+            </Panel>
+          )}
+
+          {/* The real policy decision, read from the audit chain. */}
+          {policyDecision !== null && (
+            <Panel
+              title="Policy decision"
+              description="The deterministic authorization outcome. This is the authority on effective risk, not the planner's label."
+            >
+              <KeyValue
+                items={[
+                  ["Result", <StatusPill key="r" tone={policyDecision.result === "ALLOW" ? "ok" : policyDecision.result === "ESCALATE" ? "warn" : "danger"}>{policyDecision.result}</StatusPill>],
+                  ["Policy version", policyDecision.version],
+                  ["Matched rule", <span className="font-mono text-xs">{policyDecision.rule}</span>],
                 ]}
               />
             </Panel>

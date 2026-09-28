@@ -30,14 +30,22 @@ import {
  *      opposite of what this product is for.
  */
 export function AgentsView() {
-  const { id } = useParams();
+  const { id } = useParams<{ id: string }>();
   const [params] = useSearchParams();
-  const [incidentId, setIncidentId] = useState(
-    id ?? params.get("incident") ?? "",
-  );
+  // `incident_id`, the same query key every other view and link in the app
+  // uses. This read `?incident=`, which nothing in the product ever emits, so
+  // the branch was dead and a link from another view silently dropped the
+  // incident.
+  const fromRoute = id ?? params.get("incident_id")?.trim() ?? "";
+  const [incidentId, setIncidentId] = useState(fromRoute);
   const [question, setQuestion] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Thread-load failure is tracked separately from the ask failure. Sharing
+  // one state meant a failed GET .../thread rendered "No questions yet" -- a
+  // positive claim that no thread exists -- while the real error sat far above
+  // in the ask panel.
+  const [threadError, setThreadError] = useState<string | null>(null);
   const [reply, setReply] = useState<InvestigateReply | null>(null);
   const [turns, setTurns] = useState<ThreadTurn[]>([]);
   const [loadingThread, setLoadingThread] = useState(false);
@@ -45,21 +53,24 @@ export function AgentsView() {
   const loadThread = useCallback(async (target: string) => {
     if (!target) {
       setTurns([]);
+      setThreadError(null);
       return;
     }
     setLoadingThread(true);
     try {
       setTurns(await agentsApi.thread(target));
+      setThreadError(null);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err));
+      setTurns([]);
+      setThreadError(err instanceof ApiError ? err.message : String(err));
     } finally {
       setLoadingThread(false);
     }
   }, []);
 
   useEffect(() => {
-    setIncidentId(id ?? params.get("incident") ?? "");
-  }, [id, params]);
+    setIncidentId(fromRoute);
+  }, [fromRoute]);
 
   useEffect(() => {
     void loadThread(incidentId);
@@ -76,7 +87,10 @@ export function AgentsView() {
       });
       setReply(res);
       setQuestion("");
-      setTurns(await agentsApi.thread(incidentId.trim()));
+      // Thread reload is a second request with its own failure mode: keep the
+      // answer even if the reload fails, rather than discarding a reply the
+      // operator already earned.
+      await loadThread(incidentId.trim());
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));
     } finally {
@@ -136,7 +150,12 @@ export function AgentsView() {
 
       {loadingThread ? <LoadingState label="Loading thread" /> : null}
 
-      {turns.length === 0 && !loadingThread ? (
+      {threadError !== null ? (
+        <Notice tone="danger" testId="thread-error">
+          Could not load this incident&apos;s thread: {threadError}. The thread is
+          unavailable, not empty.
+        </Notice>
+      ) : turns.length === 0 && !loadingThread ? (
         <EmptyState
           title="No questions yet"
           hint="Ask about an incident to see the agent's reasoning, its citations, and the action it would propose."
@@ -219,7 +238,13 @@ export function AgentsView() {
               </dl>
               <p className="mt-2 text-xs text-muted-foreground">
                 Nothing has been executed. Approve it deliberately on the{" "}
-                <Link className="underline" to="/safety">
+                {/* Carries the incident, so the gate opens on the right run.
+                    A bare /safety dropped it and the operator landed on an
+                    empty gate. */}
+                <Link
+                  className="underline"
+                  to={`/safety?incident_id=${encodeURIComponent(incidentId)}`}
+                >
                   Safety Gate
                 </Link>
                 , or do not.
