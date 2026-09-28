@@ -169,6 +169,11 @@ export interface RunView {
   execution_logs?: string[];
   /** Real executor tier ("mock" | "docker" | "k8s"). "" when never executed. */
   execution_tier?: string;
+  /**
+   * The published postmortem, or null when none exists. Null is meaningful: it
+   * is "never published", not "published and empty".
+   */
+  rca_report?: RcaDocument | null;
   /** Present only on the sweep response: whether the sweep force-escalated. */
   escalated?: boolean;
 }
@@ -223,16 +228,69 @@ export function fetchHealth(): Promise<Healthz> {
   return request<Healthz>("/healthz");
 }
 
-export async function probeMode(): Promise<Mode> {
+/**
+ * Why the mode badge could not be resolved.
+ *
+ * The badge used to collapse every failure into "OFFLINE", so an operator
+ * could not tell a dead backend from a rejected key or a wrong route -- three
+ * very different problems presented as one red pill. The distinction matters
+ * because only one of them is fixed by restarting something.
+ */
+export type ModeFailure = "unreachable" | "unauthorized" | "unexpected";
+
+export interface ModeProbe {
+  /** null before the first probe resolves, so "probing" is never OFFLINE. */
+  mode: Mode | null;
+  /** "" when the probe succeeded. */
+  reason: string;
+  failure: ModeFailure | null;
+}
+
+export async function probeModeDetailed(): Promise<ModeProbe> {
   try {
     const meta = await request<Meta>("/meta");
-    if (meta.executor_tier === "docker") return "LIVE";
-    if (meta.executor_tier === "mock") return "MOCK";
-    if (meta.executor_tier === "replay") return "REPLAY";
-    return "OFFLINE";
-  } catch {
-    return "OFFLINE";
+    if (meta.executor_tier === "docker") return { mode: "LIVE", reason: "", failure: null };
+    if (meta.executor_tier === "mock") return { mode: "MOCK", reason: "", failure: null };
+    if (meta.executor_tier === "replay") return { mode: "REPLAY", reason: "", failure: null };
+    // A real tier the client does not recognise must be named, not rounded down
+    // to OFFLINE, which asserts the executor is absent when it may not be.
+    return {
+      mode: "OFFLINE",
+      reason: `the backend reported an unrecognised executor tier "${meta.executor_tier}"`,
+      failure: "unexpected",
+    };
+  } catch (error) {
+    const status = error instanceof ApiError ? error.status : 0;
+    if (status === 401 || status === 403) {
+      return {
+        mode: "OFFLINE",
+        reason: `the backend rejected the request (HTTP ${status}); the executor state is unknown, not absent`,
+        failure: "unauthorized",
+      };
+    }
+    if (status === 0) {
+      return {
+        mode: "OFFLINE",
+        reason: error instanceof ApiError ? error.message : String(error),
+        failure: "unreachable",
+      };
+    }
+    return {
+      mode: "OFFLINE",
+      reason: `HTTP ${status} from /meta`,
+      failure: "unexpected",
+    };
   }
+}
+
+/**
+ * Just the mode, discarding the reason. Narrowed to `Mode` because
+ * `probeModeDetailed` never returns null: a null mode only exists as the
+ * pre-probe initial value, which this path cannot produce.
+ */
+export async function probeMode(): Promise<Mode> {
+  const mode = (await probeModeDetailed()).mode;
+  return mode ?? "OFFLINE";
 }
 
 export interface EngineStatus {
@@ -539,6 +597,66 @@ export interface AuditVerify {
   first_bad_seq: number | null;
   reason: string;
 }
+
+/* -------------------------------------------------------------------------- */
+/* The blameless postmortem (A4 + the MUST-CITE publish gate)                 */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * A4's published RCA document.
+ *
+ * `gated` is the gate's own verdict. A published document always has
+ * `gated: false`; a gated one is never returned as a document, so the two are
+ * kept distinct here to make an impossible state unrepresentable.
+ */
+export interface RcaDocument {
+  incident_id: string;
+  summary: string;
+  /** One row per audit-chain event: ts + actor + event + hash. */
+  timeline: string[];
+  root_cause: string;
+  claim_ids: string[];
+  /** The remediation / approval / verification record, from the audit chain. */
+  remediation_log: string[];
+  prevention: string[];
+  gated: boolean;
+  gate_reason: string;
+  agent: "reporter";
+  model_tier: "economical";
+}
+
+export interface RcaView {
+  incident_id: string;
+  /** False when no postmortem exists -- distinct from an empty document. */
+  published: boolean;
+  state: string;
+  report: RcaDocument | null;
+  /** Present when not published: why, in the server's words. */
+  detail?: string;
+}
+
+export const rcaApi = {
+  view: (incidentId: string) =>
+    request<RcaView>(`/incidents/${encodeURIComponent(incidentId)}/rca`),
+  /**
+   * Drive (or retry) the post-incident stage. Write-gated: publication appends
+   * to the chain that is exported as proof. Idempotent -- a run already
+   * published returns its stored document rather than publishing twice.
+   */
+  publish: (incidentId: string) =>
+    request<{
+      incident_id: string;
+      published: boolean;
+      idempotent?: boolean;
+      denied?: boolean;
+      skipped?: boolean;
+      state?: string;
+      detail?: string;
+      report?: RcaDocument | null;
+    }>(`/incidents/${encodeURIComponent(incidentId)}/rca/publish`, {
+      method: "POST",
+    }),
+};
 
 export const auditApi = {
   view: (incidentId: string) => request<AuditView>(auditPath(incidentId)),

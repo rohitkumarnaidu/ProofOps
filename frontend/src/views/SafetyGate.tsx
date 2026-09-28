@@ -11,8 +11,9 @@ import {
   type IdentityView,
 } from "../api";
 import { ModeBadge } from "../components/badges";
+import { IncidentNav } from "../components/IncidentNav";
 import { useIncidentEvents } from "../components/useIncidentEvents";
-import { useMode } from "../components/useMode";
+import { useModeState } from "../components/useMode";
 import {
   Button,
   EmptyState,
@@ -213,7 +214,8 @@ function IssueMessage({ issue }: { issue: GateIssue }) {
 export function SafetyGate() {
   const [searchParams] = useSearchParams();
   const incidentId = searchParams.get("incident_id")?.trim() ?? "";
-  const mode = useMode();
+  const modeState = useModeState();
+  const mode = modeState.mode;
   const [actionText, setActionText] = useState(() => actionTemplate(""));
   const [issuedApprovalId, setIssuedApprovalId] = useState<string | null>(null);
   const [view, setView] = useState<ApprovalView | null>(null);
@@ -240,6 +242,8 @@ export function SafetyGate() {
   const [proposalsIssue, setProposalsIssue] = useState<GateIssue | null>(null);
   const [selectedProposalId, setSelectedProposalId] = useState("");
   const [denyReason, setDenyReason] = useState("");
+  const [isClaiming, setClaiming] = useState(false);
+  const [claimNote, setClaimNote] = useState("");
 
   /**
    * The proposal currently loaded into the editor, if any.
@@ -457,8 +461,37 @@ export function SafetyGate() {
     }
   }
 
-  async function decide(kind: "approve" | "reject") {
-    if (view === null || !decidable) return;
+  /**
+   * Collect a token the server is already holding (ADR-015 delivery modes).
+   *
+   * Two things are deliberate. The endpoint returns a VIEW, never a token, so
+   * this can only confirm the approval is collectable -- the credential itself
+   * reaches the approver out of band. And a non-collectable approval is the
+   * server's decision, not a UI error, so the message is stated rather than
+   * phrased as a failure.
+   */
+  async function claimToken() {
+    if (view === null) return;
+    setClaimNote("");
+    setClaiming(true);
+    try {
+      const next = await approvalsApi.claimToken(view.approval_id);
+      applyApproval(next);
+      setClaimNote(
+        "The server confirmed this approval for you. The token itself is not returned by this endpoint; spend the one you were issued.",
+      );
+    } catch (error) {
+      setClaimNote(
+        error instanceof ApiError
+          ? `The server did not release a token for this approval (HTTP ${error.status}).`
+          : String(error),
+      );
+    } finally {
+      setClaiming(false);
+    }
+  }
+
+  async function decide(kind: "approve" | "reject") {    if (view === null || !decidable) return;
     setDecisionIssue(null);
     setIsDeciding(true);
     let idempotencyKey = idempotencyKeysRef.current.get(view.approval_id);
@@ -497,16 +530,16 @@ export function SafetyGate() {
     <div className="mx-auto flex max-w-6xl flex-col gap-4">
       <div className="flex flex-wrap items-center gap-3">
         <h1 data-page-heading tabIndex={-1} className="text-xl font-bold tracking-tight">
-          Safety Gate{incidentId === "" ? "" : ` · ${incidentId}`}
+          Safety Gate{incidentId === "" ? "" : ` Â· ${incidentId}`}
         </h1>
-        <ModeBadge mode={mode} />
+        <ModeBadge mode={mode} reason={modeState.reason} />
         {mode === null && (
           <span
             data-testid="mode-probing"
             aria-busy="true"
             className="text-xs text-fg-subtle"
           >
-            probing backend…
+            probing backendâ€¦
           </span>
         )}
       </div>
@@ -515,15 +548,17 @@ export function SafetyGate() {
         Event stream: {incidentEvents.connectionState}
         {incidentEvents.lastEventType === null
           ? ""
-          : ` · ${incidentEvents.lastEventType}`}
+          : ` Â· ${incidentEvents.lastEventType}`}
         {incidentEvents.lastEventId === null
           ? ""
-          : ` · ${incidentEvents.lastEventId}`}
+          : ` Â· ${incidentEvents.lastEventId}`}
       </p>
 
       {incidentEvents.error !== "" && (
         <ErrorState title="Event stream update failed" detail={incidentEvents.error} />
       )}
+
+      <IncidentNav incidentId={incidentId} current="safety" state={view?.status} />
 
       {!hasApiKey() && (
         <Notice tone="warn" testId="api-key-notice" live>
@@ -670,7 +705,7 @@ export function SafetyGate() {
               onClick={() => void requestApproval()}
               disabled={incidentId === "" || isRequesting}
             >
-              {isRequesting ? "Requesting…" : "Request approval"}
+              {isRequesting ? "Requestingâ€¦" : "Request approval"}
             </Button>
           </div>
           {requestIssue !== null && (
@@ -717,7 +752,7 @@ export function SafetyGate() {
                 data-testid="load-approval"
                 disabled={isLoadingApproval || loadApprovalId.trim() === ""}
               >
-                {isLoadingApproval ? "Loading…" : "Load approval"}
+                {isLoadingApproval ? "Loadingâ€¦" : "Load approval"}
               </Button>
             </div>
           </form>
@@ -772,7 +807,7 @@ export function SafetyGate() {
                 [
                   "Identity mode",
                   <span className="break-all">
-                    {view.identity_mode} · Requester key: {view.requester_key_id}
+                    {view.identity_mode} Â· Requester key: {view.requester_key_id}
                   </span>,
                 ],
                 [
@@ -782,7 +817,7 @@ export function SafetyGate() {
                         undecided), so `?? "not yet decided"` could never fire
                         and the row rendered blank. Test the empty string. */}
                     {view.decided_by === "" ? "not yet decided" : view.decided_by}{" "}
-                    · SoD: {view.sod}
+                    Â· SoD: {view.sod}
                   </span>,
                 ],
               ]}
@@ -840,7 +875,7 @@ export function SafetyGate() {
             )}
             {!decidable && view.status === "pending" && view.seconds_remaining <= 0 && (
               <Notice tone="warn" testId="ttl-expired" className="mt-3">
-                Approval TTL elapsed — request a fresh approval.
+                Approval TTL elapsed â€” request a fresh approval.
               </Notice>
             )}
             <div className="mt-4 flex flex-col gap-3">
@@ -859,9 +894,29 @@ export function SafetyGate() {
                 </Notice>
               )}
               {serverHasApproverRole && token.trim() === "" && (
-                <Notice tone="warn">
-                  An issued token is required before deciding.
+                <Notice tone="warn" testId="token-required">
+                  No approval token is loaded. Raise a request, paste the token
+                  you were issued, or collect a held one from the server.
                 </Notice>
+              )}
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  size="sm"
+                  data-testid="claim-token"
+                  onClick={() => void claimToken()}
+                  disabled={isClaiming || view.status !== "pending"}
+                >
+                  {isClaiming ? "Checking…" : "Collect held token"}
+                </Button>
+              </div>
+              {claimNote !== "" && (
+                <p
+                  role="status"
+                  data-testid="claim-note"
+                  className="text-xs text-fg-muted"
+                >
+                  {claimNote}
+                </p>
               )}
               {identityIsBootstrap && (
                 <Notice tone="danger" testId="sod-bootstrap-warning" live>

@@ -573,17 +573,3 @@ export function KeyValue({ items }: { items: Array<[ReactNode, ReactNode]> }) {
     </dl>
   );
 }
-
-export function Well({ children, className }: { children: ReactNode; className?: string }) {
-  return (
-    <pre
-      className={cx(
-        "overflow-x-auto rounded border border-line bg-surface-sunken p-3",
-        "font-mono text-xs leading-relaxed text-fg-muted",
-        className,
-      )}
-    >
-      {children}
-    </pre>
-  );
-}

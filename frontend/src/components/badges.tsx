@@ -16,14 +16,27 @@ const MODE_TONE: Record<Mode | "PROBING", StatusTone> = {
     Tier-aware via probeMode() over GET /meta: MOCK = backend reports the
     mock executor tier; LIVE = backend confirms the real docker tier (never
     claimed without tier confirmation); REPLAY = backend reports replay;
-    OFFLINE = unreachable or unrecognized tier (never faked). null (still
-    probing) renders a gray PROBING badge — probing is never displayed as
-    OFFLINE. */
-export function ModeBadge({ mode }: { mode: Mode | null }) {
+    OFFLINE = the tier could not be read. null (still probing) renders a gray
+    PROBING badge — probing is never displayed as OFFLINE.
+
+    `reason` is the probe's explanation when it failed. Without it the badge
+    asserted "OFFLINE" for a 401, a 500 and a dead socket alike, which are
+    three different problems an operator resolves in three different ways. */
+export function ModeBadge({
+  mode,
+  reason = "",
+}: {
+  mode: Mode | null;
+  reason?: string;
+}) {
   const label = mode ?? "PROBING";
+  const title =
+    reason === ""
+      ? `Operating mode: ${label}`
+      : `Operating mode: ${label} — ${reason}`;
   return (
     <span data-testid="mode-badge" data-mode={label} className="inline-flex">
-      <StatusPill tone={MODE_TONE[label]} title={`Operating mode: ${label}`}>
+      <StatusPill tone={MODE_TONE[label]} title={title}>
         {label}
       </StatusPill>
     </span>

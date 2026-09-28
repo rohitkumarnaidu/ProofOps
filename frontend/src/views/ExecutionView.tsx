@@ -1,13 +1,14 @@
-import { useCallback, useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { ApiError, runsApi, type RunView } from "../api";
 import { ModeBadge } from "../components/badges";
+import { IncidentNav } from "../components/IncidentNav";
 import { StateDiff } from "../components/StateDiff";
+import { useAsyncData } from "../components/useAsyncData";
 import {
   isTerminalIncidentState,
   useIncidentEvents,
 } from "../components/useIncidentEvents";
-import { useMode } from "../components/useMode";
+import { useModeState } from "../components/useMode";
 import {
   EmptyState,
   ErrorState,
@@ -46,43 +47,29 @@ function stateTone(state: string): StatusTone {
 
 export function ExecutionView() {
   const { id } = useParams<{ id: string }>();
-  const mode = useMode();
-  const [run, setRun] = useState<RunView | null>(null);
-  const [error, setError] = useState("");
-  const [errorStatus, setErrorStatus] = useState<number | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-
-  const load = useCallback(
-    async (showLoading: boolean) => {
-      if (id === undefined) return;
-      if (showLoading) setIsLoading(true);
-      try {
-        setRun(await runsApi.get(id));
-        setError("");
-        setErrorStatus(null);
-      } catch (caught) {
-        if (showLoading) setRun(null);
-        setError(caught instanceof ApiError ? caught.message : String(caught));
-        setErrorStatus(caught instanceof ApiError ? caught.status : 0);
-      } finally {
-        if (showLoading) setIsLoading(false);
-      }
+  const modeState = useModeState();
+  const mode = modeState.mode;
+  // Cancellation + out-of-order protection live in the hook: an event-stream
+  // refresh and an operator refresh can overlap, and the slower one must not
+  // be allowed to overwrite the newer incident state.
+  const runResource = useAsyncData<RunView>(
+    async () => {
+      if (id === undefined) throw new ApiError(0, "no incident in the route");
+      return runsApi.get(id);
     },
     [id],
+    { enabled: id !== undefined },
   );
-
-  useEffect(() => {
-    setRun(null);
-    setError("");
-    setErrorStatus(null);
-    void load(true);
-  }, [load]);
+  const run = runResource.data;
+  const error = runResource.error;
+  const errorStatus = runResource.status;
+  const isLoading = runResource.loading;
 
   const events = useIncidentEvents({
     incidentId: id,
     enabled: run !== null && !isLoading && !isTerminalIncidentState(run.state),
     onRefresh: () => {
-      void load(false);
+      void runResource.reload(false);
     },
   });
   const phaseHistory =
@@ -137,14 +124,14 @@ export function ExecutionView() {
         <h1 data-page-heading tabIndex={-1} className="text-xl font-bold tracking-tight">
           Execution {id}
         </h1>
-        <ModeBadge mode={mode} />
+        <ModeBadge mode={mode} reason={modeState.reason} />
         {mode === null && (
           <span
             data-testid="mode-probing"
             aria-busy="true"
             className="text-xs text-fg-subtle"
           >
-            probing backend…
+            probing backendâ€¦
           </span>
         )}
         {run !== null && (
@@ -154,10 +141,14 @@ export function ExecutionView() {
         )}
       </div>
 
+      {/* Was a navigation dead end: nothing on this page led to the run's
+          evidence, its gate, or its postmortem. */}
+      <IncidentNav incidentId={id ?? ""} current="execution" state={run?.state} />
+
       <p aria-live="polite" className="text-xs text-fg-subtle">
         Event stream: {events.connectionState}
-        {events.lastEventType === null ? "" : ` · ${events.lastEventType}`}
-        {events.lastEventId === null ? "" : ` · ${events.lastEventId}`}
+        {events.lastEventType === null ? "" : ` Â· ${events.lastEventType}`}
+        {events.lastEventId === null ? "" : ` Â· ${events.lastEventId}`}
       </p>
 
       {events.error !== "" && (
@@ -201,7 +192,7 @@ export function ExecutionView() {
                       #{history.seq}
                     </span>
                     <span className="font-medium">
-                      {history.frm} → {history.to}
+                      {history.frm} â†’ {history.to}
                     </span>
                     {history.forced && (
                       <span className="ml-2 inline-flex align-middle">
@@ -243,7 +234,7 @@ export function ExecutionView() {
             ) : (
               <div className="rounded border border-line bg-surface-sunken p-3 font-mono text-xs text-fg">
                 <div className="mb-2 flex flex-wrap items-center justify-between gap-2 border-b border-line pb-2 text-fg-subtle">
-                  <span>EXECUTOR · {tierLabel}</span>
+                  <span>EXECUTOR Â· {tierLabel}</span>
                   {/* No process status is shown. The executor returns logs and
                       a state diff, never a status code, so a green success
                       badge here was a number this page invented -- and on a
@@ -349,10 +340,10 @@ export function ExecutionView() {
                       #{transition.seq}
                     </span>
                     <span className="font-medium">
-                      {transition.frm} → {transition.to}
+                      {transition.frm} â†’ {transition.to}
                     </span>
                     {transition.reason !== "" && (
-                      <span className="text-fg-muted"> — {transition.reason}</span>
+                      <span className="text-fg-muted"> â€” {transition.reason}</span>
                     )}
                   </li>
                 ))}
@@ -388,13 +379,13 @@ export function ExecutionView() {
                       className="border-b border-line py-2 last:border-b-0"
                     >
                       <span className="mr-2 text-xs tabular-nums text-fg-subtle">
-                        #{seq ?? "—"}
+                        #{seq ?? "â€”"}
                       </span>
                       <span className="font-medium">
-                        {frm} → {to}
+                        {frm} â†’ {to}
                       </span>
                       {reason !== "" && (
-                        <span className="text-fg-muted"> — {reason}</span>
+                        <span className="text-fg-muted"> â€” {reason}</span>
                       )}
                       {refs.length > 0 && (
                         <span className="ml-2 inline-flex flex-wrap gap-1 align-middle">

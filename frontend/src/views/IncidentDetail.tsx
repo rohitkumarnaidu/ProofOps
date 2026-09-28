@@ -1,13 +1,16 @@
-import { useCallback, useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useState } from "react";
+import { useParams } from "react-router-dom";
 import { ApiError, runsApi, type RunView } from "../api";
 import { ModeBadge, SeverityChip } from "../components/badges";
+import { IncidentNav } from "../components/IncidentNav";
+import { useAsyncData } from "../components/useAsyncData";
 import {
   isTerminalIncidentState,
   useIncidentEvents,
 } from "../components/useIncidentEvents";
-import { useMode } from "../components/useMode";
+import { useModeState } from "../components/useMode";
 import {
+  Button,
   EmptyState,
   ErrorState,
   KeyValue,
@@ -60,43 +63,55 @@ interface HypothesisItem {
 
 export function IncidentDetail() {
   const { id } = useParams<{ id: string }>();
-  const mode = useMode();
-  const [run, setRun] = useState<RunView | null>(null);
-  const [error, setError] = useState("");
-  const [errorStatus, setErrorStatus] = useState<number | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-
-  const load = useCallback(
-    async (showLoading: boolean) => {
-      if (id === undefined) return;
-      if (showLoading) setIsLoading(true);
-      try {
-        setRun(await runsApi.get(id));
-        setError("");
-        setErrorStatus(null);
-      } catch (caught) {
-        if (showLoading) setRun(null);
-        setError(caught instanceof ApiError ? caught.message : String(caught));
-        setErrorStatus(caught instanceof ApiError ? caught.status : 0);
-      } finally {
-        if (showLoading) setIsLoading(false);
-      }
+  const modeState = useModeState();
+  const mode = modeState.mode;
+  // Cancellation + out-of-order protection: an event-stream refresh and an
+  // operator refresh can overlap, and the slower must not win.
+  const runResource = useAsyncData<RunView>(
+    async () => {
+      if (id === undefined) throw new ApiError(0, "no incident in the route");
+      return runsApi.get(id);
     },
     [id],
+    { enabled: id !== undefined },
   );
+  const run = runResource.data;
+  const error = runResource.error;
+  const errorStatus = runResource.status;
+  const isLoading = runResource.loading;
+  const [isSweeping, setSweeping] = useState(false);
+  const [sweepNote, setSweepNote] = useState("");
 
-  useEffect(() => {
-    setRun(null);
-    setError("");
-    setErrorStatus(null);
-    void load(true);
-  }, [load]);
+  /**
+   * Force the stage/approval TTL sweep.
+   *
+   * The FSM exempts terminals and untimed stages, so this is a no-op on a run
+   * that has finished -- reported as such rather than as a silent nothing.
+   */
+  async function sweepTtl() {
+    if (id === undefined) return;
+    setSweeping(true);
+    setSweepNote("");
+    try {
+      const next = await runsApi.sweep(id);
+      runResource.set(next);
+      setSweepNote(
+        next.escalated
+          ? "A stage or approval had exceeded its TTL; the run was force-escalated."
+          : `Nothing was past its TTL; the run stays in ${next.state}.`,
+      );
+    } catch (caught) {
+      setSweepNote(caught instanceof ApiError ? caught.message : String(caught));
+    } finally {
+      setSweeping(false);
+    }
+  }
 
   const events = useIncidentEvents({
     incidentId: id,
     enabled: run !== null && !isLoading && !isTerminalIncidentState(run.state),
     onRefresh: () => {
-      void load(false);
+      void runResource.reload(false);
     },
   });
 
@@ -185,14 +200,14 @@ export function IncidentDetail() {
         <h1 data-page-heading tabIndex={-1} className="text-xl font-bold tracking-tight">
           Incident {id}
         </h1>
-        <ModeBadge mode={mode} />
+        <ModeBadge mode={mode} reason={modeState.reason} />
         {mode === null && (
           <span
             data-testid="mode-probing"
             aria-busy="true"
             className="text-xs text-fg-subtle"
           >
-            probing backend…
+            probing backendÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â¦
           </span>
         )}
         {run !== null && (
@@ -205,8 +220,8 @@ export function IncidentDetail() {
       {/* Polite live region for event stream */}
       <p aria-live="polite" className="text-xs text-fg-subtle">
         Event stream: {events.connectionState}
-        {events.lastEventType === null ? "" : ` · ${events.lastEventType}`}
-        {events.lastEventId === null ? "" : ` · ${events.lastEventId}`}
+        {events.lastEventType === null ? "" : ` ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· ${events.lastEventType}`}
+        {events.lastEventId === null ? "" : ` ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· ${events.lastEventId}`}
       </p>
 
       {events.error !== "" && (
@@ -221,31 +236,43 @@ export function IncidentDetail() {
           <ErrorState
             title={errorStatus === 404 ? "Run not found" : "Run unavailable"}
             detail={error}
-            onRetry={() => void load(true)}
+            onRetry={() => void runResource.reload(true)}
           />
         </div>
       )}
 
+      {/* One shared set of incident destinations, so the routes an operator can
+          reach from here cannot drift from the other views. The hand-rolled
+          list this replaced omitted the agent thread, so Incident Detail was
+          the one view that could not reach the only surface explaining a
+          decision in prose. */}
       {id !== undefined && (
-        <nav aria-label="Incident actions" className="flex flex-wrap gap-2">
-          {[
-            { to: `/safety?incident_id=${encodeURIComponent(id)}`, label: "Open Safety Gate", tone: "warn" },
-            { to: `/execution/${encodeURIComponent(id)}`, label: "Open Execution", tone: "info" },
-            { to: `/rca/${encodeURIComponent(id)}`, label: "Open Audit & Evaluation", tone: "info" },
-          ].map((link) => (
-            <Link
-              key={link.to}
-              to={link.to}
-              className={`rounded border px-3 py-1.5 text-sm font-medium no-underline transition-colors ${
-                link.tone === "warn"
-                  ? "border-warn bg-surface text-warn hover:bg-surface-raised"
-                  : "border-line bg-surface-raised text-fg hover:bg-line"
-              }`}
-            >
-              {link.label}
-            </Link>
-          ))}
-        </nav>
+        <div className="min-w-0 overflow-x-auto rounded border border-line bg-surface-raised px-3 py-2">
+          <IncidentNav incidentId={id} current="incident" state={run?.state} />
+        </div>
+      )}
+
+      {/* TTL sweep. A run parked at AWAITING_APPROVAL whose approval lapsed, or
+          one stuck in an agent stage, otherwise sits there forever: nothing
+          else in the product moves it. This used to be a dead-end hint that
+          told the operator to "advance this run from the API". */}
+      {id !== undefined && run !== null && (
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            size="sm"
+            data-testid="sweep-ttl"
+            onClick={() => void sweepTtl()}
+            disabled={isSweeping}
+            className="max-w-full"
+          >
+            {isSweeping ? "Sweeping…" : "Sweep stage / approval TTLs"}
+          </Button>
+          {sweepNote !== "" && (
+            <span role="status" data-testid="sweep-note" className="text-xs text-fg-muted">
+              {sweepNote}
+            </span>
+          )}
+        </div>
       )}
 
       {isLoading ? (
@@ -530,16 +557,20 @@ export function IncidentDetail() {
                 {run.history.map((history) => (
                   <li
                     key={history.seq}
-                    className="border-b border-line py-2 last:border-b-0"
+                    className="flex flex-wrap items-baseline gap-x-2 border-b border-line py-2 last:border-b-0"
                   >
-                    <span className="mr-2 text-xs tabular-nums text-fg-subtle">
+                    <span className="text-xs tabular-nums text-fg-subtle">
                       #{history.seq}
                     </span>
-                    <span className="font-medium">
+                    {/* break-words, and no fixed width: state names like
+                        POLICY_CHECK -> AWAITING_APPROVAL are longer than a
+                        360px viewport once the row's other cells are laid out,
+                        and an unbreakable run overflowed the page by 2px. */}
+                    <span className="min-w-0 break-words font-medium">
                       {history.frm} → {history.to}
                     </span>
                     {history.reason !== "" && (
-                      <span className="text-fg-muted"> — {history.reason}</span>
+                      <span className="text-fg-muted"> ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â {history.reason}</span>
                     )}
                     {history.forced && (
                       <span className="ml-2 inline-flex align-middle">
@@ -558,7 +589,7 @@ export function IncidentDetail() {
                             className="max-w-full break-all rounded border border-line bg-surface-raised px-1.5 py-0.5 text-xs text-accent"
                           >
                             {reference.length > 24
-                              ? `${reference.slice(0, 24)}…`
+                              ? `${reference.slice(0, 24)}ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â¦`
                               : reference}
                           </span>
                         ))}

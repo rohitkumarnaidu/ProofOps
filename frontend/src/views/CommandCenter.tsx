@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import {
   ApiError,
   DEFAULT_SLO_ERROR_RATE_BELOW,
+  fetchHealth,
   INGEST_SCENARIOS,
   ingestApi,
   metaApi,
@@ -30,7 +31,7 @@ import {
   TextField,
   type Column,
 } from "../components/ui";
-import { useMode } from "../components/useMode";
+import { useModeState } from "../components/useMode";
 
 interface RunSummary {
   incident_id: string;
@@ -226,7 +227,8 @@ const TILE_TITLES = [
 ];
 
 export function CommandCenter() {
-  const mode = useMode();
+  const modeState = useModeState();
+  const mode = modeState.mode;
   const [runs, setRuns] = useState<RunSummary[]>([]);
   const [error, setError] = useState("");
   const [errorStatus, setErrorStatus] = useState<number | null>(null);
@@ -235,6 +237,8 @@ export function CommandCenter() {
   const [workerError, setWorkerError] = useState("");
   const [engines, setEngines] = useState<EngineStatus | null>(null);
   const [enginesFailed, setEnginesFailed] = useState(false);
+  /** API process liveness, distinct from dependency health. */
+  const [apiAlive, setApiAlive] = useState<boolean | null>(null);
   const [meta, setMeta] = useState<Meta | null>(null);
   const [sloAlerts, setSloAlerts] = useState<SloAlert[] | null>(null);
   const [filter, setFilter] = useState<string>("ALL");
@@ -276,16 +280,25 @@ export function CommandCenter() {
    * swallowed into `null`. `metaApi.engines().catch(() => null)` used to make a
    * 401/500 indistinguishable from "not loaded", and every tile then rendered
    * its negative branch as if it had been measured.
+   *
+   * Liveness is probed separately and deliberately: /healthz answers while
+   * dependencies are down (correct for a liveness probe), so "the API process
+   * is alive" and "the control plane's dependencies are healthy" are two
+   * different facts and the operator needs to see which one failed.
    */
   const refreshEngines = useCallback(async () => {
     try {
-      const [engineStatus, metaStatus, alerts] = await Promise.all([
+      const [engineStatus, metaStatus, alerts, health] = await Promise.all([
         metaApi.engines(),
         metaApi.meta().catch(() => null),
         sloApi.alerts().catch(() => null),
+        fetchHealth()
+          .then(() => true)
+          .catch(() => false),
       ]);
       setEngines(engineStatus);
       setEnginesFailed(false);
+      setApiAlive(health);
       if (metaStatus) setMeta(metaStatus);
       // null means the SLO endpoint failed; leave the prior value and let the
       // panel say "unavailable" rather than pretending there are no alerts.
@@ -425,14 +438,14 @@ export function CommandCenter() {
           <h1 data-page-heading tabIndex={-1} className="text-2xl font-bold tracking-tight">
             ProofOps Command Center
           </h1>
-          <ModeBadge mode={mode} />
+          <ModeBadge mode={mode} reason={modeState.reason} />
           {mode === null && (
             <span
               data-testid="mode-probing"
               aria-busy="true"
               className="text-xs text-fg-subtle"
             >
-              probing backend…
+              probing backendÃ¢â‚¬Â¦
             </span>
           )}
           {worker !== null && (
@@ -445,7 +458,7 @@ export function CommandCenter() {
         <div className="text-xs text-fg-subtle">
           {meta === null
             ? "deployment mode: not reported"
-            : `deployment mode: ${meta.mode} · executor: ${meta.executor_tier}`}
+            : `deployment mode: ${meta.mode} Ã‚Â· executor: ${meta.executor_tier}`}
         </div>
       </div>
 
@@ -453,6 +466,12 @@ export function CommandCenter() {
         <Notice tone="warn" testId="engines-unavailable">
           Engine status could not be read. The tiles below show UNKNOWN, not a
           guess. Retry to re-read them.
+        </Notice>
+      )}
+      {apiAlive === false && (
+        <Notice tone="danger" testId="api-unreachable">
+          The API process is not answering its liveness probe. Engine tiles
+          below are not evidence about the deployment.
         </Notice>
       )}
       {workerError !== "" && (
@@ -494,7 +513,7 @@ export function CommandCenter() {
             onClick={() => void stopWorker()}
             disabled={stopping || worker?.enabled === false}
           >
-            {stopping ? "Stopping…" : "Engage kill-switch"}
+            {stopping ? "StoppingÃ¢â‚¬Â¦" : "Engage kill-switch"}
           </Button>
         }
       >
@@ -502,7 +521,7 @@ export function CommandCenter() {
           <p className="text-sm text-fg-muted">
             {workerError !== ""
               ? "Worker state unavailable (see the notice above)."
-              : "Reading worker state…"}
+              : "Reading worker stateÃ¢â‚¬Â¦"}
           </p>
         ) : (
           <KeyValue
@@ -519,7 +538,7 @@ export function CommandCenter() {
               ["Auto-generate", worker.auto_generate ? "on" : "off"],
               [
                 "Counters",
-                `submitted ${worker.submitted} · processed ${worker.processed} · blocked ${worker.blocked} · failed ${worker.failed} · stalled ${worker.stalled} · duplicates suppressed ${worker.duplicates_suppressed}`,
+                `submitted ${worker.submitted} Ã‚Â· processed ${worker.processed} Ã‚Â· blocked ${worker.blocked} Ã‚Â· failed ${worker.failed} Ã‚Â· stalled ${worker.stalled} Ã‚Â· duplicates suppressed ${worker.duplicates_suppressed}`,
               ],
               ["Queue depth", String(worker.queue_depth)],
               [
@@ -553,8 +572,8 @@ export function CommandCenter() {
                 <span className="font-medium text-fg">{alert.name}</span>
                 <span className="font-mono text-xs text-fg-muted">
                   {alert.metric} {alert.op}{" "}
-                  {alert.target === null ? "no target" : alert.target} · observed{" "}
-                  {alert.observed === null ? "no data" : alert.observed} ·{" "}
+                  {alert.target === null ? "no target" : alert.target} Ã‚Â· observed{" "}
+                  {alert.observed === null ? "no data" : alert.observed} Ã‚Â·{" "}
                   {alert.window}
                 </span>
                 {alert.severity !== "none" && (
@@ -734,7 +753,7 @@ export function CommandCenter() {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Button type="submit" tone="primary" disabled={launching || newId.trim() === ""}>
-              {launching ? "Ingesting…" : "Ingest incident"}
+              {launching ? "IngestingÃ¢â‚¬Â¦" : "Ingest incident"}
             </Button>
             <Button
               type="button"

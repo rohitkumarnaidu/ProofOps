@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { ApiError, agentsApi, type InvestigateReply, type ThreadTurn } from "../api";
+import { ModeBadge } from "../components/badges";
+import { IncidentNav } from "../components/IncidentNav";
+import { useModeState } from "../components/useMode";
 import {
   EmptyState,
   ErrorState,
@@ -49,6 +52,8 @@ export function AgentsView() {
   const [reply, setReply] = useState<InvestigateReply | null>(null);
   const [turns, setTurns] = useState<ThreadTurn[]>([]);
   const [loadingThread, setLoadingThread] = useState(false);
+  const modeState = useModeState();
+  const mode = modeState.mode;
 
   const loadThread = useCallback(async (target: string) => {
     if (!target) {
@@ -104,6 +109,26 @@ export function AgentsView() {
 
   return (
     <div className="space-y-4">
+      {/* This view had no outbound navigation and no ModeBadge, so it was the
+          only operator surface that did not disclose the operating mode or
+          offer a way back to the incident it was discussing. */}
+      <div className="flex flex-wrap items-center gap-3">
+        <h1 data-page-heading tabIndex={-1} className="text-xl font-bold tracking-tight">
+          Agent{incidentId === "" ? "" : ` Â· ${incidentId}`}
+        </h1>
+        <ModeBadge mode={mode} reason={modeState.reason} />
+        {mode === null && (
+          <span
+            data-testid="mode-probing"
+            aria-busy="true"
+            className="text-xs text-fg-subtle"
+          >
+            probing backendâ€¦
+          </span>
+        )}
+      </div>
+      <IncidentNav incidentId={incidentId} current="agents" />
+
       <Panel
         title="Ask the incident"
         description="Read-only. The agent investigates and proposes; it cannot approve or execute anything."
