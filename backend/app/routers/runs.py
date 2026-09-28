@@ -20,10 +20,13 @@ target the pure layer plus an AST wiring assertion.)
 from __future__ import annotations
 
 import dataclasses
+import datetime
+import enum
 import json
 import os
 import sys
 import tempfile
+import threading
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -67,6 +70,7 @@ from agents.schemas import (  # noqa: E402 (M13.6)
     parse_or_reject,
 )
 from app.contracts.hypothesis import Claim  # noqa: E402 (M01.5)
+from app.logging_setup import get_logger  # noqa: E402 (M00.5)
 from app.services import fsm as fsm_svc  # noqa: E402 (M14a canonical FSM)
 from app.services.fsm import (  # noqa: E402
     FsmError,
@@ -102,20 +106,94 @@ STORE_PATH = _state_dir() / "runs.json"
 # run.suppressions (persisted below), which is the audit-grade record.
 
 
+#: Store key discipline: a run entry is a closed schema, so an unexpected key
+#: is corruption rather than forward-compatible data. `_OPTIONAL_RUN_KEYS` is
+#: the explicitly sanctioned extension point -- a key may be absent, but if it
+#: is present its shape is validated. That is what lets executor-attached
+#: evidence be persisted without weakening the fail-closed strictness.
+_REQUIRED_RUN_KEYS = frozenset({
+    "incident_id", "state", "history", "handoffs", "suppressions", "replans",
+    "rolled_back", "permit", "consumed_refs", "entered_at",
+})
+_OPTIONAL_RUN_KEYS = frozenset({"state_diff", "execution_logs", "execution_tier"})
+
+logger = get_logger(__name__)
+
+#: Serialises snapshot+replace of the runs file. The orchestrator worker thread
+#: and HTTP handler threads both persist; without this the last rename wins with
+#: a stale snapshot and a run vanishes from disk while still in memory.
+_STORE_LOCK = threading.Lock()
+
+#: JSON-native scalars. Anything else inside a run payload is either converted
+#: by `_json_safe` or is a genuine serialisation bug that must surface.
+_JSON_SCALARS = (str, int, float, bool, type(None))
+
+
+def _json_safe(value: Any) -> Any:
+    """Coerce a run payload to JSON-native types without dropping data.
+
+    A handoff carries the pre-digested evidence pack, and those records carry
+    `datetime` timestamps. `json.dumps` cannot encode those, so `save_store`
+    raised TypeError for every run that had actually been through diagnosis.
+
+    The failure was invisible: `_save_best_effort` only catches OSError, the
+    TypeError escaped it, and the caller's `contextlib.suppress(Exception)`
+    ate it. Net effect: an incident that had been triaged, approved, executed
+    and verified was never written to disk, so a restart lost it while the
+    audit chain still had it. The evidence was in memory the whole time.
+
+    Converting a datetime to its ISO-8601 form is lossless for provenance --
+    an audit timestamp does not need its tzinfo object identity. Keys are
+    stringified for the same reason, and a set becomes a sorted list, which is
+    what the store already did for `consumed_refs`. An unsupported type still
+    raises, because silently dropping it would be the same class of bug.
+    """
+    if isinstance(value, _JSON_SCALARS):
+        return value
+    if isinstance(value, (datetime.datetime, datetime.date, datetime.time)):
+        return value.isoformat()
+    if isinstance(value, Mapping):
+        return {str(k): _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    if isinstance(value, (set, frozenset)):
+        return sorted(_json_safe(v) for v in value)
+    if isinstance(value, enum.Enum):
+        return _json_safe(value.value)
+    if hasattr(value, "to_plain"):
+        return _json_safe(value.to_plain())
+    if hasattr(value, "model_dump"):
+        return _json_safe(value.model_dump(mode="json"))
+    raise TypeError(
+        f"run store cannot serialise {type(value).__name__}; refusing to drop it")
+
+
 def _run_to_json(run: IncidentRun) -> dict[str, Any]:
-    """Serialize one run: dataclasses.asdict + set->sorted-list (Lane 2)."""
+    """Serialize one run: dataclasses.asdict + set->sorted-list (Lane 2).
+
+    `state_diff` and `execution_logs` are attached to the run by the executor
+    (pipeline.py) rather than being dataclass fields, so they have to be read
+    with getattr. They ARE persisted here: omitting them meant that after any
+    restart `run_view` reported `state_diff: null` and `execution_logs: []`
+    for every run, so the Execution view could never show a state diff again
+    for a run that had genuinely produced one. The evidence existed; only the
+    persistence was missing.
+    """
     return {
         "incident_id": run.incident_id,
         "state": run.state,
         "history": [dataclasses.asdict(r) for r in run.history],
-        "handoffs": [dict(h) for h in run.handoffs],
-        "suppressions": [dict(s) for s in run.suppressions],
+        "handoffs": [_json_safe(dict(h)) for h in run.handoffs],
+        "suppressions": [_json_safe(dict(s)) for s in run.suppressions],
         "replans": run.replans,
         "rolled_back": run.rolled_back,
         "permit": dataclasses.asdict(run.permit)
         if run.permit is not None else None,
         "consumed_refs": sorted(run.consumed_refs),
         "entered_at": dict(run.entered_at),
+        "state_diff": _json_safe(getattr(run, "state_diff", None)),
+        "execution_logs": list(getattr(run, "execution_logs", []) or []),
+        "execution_tier": str(getattr(run, "execution_tier", "") or ""),
     }
 
 
@@ -189,15 +267,24 @@ def _run_from_json(payload: Any) -> IncidentRun:
     """
     if not isinstance(payload, Mapping):
         raise ValueError("run entry must be an object")
-    for key in ("incident_id", "state", "history", "handoffs",
-                "suppressions", "replans", "rolled_back", "permit",
-                "consumed_refs", "entered_at"):
+    for key in _REQUIRED_RUN_KEYS:
         if key not in payload:
             raise ValueError(f"run entry missing {key!r}")
-    if set(payload) - {"incident_id", "state", "history", "handoffs",
-                        "suppressions", "replans", "rolled_back", "permit",
-                        "consumed_refs", "entered_at"}:
+    if set(payload) - _REQUIRED_RUN_KEYS - _OPTIONAL_RUN_KEYS:
         raise ValueError("run entry holds unexpected keys")
+    # The executor-attached evidence is optional, never required: a store
+    # written before this key existed must still load. Validated when present
+    # so a tampered shape fails closed rather than reaching run_view.
+    state_diff = payload.get("state_diff")
+    if state_diff is not None and not isinstance(state_diff, Mapping):
+        raise ValueError("run state_diff must be an object or null")
+    execution_logs = payload.get("execution_logs", [])
+    if not isinstance(execution_logs, list) \
+            or any(not isinstance(line, str) for line in execution_logs):
+        raise ValueError("run execution_logs must be a string list")
+    execution_tier = payload.get("execution_tier", "")
+    if not isinstance(execution_tier, str):
+        raise ValueError("run execution_tier must be a str")
     raw_history = payload["history"]
     if not isinstance(raw_history, list):
         raise ValueError("run history must be a list")
@@ -223,7 +310,7 @@ def _run_from_json(payload: Any) -> IncidentRun:
             raise ValueError("run entered_at must map str -> epoch seconds")
         entered_at[key] = float(value)
     try:
-        return IncidentRun(
+        run = IncidentRun(
             incident_id=payload["incident_id"],
             state=payload["state"],
             history=history,
@@ -239,6 +326,16 @@ def _run_from_json(payload: Any) -> IncidentRun:
         raise
     except Exception as exc:
         raise ValueError(f"run entry invalid: {exc}") from exc
+    # Re-attach the executor's evidence so run_view can serve it after a
+    # restart. Absent keys become None/[] rather than a missing attribute,
+    # which is exactly what run_view's getattr defaults already mean. setattr
+    # because these are executor-attached, not IncidentRun dataclass fields --
+    # the same convention the pipeline uses when it attaches them.
+    setattr(run, "state_diff",
+            dict(state_diff) if isinstance(state_diff, Mapping) else None)
+    setattr(run, "execution_logs", list(execution_logs))
+    setattr(run, "execution_tier", execution_tier)
+    return run
 
 
 def _read_store(path: Path) -> dict[str, IncidentRun]:
@@ -272,26 +369,38 @@ def _read_store(path: Path) -> dict[str, IncidentRun]:
 
 
 def save_store(path: str | Path | None = None) -> Path:
-    """Persist REPO_STORE to JSON (atomic tmp+rename; Lane 2 loop 4)."""
+    """Persist REPO_STORE to JSON (atomic tmp+rename; Lane 2 loop 4).
+
+    Serialised under _STORE_LOCK. The tmp+rename is atomic per write, but the
+    READ of REPO_STORE and the subsequent replace are not: the orchestrator
+    worker thread and HTTP handler threads both call this, so two saves could
+    interleave (one snapshot taken before the other's run was adopted, then
+    renamed last) and silently drop a run from disk. That is exactly what
+    happened -- an ingested incident stayed reachable in memory and never
+    appeared in runs.json, so a restart lost it while the audit chain kept it.
+    The lock makes snapshot+replace indivisible; a durability bug must not be
+    fixed by "durability must never fail the request" swallowing the error.
+    """
     out = Path(path) if path is not None else STORE_PATH
-    out.parent.mkdir(parents=True, exist_ok=True)
-    payload = {iid: _run_to_json(run) for iid, run in REPO_STORE.items()}
-    text = json.dumps(payload, sort_keys=True)
-    tmp = tempfile.NamedTemporaryFile(
-        mode="w", encoding="utf-8", dir=str(out.parent),
-        prefix=out.name + ".", suffix=".tmp", delete=False)
-    try:
-        tmp.write(text + "\n")
-        tmp.flush()
-        os.fsync(tmp.fileno())
-        tmp.close()
-        os.replace(tmp.name, out)
-    except OSError:
+    with _STORE_LOCK:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        payload = {iid: _run_to_json(run) for iid, run in REPO_STORE.items()}
+        text = json.dumps(payload, sort_keys=True)
+        tmp = tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=str(out.parent),
+            prefix=out.name + ".", suffix=".tmp", delete=False)
         try:
-            os.unlink(tmp.name)
+            tmp.write(text + "\n")
+            tmp.flush()
+            os.fsync(tmp.fileno())
+            tmp.close()
+            os.replace(tmp.name, out)
         except OSError:
-            pass
-        raise
+            try:
+                os.unlink(tmp.name)
+            except OSError:
+                pass
+            raise
 
     # Dual-Engine: asynchronously sync to durable database (Postgres / SQLite)
     try:
@@ -349,11 +458,21 @@ def _ensure_loaded(incident_id: str | None = None) -> None:
 
 
 def _save_best_effort() -> None:
-    """Auto-save after mutations; durability must never fail the request."""
+    """Auto-save after mutations; durability must never fail the request.
+
+    OSError is swallowed on purpose: a disk that is momentarily unwritable must
+    not turn a state transition into a 500. Anything else is NOT swallowed --
+    a TypeError from an unserialisable payload is a code defect, and hiding it
+    behind "best effort" is how a run reached RESOLVED and then vanished on the
+    next restart with no error anywhere. Those are logged loudly instead.
+    """
     try:
         save_store()
     except OSError:
         pass
+    except Exception:  # noqa: BLE001 - logged, never raised into the request
+        logger.exception("runs store save failed: run state is in memory only "
+                         "and will be lost on restart")
 
 
 class RepoExists(FsmError):
@@ -448,6 +567,9 @@ def run_view(run: IncidentRun) -> dict[str, Any]:
         "permit_pending": run.permit is not None,
         "state_diff": state_diff,
         "execution_logs": execution_logs,
+        # Real tier string from the executor ("mock" / "docker" / "k8s"). The
+        # UI must label a run from this, never from a hardcoded terminal header.
+        "execution_tier": getattr(run, "execution_tier", ""),
         "history": [{"seq": r.seq, "frm": r.frm, "to": r.to,
                      "reason": r.reason, "refs": list(r.refs),
                      "forced": r.forced, "at": r.at} for r in run.history],

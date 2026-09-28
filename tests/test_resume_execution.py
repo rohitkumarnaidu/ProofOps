@@ -221,6 +221,74 @@ def test_approved_action_executes_verifies_and_resolves():
     assert report["action_type"] == action.action_type
 
 
+def test_resume_attaches_execution_evidence_to_the_run():
+    """The approved path must produce run_view evidence, not only chain events.
+
+    The whole human-approved path executed for real but attached nothing to the
+    run: it emitted `execution.state-diff` and `verification.verdict` to the
+    chain and returned. So `run_view` reported state_diff=None,
+    execution_logs=[], execution_tier="" and verification_results=[] for the
+    single path that matters most, and the Execution view stayed empty for a run
+    that had genuinely changed state. The evidence existed; the attachment did
+    not. Emitting to the chain is necessary but not sufficient.
+    """
+    _, run, action, extra = _stalled_run()
+    pipeline_mod.resume_from_approval(
+        INCIDENT, run, action, _permit(action),
+        tele_public=_bundle(), resource=extra["resource"],
+        severity=orch_mod._severity_for("bad-deploy", _bundle()),
+        chain=audit_router.get_or_create_chain(INCIDENT))
+
+    diff = getattr(run, "state_diff", None)
+    assert isinstance(diff, dict) and diff.get("changed"), (
+        "the approved execution must leave a state diff on the run")
+    assert list(getattr(run, "execution_logs", [])), (
+        "the executor's own output must be reachable from run_view")
+    tier = str(getattr(run, "execution_tier", ""))
+    assert tier in ("mock", "docker", "k8s"), (
+        f"the real executor tier must be exposed, got {tier!r}")
+
+    results = list(getattr(run, "verification_results", []))
+    assert results, "the verifier's output must be banked on the run"
+    entry = results[0]
+    assert entry["verdict"], "a banked verdict must be named"
+    assert isinstance(entry["checks"], dict) and entry["checks"], (
+        "a banked verdict must carry the per-check results, not just a label")
+    assert entry["execution_id"], "a banked verdict must name its execution"
+
+
+def test_resume_evidence_survives_the_run_store_round_trip(tmp_path):
+    """The executor evidence must persist, not vanish on the next restart.
+
+    `state_diff`/`execution_logs`/`execution_tier` are attached with setattr
+    rather than declared on IncidentRun, so they are only durable because the
+    store serialises them. Without that, a restart silently blanked the
+    Execution view for every previously-approved run.
+    """
+    from app.routers import runs as runs_router
+
+    _, run, action, extra = _stalled_run()
+    pipeline_mod.resume_from_approval(
+        INCIDENT, run, action, _permit(action),
+        tele_public=_bundle(), resource=extra["resource"],
+        severity=orch_mod._severity_for("bad-deploy", _bundle()),
+        chain=audit_router.get_or_create_chain(INCIDENT))
+
+    runs_router.REPO_STORE[INCIDENT] = run
+    try:
+        path = tmp_path / "runs.json"
+        runs_router.save_store(path)
+        runs_router.REPO_STORE.clear()
+        runs_router.load_store(path)
+        view = runs_router.run_view(runs_router.get_run(INCIDENT))
+    finally:
+        runs_router.REPO_STORE.pop(INCIDENT, None)
+
+    assert view["state_diff"] is not None
+    assert view["execution_logs"], "executor output must survive a restart"
+    assert view["execution_tier"] in ("mock", "docker", "k8s")
+
+
 def test_the_executed_action_id_appears_in_the_audit_chain():
     chain = audit_router.get_or_create_chain(INCIDENT)
     _, run, action, extra = _stalled_run()

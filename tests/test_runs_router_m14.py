@@ -405,6 +405,74 @@ def test_store_no_partial_on_mixed_file(tmp_path):
     assert set(runs.REPO_STORE) == {"inc-keep"}  # live dict untouched
 
 
+def test_store_roundtrip_preserves_state_diff_and_logs(tmp_path):
+    """Executor evidence must survive a restart.
+
+    It used to be attached by setattr and never persisted, so run_view
+    reported state_diff=None / execution_logs=[] for every run after any
+    restart. The Execution view then showed "no state diff" for a run that
+    had genuinely produced one -- a fabricated absence.
+    """
+    runs.create_run("inc-ev", now=NOW)
+    run = runs.get_run("inc-ev")
+    run.state_diff = {"before": {"replicas": 3}, "after": {"replicas": 4},
+                      "changed": {"replicas": {"before": 3, "after": 4}}}
+    run.execution_logs = ["mock-exec scale_deployment payments-api"]
+    run.execution_tier = "mock"
+    path = tmp_path / "runs.json"
+    runs.save_store(path)
+    runs.REPO_STORE.clear()  # simulate restart
+    runs.load_store(path)
+    view = runs.run_view(runs.get_run("inc-ev"))
+    assert view["state_diff"] is not None
+    assert view["state_diff"]["changed"]["replicas"]["after"] == 4
+    assert view["execution_logs"] == ["mock-exec scale_deployment payments-api"]
+    # The tier is what the UI must label the run from. Absent on a run that
+    # never executed, so the UI has to show an unknown rather than guess.
+    assert view["execution_tier"] == "mock"
+
+
+def test_store_legacy_entry_without_optional_keys_still_loads(tmp_path):
+    """A store written before these keys existed must still load.
+
+    The keys are optional on purpose: requiring them would turn every
+    previously persisted run into a load failure, which is how a
+    fail-closed deserializer turns a schema addition into an outage.
+    """
+    path = tmp_path / "runs.json"
+    path.write_text(json.dumps(
+        {"inc-legacy": {"incident_id": "inc-legacy", "state": "TRIAGING",
+                        "history": [], "handoffs": [], "suppressions": [],
+                        "replans": 0, "rolled_back": False, "permit": None,
+                        "consumed_refs": [], "entered_at": {}}}),
+        encoding="utf-8")
+    loaded = runs.load_store(path)
+    assert loaded == ["inc-legacy"]
+    view = runs.run_view(runs.get_run("inc-legacy"))
+    assert view["state_diff"] is None
+    assert view["execution_logs"] == []
+    assert view["execution_tier"] == ""
+
+
+def test_store_rejects_malformed_optional_keys(tmp_path):
+    """Present-but-malformed executor evidence fails closed, not silently."""
+    good = {"incident_id": "inc-bad", "state": "NEW", "history": [],
+            "handoffs": [], "suppressions": [], "replans": 0,
+            "rolled_back": False, "permit": None, "consumed_refs": [],
+            "entered_at": {}}
+    for field, bad in (("state_diff", ["not", "an", "object"]),
+                       ("execution_logs", [{"not": "a string"}]),
+                       ("execution_logs", "not a list"),
+                       ("execution_tier", 7)):
+        path = tmp_path / "runs.json"
+        payload = dict(good)
+        payload[field] = bad
+        path.write_text(json.dumps({"inc-bad": payload}), encoding="utf-8")
+        with pytest.raises(ValueError):
+            runs.load_store(path)
+        assert runs.REPO_STORE == {}  # fail-closed: no partial load
+
+
 def test_store_payload_excludes_http_idem_cache(tmp_path):
     """IDEM_RESPONSES stays a memory-only HTTP cache (documented choice)."""
     runs.create_run("inc-1", now=NOW)
@@ -413,10 +481,13 @@ def test_store_payload_excludes_http_idem_cache(tmp_path):
     path = tmp_path / "runs.json"
     runs.save_store(path)
     raw = json.loads(path.read_text(encoding="utf-8"))
+    # Exact set, so a cache key leaking in fails. state_diff/execution_logs/
+    # execution_tier are executor-attached evidence and ARE persisted on purpose.
     assert set(raw["inc-1"]) == {"incident_id", "state", "history",
                                  "handoffs", "suppressions", "replans",
                                  "rolled_back", "permit", "consumed_refs",
-                                 "entered_at"}
+                                 "entered_at", "state_diff", "execution_logs",
+                                 "execution_tier"}
 
 
 def test_reset_clears_memory_and_file():

@@ -318,6 +318,13 @@ def run_pipeline(incident_id: str, alerts: Sequence[Mapping[str, Any]],
     diff = _execution.state_diff.to_plain() if hasattr(_execution.state_diff, "to_plain") else dict(_execution.state_diff)
     setattr(run, "state_diff", diff)
     setattr(run, "execution_logs", list(_execution.logs))
+    # The tier the action actually ran in, so the UI can label the run MOCK /
+    # DOCKER / K8S from real data instead of inventing a terminal header. The
+    # `getattr(..., "value", ...)` unwrap matches the verifier entry below and
+    # keeps a plain str tier working as well as a str-enum one.
+    _tier = getattr(_execution, "tier", "")
+    setattr(run, "execution_tier",
+            str(getattr(_tier, "value", _tier)))
     after_err = float(after.get("error_rate", 1.0))
     fsm_svc.advance(run, "VERIFYING", now=ts)
     slo = dict(tele_public.get("slo", {"error_rate_below": 0.01}))
@@ -397,12 +404,14 @@ def run_pipeline(incident_id: str, alerts: Sequence[Mapping[str, Any]],
                 if "to_version" in plain_params and isinstance(
                         before.get("deployment_version"), str):
                     expected_rb = {"version": before["deployment_version"]}
-                verdict2 = _verify_action(
-                    rb_execution_id, service, after, after_rb, slo,
-                    expected_rb).verdict
+                verification_rb = _verify_action(
+                    rb_execution_id, service, after, after_rb, slo, expected_rb
+                )
+                verdict2 = verification_rb.verdict
                 verdict_name = str(verdict2.value
                                    if hasattr(verdict2, "value") else verdict2)
                 verdicts.append(verdict_name)
+                _bank_verification(run, verification_rb, ts)
                 chain.emit("verification.verdict", actor="control-plane",
                            execution_id=rb_execution_id, result=verdict_name)
                 chain.emit("rollback.finish", actor="control-plane",
@@ -513,6 +522,17 @@ def resume_from_approval(
         run, action.action_id, execution_id, _apply_action, action, before)
     _execution, after = applied
     diff = _execution.state_diff.to_plain() if hasattr(_execution.state_diff, "to_plain") else dict(_execution.state_diff)
+    # Attach the executor evidence to the run, exactly as run_pipeline does.
+    # Without this the whole human-approved path -- the product's headline HITL
+    # flow -- executed for real and left run_view reporting no state diff, no
+    # output, no tier and no verdict, so the Execution view stayed empty for the
+    # one path that matters most. The evidence existed; only the attachment was
+    # missing. Emitting to the chain is necessary but not sufficient: the chain
+    # is the proof surface, run_view is the serving surface.
+    setattr(run, "state_diff", diff)
+    setattr(run, "execution_logs", list(_execution.logs))
+    _tier = getattr(_execution, "tier", "")
+    setattr(run, "execution_tier", str(getattr(_tier, "value", _tier)))
     # Recorded as an AUDIT EVENT, not appended to `run.handoffs`.
     #
     # `fsm.audit_records` folds handoffs through `{"type": "handoff", **h}`,
@@ -541,11 +561,16 @@ def resume_from_approval(
     plain_params = params.to_plain() if hasattr(params, "to_plain") else dict(params)
     if "to_version" in plain_params:
         expected = {"version": str(plain_params["to_version"])}
-    verdict = _verify_action(
+    verification = _verify_action(
         execution_id, str(resource.get("id", "web")), before, after, slo, expected
-    ).verdict
+    )
+    verdict = verification.verdict
     verdict_name = str(verdict.value if hasattr(verdict, "value") else verdict)
     verdicts = [verdict_name]
+    # Bank the real verification output, not just its name, for the same reason
+    # run_pipeline does: the checks and the evidence string are what make a
+    # verdict auditable rather than a bare label.
+    _bank_verification(run, verification, ts)
     # action_id is carried explicitly, not only inside execution_id. The
     # execution id happens to embed it, but "the thing we executed is the thing
     # that was approved" must be readable straight off the chain -- otherwise
@@ -602,12 +627,17 @@ def resume_from_approval(
                 if "to_version" in plain_params and isinstance(
                         before.get("deployment_version"), str):
                     expected_rb = {"version": before["deployment_version"]}
-                verdict2 = _verify_action(
+                verification_rb = _verify_action(
                     rb_execution_id, str(resource.get("id", "web")), after, after_rb, slo, expected_rb
-                ).verdict
+                )
+                verdict2 = verification_rb.verdict
                 verdict_name = str(verdict2.value
                                    if hasattr(verdict2, "value") else verdict2)
                 verdicts.append(verdict_name)
+                # Bank the rollback verdict's checks too: a rollback that
+                # "worked" is exactly the claim an operator will want evidence
+                # for, so it must not degrade to a bare label.
+                _bank_verification(run, verification_rb, ts)
                 chain.emit("verification.verdict", actor="control-plane",
                            action_id=rb_action.action_id,
                            execution_id=rb_execution_id, result=verdict_name)
@@ -726,6 +756,305 @@ def publish_rca(incident_id: str, claims: Sequence[Any],
                evidence_ids=sorted(set(valid_evidence_ids)),
                result=f"published RCA for {incident_id}")
     return draft
+
+
+def _evidence_from_run(run: Any) -> tuple[dict[str, Any], set[str]]:
+    """The run's own evidence pack, validated into canonical Evidence objects.
+
+    Returns ``(evidence_by_id, valid_evidence_ids)``. The publish gate requires
+    the MAPPING, not just the id set: a cited id only grounds a claim when it
+    resolves to evidence that is fresh, not LOW trust, and sealed. A malformed
+    row is skipped rather than admitted, so a corrupt pack can never widen the
+    gate.
+
+    Sourced from the run's banked handoffs, not from live telemetry, so the
+    evidence a claim is judged against is the evidence the decision actually
+    saw.
+    """
+    from app.contracts.evidence import Evidence  # noqa: E402 (lazy, cold path)
+
+    by_id: dict[str, Any] = {}
+    rows: list[Mapping[str, Any]] = []
+    for handoff in getattr(run, "handoffs", []) or []:
+        if not isinstance(handoff, Mapping):
+            continue
+        pack = handoff.get("evidence_pack")
+        if isinstance(pack, list):
+            rows.extend(r for r in pack if isinstance(r, Mapping))
+        elif isinstance(pack, Mapping):
+            items = pack.get("evidence")
+            if isinstance(items, list):
+                rows.extend(r for r in items if isinstance(r, Mapping))
+    for row in rows:
+        try:
+            evidence = Evidence.model_validate(dict(row))
+        except Exception:
+            continue  # a malformed row denies its own citation, never widens
+        by_id[evidence.evidence_id] = evidence
+    return by_id, set(by_id)
+
+
+def _diagnostic_from_run(run: Any) -> Mapping[str, Any] | None:
+    for handoff in getattr(run, "handoffs", []) or []:
+        if isinstance(handoff, Mapping):
+            result = handoff.get("diagnostic_result")
+            if isinstance(result, Mapping):
+                return result
+    return None
+
+
+def _timeline_from_chain(chain: Any, limit: int = 64) -> list[str]:
+    """Audit-chain rows as ``ts + actor + hash`` text.
+
+    Built from the chain rather than the FSM so every row carries the three
+    things the RCA contract requires of a timeline row and the values are the
+    recorded ones, not reconstructed. Bounded to the A4 row cap.
+    """
+    rows: list[str] = []
+    for event in list(getattr(chain, "events", []) or [])[:limit]:
+        ts = getattr(event, "ts", "")
+        actor = getattr(event, "actor", "") or "control-plane"
+        kind = getattr(event, "event_type", "") or "event"
+        result = getattr(event, "result", "") or ""
+        curr = str(getattr(event, "curr_hash", "") or "")
+        stamp = ts.isoformat() if hasattr(ts, "isoformat") else str(ts)
+        line = f"{stamp} {actor} {kind}"
+        if result:
+            line += f" :: {result[:160]}"
+        if curr:
+            line += f" [hash {curr[:12]}]"
+        rows.append(line)
+    return rows
+
+
+def _remediation_log_from_chain(chain: Any) -> list[str]:
+    """The remediation / approval / verification record, from the chain.
+
+    These are the events an operator asks for when reviewing an incident: what
+    was proposed, who authorised it, what the executor did, and what the
+    independent verifier concluded. They exist on the chain, so they are read
+    from there rather than re-derived.
+    """
+    wanted = ("approval.request", "approval.approve", "approval.deny",
+              "permit.minted", "execution.state-diff", "execution.duplicate",
+              "verification.verdict", "rollback.start", "rollback.finish",
+              "policy.decision")
+    rows: list[str] = []
+    for event in list(getattr(chain, "events", []) or []):
+        kind = str(getattr(event, "event_type", ""))
+        if kind not in wanted:
+            continue
+        result = str(getattr(event, "result", "") or "")
+        actor = getattr(event, "actor", "") or "control-plane"
+        action_id = str(getattr(event, "action_id", "") or "")
+        prefix = f"{kind} by {actor}"
+        if action_id:
+            prefix += f" for {action_id}"
+        rows.append(f"{prefix}: {result[:220]}" if result else prefix)
+    return rows
+
+
+def _prevention_notes(run: Any, diagnosis: Mapping[str, Any] | None,
+                      claims: Sequence[Any]) -> list[str]:
+    """Blameless prevention notes, each one a fact already on the record.
+
+    Every note is derived from a banked artifact -- the pinned runbook, the
+    approval that authorised the action, the verifier's own checks. Nothing here
+    is aspirational advice invented to fill the section, because a postmortem
+    that invents its own prevention list is worse than one that admits it has
+    none.
+    """
+    notes: list[str] = []
+    if diagnosis is not None:
+        runbook_id = str(diagnosis.get("runbook_id", "") or "")
+        runbook_version = str(diagnosis.get("runbook_version", "") or "")
+        if runbook_id:
+            notes.append(
+                f"Runbook {runbook_id} v{runbook_version} was pinned by the "
+                "diagnostic stage before any action was proposed; keep that pin "
+                "so the same failure shape routes to a governed procedure.")
+        hypotheses = diagnosis.get("hypotheses")
+        if isinstance(hypotheses, list) and len(hypotheses) > 1:
+            notes.append(
+                f"Diagnosis kept {len(hypotheses)} competing hypotheses rather "
+                "than committing to the first; preserve that so a wrong lead is "
+                "visible instead of silently discarded.")
+    for record in getattr(run, "history", []) or []:
+        to = str(getattr(record, "to", ""))
+        if to == "AWAITING_APPROVAL":
+            notes.append(
+                "The action was YELLOW-tier and required human authorisation; it "
+                "parked at AWAITING_APPROVAL instead of executing, which is the "
+                "control working as designed.")
+            break
+    results = list(getattr(run, "verification_results", []) or [])
+    if results:
+        latest = results[-1]
+        checks = latest.get("checks") if isinstance(latest, Mapping) else {}
+        if isinstance(checks, Mapping) and checks:
+            notes.append(
+                f"Independent verification evaluated {len(checks)} check(s) and "
+                f"returned {latest.get('verdict', 'UNKNOWN')}; keep verifying "
+                "from observed state rather than from the executor's own report.")
+    if not notes:
+        notes.append(
+            "No prevention notes are derivable from the recorded artifacts for "
+            "this incident.")
+    return notes
+
+
+def rca_inputs_from_run(incident_id: str, run: Any,
+                        chain: Any) -> dict[str, Any]:
+    """Every RCA input, derived from what the run actually banked.
+
+    Built from the run's handoffs, history, verification results and the audit
+    chain -- never from live telemetry and never from the claims themselves.
+    That is what makes the coverage gate meaningful: the valid-evidence set is
+    measured from the evidence pack, so a claim cannot ground itself by citing
+    its own citation.
+    """
+    from app.contracts.hypothesis import Claim  # noqa: E402 (lazy, cold path)
+
+    evidence_by_id, valid_ids = _evidence_from_run(run)
+    diagnosis = _diagnostic_from_run(run)
+    timeline = _timeline_from_chain(chain)
+    remediation = _remediation_log_from_chain(chain)
+
+    # --- root cause, verbatim and derived -----------------------------------
+    # Stated from the leading hypothesis plus the measured metric, and phrased
+    # so the blameless lint has nothing to catch: no actor, no judgement about
+    # a person, only the system state that was observed.
+    leading: Mapping[str, Any] | None = None
+    if diagnosis is not None:
+        hypotheses = diagnosis.get("hypotheses")
+        if isinstance(hypotheses, list):
+            ranked = [h for h in hypotheses
+                      if isinstance(h, Mapping)
+                      and str(h.get("status", "")).upper() == "SUPPORTED"]
+            if ranked:
+                leading = max(ranked, key=lambda h: float(
+                    h.get("confidence") or 0.0))
+    metric_evidence = [e for e in evidence_by_id.values()
+                       if str(getattr(e, "source_id", "")) == "error_rate"]
+    # The measurement is the evidence's own ref (the pre-digester already reduced
+    # it to max/delta); reading freshness_s here would report an age, not a value.
+    observed = str(metric_evidence[0].ref) if metric_evidence else ""
+    root_cause = (
+        f"Incident {incident_id} was diagnosed as: "
+        f"{str((leading or {}).get('text', 'no supporting hypothesis recorded')).strip()}"
+        + (f" Observed signal: {observed}." if observed else "")
+        + " The contributing factors are system configuration and release state, "
+          "not individual action."
+    ).strip()
+    if len(root_cause) > 8000:  # MAX_PROSE on the contract
+        root_cause = root_cause[:8000]
+
+    # --- claims, each grounded in the measured evidence ---------------------
+    claims: list[Claim] = []
+    supporting = [str(e) for e in ((leading or {}).get("supporting") or [])
+                  if str(e) in valid_ids]
+    if leading is not None and supporting:
+        claims.append(Claim(
+            text=(f"Diagnosis: {str(leading.get('text', '')).strip()}"),
+            evidence_ids=tuple(supporting),
+        ))
+    for evidence in metric_evidence[:2]:
+        claims.append(Claim(
+            text=(f"Observed signal for {evidence.source_id} during the "
+                  f"incident window: {evidence.ref}"),
+            evidence_ids=(evidence.evidence_id,),
+        ))
+    if not claims:
+        # No citable conclusion. An empty MUST-CITE set scores 0.0, which
+        # denies publication. That is the correct outcome: a postmortem with
+        # no evidence behind it must not be published.
+        claims.append(Claim(
+            text=("No evidence-backed conclusion could be derived from the "
+                  "recorded artifacts for this incident.")))
+
+    return {
+        "incident_id": incident_id,
+        "timeline": timeline,
+        "root_cause": root_cause,
+        "claims": claims,
+        "valid_evidence_ids": valid_ids,
+        "evidence_by_id": evidence_by_id,
+        "remediation_log": remediation,
+        "prevention": _prevention_notes(run, diagnosis, claims),
+    }
+
+
+def finalize_rca(incident_id: str, run: Any, client: Any, store: Any,
+                 chain: Any = None, *, now: float | None = None) -> dict[str, Any]:
+    """Drive RESOLVED/ESCALATED -> RCA_PENDING -> RCA_PUBLISHED -> AUDITED.
+
+    This is the stage that was missing: the FSM has declared
+    ``RESOLVED|ESCALATED -> RCA_PENDING -> RCA_PUBLISHED -> AUDITED`` and the
+    A4 reporter plus a gated publisher both existed, but nothing called them.
+    So every run stopped at RESOLVED, no postmortem was ever produced, the
+    ``rca.publish`` audit event was never emitted, and the terminal ``AUDITED``
+    state was unreachable. The whole blameless-postmortem capability was dead
+    code reachable from no path.
+
+    Fail-closed throughout:
+      * publication goes through ``publish_rca`` (hardened path only);
+      * a below-coverage draft raises ``RcaDenied``, is audited, and the run is
+        left at RCA_PENDING -- never advanced to RCA_PUBLISHED;
+      * ``RCA_PUBLISHED``/``AUDITED`` carry the real refs, as the FSM requires.
+
+    Idempotent: re-running on a run already past RCA_PENDING is a no-op that
+    returns the stored report, so an operator retry or a duplicate worker
+    cannot double-publish.
+    """
+    if run.state in ("RCA_PUBLISHED", "AUDITED"):
+        stored = getattr(run, "rca_report", None)
+        return {"incident_id": incident_id, "published": True,
+                "idempotent": True, "report": stored}
+    if run.state not in ("RESOLVED", "ESCALATED"):
+        return {"incident_id": incident_id, "published": False,
+                "skipped": True,
+                "detail": f"RCA stage requires RESOLVED or ESCALATED, "
+                          f"run is in {run.state}"}
+
+    ts = _now(now)
+    if chain is None:
+        chain = audit_mod.AuditChain(incident_id=incident_id)
+    client_for_reporter = client
+    if client_for_reporter is None:
+        from agents.llm_hub import LLMHub  # noqa: E402 (lazy, cold path)
+        client_for_reporter = LLMHub.get_client("reporter", {})
+    if store is None:
+        store = session_mod.SessionStore()
+
+    fsm_svc.advance(run, "RCA_PENDING", reason="post-incident review",
+                     now=ts)
+    inputs = rca_inputs_from_run(incident_id, run, chain)
+    try:
+        report = publish_rca(
+            incident_id, inputs["claims"], inputs["evidence_by_id"],
+            inputs["valid_evidence_ids"], inputs["timeline"],
+            inputs["root_cause"], inputs["remediation_log"],
+            inputs["prevention"], client_for_reporter, store, chain=chain)
+    except RcaDenied as denied:
+        # Fail closed: the run stays at RCA_PENDING. Advancing to RCA_PUBLISHED
+        # here would claim a published postmortem that does not exist.
+        _ = denied
+        return {"incident_id": incident_id, "published": False,
+                "denied": True, "state": run.state,
+                "detail": "publication denied: MUST-CITE coverage below 1.0"}
+
+    document = report.model_dump(mode="json")
+    setattr(run, "rca_report", document)
+    audit_ref = f"rca:{incident_id}"
+    fsm_svc.advance(run, "RCA_PUBLISHED",
+                     reason=("MUST-CITE coverage 1.00; postmortem published"),
+                     refs=[audit_ref], now=ts)
+    fsm_svc.advance(run, "AUDITED",
+                     reason="audit chain recorded and verified",
+                     refs=[audit_ref, f"chain:{incident_id}"], now=ts)
+    audit_mod.record_fsm(chain, fsm_svc.audit_records(run))
+    return {"incident_id": incident_id, "published": True, "state": run.state,
+            "audit_ref": audit_ref, "report": document}
 
 
 def to_eval_trace(report: Mapping[str, Any], tele_public: Mapping[str, Any],
