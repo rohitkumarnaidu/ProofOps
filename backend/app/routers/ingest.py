@@ -180,6 +180,11 @@ def orchestrator_state() -> dict[str, Any]:
         "max_incidents": worker.max_incidents,
         "last_incident": stats.last_incident,
         "last_outcome": stats.last_outcome,
+        "resumed": stats.resumed,
+        "resume_failures": stats.resume_failures,
+        "rca_published": stats.rca_published,
+        "rca_denied": stats.rca_denied,
+        "rca_failures": stats.rca_failures,
         "queue_depth": worker._queue.qsize(),  # noqa: SLF001 - read-only probe
         "note": ("agent reasoning is SCRIPTED-ORACLE unless mode=live-lyzr; "
                  "the validator, policy engine, FSM, sandbox, verifier and "

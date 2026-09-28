@@ -115,7 +115,8 @@ _REQUIRED_RUN_KEYS = frozenset({
     "incident_id", "state", "history", "handoffs", "suppressions", "replans",
     "rolled_back", "permit", "consumed_refs", "entered_at",
 })
-_OPTIONAL_RUN_KEYS = frozenset({"state_diff", "execution_logs", "execution_tier"})
+_OPTIONAL_RUN_KEYS = frozenset({"state_diff", "execution_logs",
+                               "execution_tier", "rca_report"})
 
 logger = get_logger(__name__)
 
@@ -194,6 +195,10 @@ def _run_to_json(run: IncidentRun) -> dict[str, Any]:
         "state_diff": _json_safe(getattr(run, "state_diff", None)),
         "execution_logs": list(getattr(run, "execution_logs", []) or []),
         "execution_tier": str(getattr(run, "execution_tier", "") or ""),
+        # The published postmortem, when one exists. Persisted so the RCA view
+        # survives a restart; an absent key means "never published", which the
+        # view must distinguish from "published and empty".
+        "rca_report": _json_safe(getattr(run, "rca_report", None)),
     }
 
 
@@ -285,6 +290,9 @@ def _run_from_json(payload: Any) -> IncidentRun:
     execution_tier = payload.get("execution_tier", "")
     if not isinstance(execution_tier, str):
         raise ValueError("run execution_tier must be a str")
+    rca_report = payload.get("rca_report")
+    if rca_report is not None and not isinstance(rca_report, Mapping):
+        raise ValueError("run rca_report must be an object or null")
     raw_history = payload["history"]
     if not isinstance(raw_history, list):
         raise ValueError("run history must be a list")
@@ -335,6 +343,7 @@ def _run_from_json(payload: Any) -> IncidentRun:
             dict(state_diff) if isinstance(state_diff, Mapping) else None)
     setattr(run, "execution_logs", list(execution_logs))
     setattr(run, "execution_tier", execution_tier)
+    setattr(run, "rca_report", dict(rca_report) if rca_report is not None else None)
     return run
 
 
@@ -570,6 +579,10 @@ def run_view(run: IncidentRun) -> dict[str, Any]:
         # Real tier string from the executor ("mock" / "docker" / "k8s"). The
         # UI must label a run from this, never from a hardcoded terminal header.
         "execution_tier": getattr(run, "execution_tier", ""),
+        # The published postmortem, or null when none exists. Distinct from an
+        # empty document: the RCA view must say "not published", not render an
+        # empty postmortem as though one existed.
+        "rca_report": getattr(run, "rca_report", None),
         "history": [{"seq": r.seq, "frm": r.frm, "to": r.to,
                      "reason": r.reason, "refs": list(r.refs),
                      "forced": r.forced, "at": r.at} for r in run.history],

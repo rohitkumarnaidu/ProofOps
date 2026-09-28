@@ -6,7 +6,9 @@ and asserted via AST. No chain logic here.
 """
 from __future__ import annotations
 
+import contextlib
 import sys
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -239,7 +241,93 @@ def http_export(incident_id: str) -> dict[str, Any]:
     return _guarded(export_view, incident_id)
 
 
+# ---------------------------------------------------------------------------
+# The blameless postmortem (A4 + the MUST-CITE publish gate)
+# ---------------------------------------------------------------------------
+
+def rca_view(incident_id: str) -> dict[str, Any]:
+    """The published postmortem, or an explicit statement that none exists.
+
+    Three states are distinguished, because collapsing them is how a UI ends up
+    rendering an empty postmortem as though one had been written:
+      * ``published``  -- a document exists and passed the coverage gate;
+      * ``denied``     -- the gate refused it (run parked at RCA_PENDING);
+      * ``pending``    -- the run has not reached the post-incident stage.
+    """
+    from app.routers import runs as runs_router  # noqa: E402 (request-time only)
+
+    run = runs_router.get_run(incident_id)
+    document = getattr(run, "rca_report", None)
+    if isinstance(document, Mapping) and document:
+        return {
+            "incident_id": incident_id,
+            "published": True,
+            "state": run.state,
+            "report": dict(document),
+        }
+    return {
+        "incident_id": incident_id,
+        "published": False,
+        "state": run.state,
+        "report": None,
+        "detail": _rca_absence_detail(run.state),
+    }
+
+
+def _rca_absence_detail(state: str) -> str:
+    if state == "RCA_PENDING":
+        return ("the post-incident stage ran and the MUST-CITE coverage gate "
+                "refused publication; no postmortem was written")
+    if state in ("RCA_PUBLISHED", "AUDITED"):
+        return "the run is published but no document is on file"
+    if state in ("RESOLVED", "ESCALATED"):
+        return ("the incident finished but the post-incident stage has not run; "
+                "publish it to write the postmortem")
+    return (f"the run is in {state}; the post-incident stage runs after "
+            "RESOLVED or ESCALATED")
+
+
+def http_rca(incident_id: str) -> dict[str, Any]:
+    return _guarded(rca_view, incident_id)
+
+
+def http_rca_publish(incident_id: str,
+                     x_api_key: str | None = Header(default=None),
+                     authorization: str | None = Header(default=None),
+                     ) -> dict[str, Any]:
+    """Drive (or retry) the post-incident stage for one incident.
+
+    Write-gated: publication appends to the chain that is exported as proof.
+    Idempotent by construction -- a run already past RCA_PENDING returns its
+    stored document rather than publishing twice.
+    """
+    from app.config import get_settings  # noqa: E402 (request-time only)
+    from app.routers import auth as auth_mod
+    from app.routers import runs as runs_router  # noqa: E402
+    from app.services import pipeline as pipeline_mod  # noqa: E402
+
+    identity = auth_mod.guard_http(
+        x_api_key, lambda: get_settings().PROOFOPS_API_KEY, HTTPException,
+        authorization=authorization)
+    try:
+        auth_mod.require_role(identity, "operator", "approver", "admin")
+    except auth_mod.KeyRejected as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+    run = runs_router.get_run(incident_id)
+    chain = _chain_of(incident_id)
+    outcome = pipeline_mod.finalize_rca(incident_id, run, None, None,
+                                        chain=chain)
+    if outcome.get("published") and not outcome.get("idempotent"):
+        _guarded(persist_chain, chain)
+        with contextlib.suppress(Exception):
+            runs_router._save_best_effort()
+    return outcome
+
+
 if router is not None:  # container path; host asserts wiring via AST
+    router.get("/incidents/{incident_id}/rca")(http_rca)
+    router.post("/incidents/{incident_id}/rca/publish")(http_rca_publish)
     router.get("/incidents/{incident_id}/audit")(http_view)
     router.post("/incidents/{incident_id}/audit/verify")(http_verify)
     router.get("/incidents/{incident_id}/audit/export")(http_export)

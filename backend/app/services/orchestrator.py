@@ -281,6 +281,14 @@ class OrchestratorStats:
     rejected_capacity: int = 0
     resumed: int = 0
     resume_failures: int = 0
+    #: Post-incident counters. `rca_published` counts runs that reached the
+    #: terminal AUDITED state with a gated, evidence-backed postmortem;
+    #: `rca_denied` counts runs the MUST-CITE gate refused to publish, which is
+    #: a correct outcome and must be visible rather than indistinguishable from
+    #: a failure.
+    rca_published: int = 0
+    rca_denied: int = 0
+    rca_failures: int = 0
     last_incident: str = ""
     last_outcome: str = ""
     enabled: bool = True
@@ -508,19 +516,44 @@ class Orchestrator:
                 f"resume failed: no run for {job.incident_id}")
             return
         try:
+            chain = audit_router.get_or_create_chain(job.incident_id)
             report = pipeline_mod.resume_from_approval(
                 job.incident_id, run, job.action, job.permit,
                 tele_public=context["tele"], resource=context["resource"],
                 severity=context["severity"], env=context.get("env", "prod"),
-                chain=audit_router.get_or_create_chain(job.incident_id))
-            runs_router.REPO_STORE[job.incident_id] = report["run"]
+                chain=chain)
+            resumed_run = report["run"]
+            # Drive the post-incident stage. The FSM has always declared
+            # RESOLVED|ESCALATED -> RCA_PENDING -> RCA_PUBLISHED -> AUDITED and
+            # the A4 reporter plus gated publisher have always existed, but
+            # nothing called them: every run stopped at RESOLVED, no postmortem
+            # was ever produced and the terminal AUDITED state was unreachable.
+            # A failure here is recorded, never allowed to undo a completed
+            # remediation -- the execution already happened and was verified.
+            rca: dict = {}
+            try:
+                rca = pipeline_mod.finalize_rca(
+                    job.incident_id, resumed_run, None, None, chain=chain)
+            except Exception as exc:  # noqa: BLE001 - recorded, not swallowed
+                rca = {"published": False, "error": str(exc)[:160]}
+                self.stats.rca_failures += 1
+            runs_router.REPO_STORE[job.incident_id] = resumed_run
+            with contextlib.suppress(Exception):
+                audit_router.persist_chain(chain)
             with contextlib.suppress(Exception):
                 runs_router._save_best_effort()
             self.stats.resumed += 1
+            if rca.get("published"):
+                self.stats.rca_published += 1
+            elif rca.get("denied"):
+                self.stats.rca_denied += 1
             self.stats.last_incident = job.incident_id
             self.stats.last_outcome = (
                 f"resumed -> {report['path']} ({report['verdict']}"
-                f"{', rolled back' if report['rolled_back'] else ''})")
+                f"{', rolled back' if report['rolled_back'] else ''})"
+                + ("; RCA published" if rca.get("published")
+                   else "; RCA not published: "
+                        f"{rca.get('detail') or rca.get('error') or 'skipped'}"))
         except Exception as exc:  # noqa: BLE001 - recorded, never swallowed
             self.stats.resume_failures += 1
             self.stats.last_incident = job.incident_id

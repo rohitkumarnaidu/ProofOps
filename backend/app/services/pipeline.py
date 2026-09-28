@@ -1002,39 +1002,57 @@ def finalize_rca(incident_id: str, run: Any, client: Any, store: Any,
         left at RCA_PENDING -- never advanced to RCA_PUBLISHED;
       * ``RCA_PUBLISHED``/``AUDITED`` carry the real refs, as the FSM requires.
 
-    Idempotent: re-running on a run already past RCA_PENDING is a no-op that
-    returns the stored report, so an operator retry or a duplicate worker
-    cannot double-publish.
+    Idempotent for the *published* case: re-running on a run already at
+    RCA_PUBLISHED/AUDITED returns the stored report, so an operator retry or a
+    duplicate worker cannot double-publish.
+
+    Retryable from RCA_PENDING. A failure AFTER the advance (a blameless-lint
+    hit, a transient reporter error) used to strand the run there forever,
+    because the pre-check only accepted RESOLVED/ESCALVED: the stage could never
+    be re-entered and the incident could never be closed. RCA_PENDING therefore
+    re-enters, without a second advance.
     """
     if run.state in ("RCA_PUBLISHED", "AUDITED"):
         stored = getattr(run, "rca_report", None)
         return {"incident_id": incident_id, "published": True,
                 "idempotent": True, "report": stored}
-    if run.state not in ("RESOLVED", "ESCALATED"):
+    if run.state not in ("RESOLVED", "ESCALATED", "RCA_PENDING"):
         return {"incident_id": incident_id, "published": False,
                 "skipped": True,
-                "detail": f"RCA stage requires RESOLVED or ESCALATED, "
-                          f"run is in {run.state}"}
+                "detail": f"RCA stage requires RESOLVED, ESCALATED or "
+                          f"RCA_PENDING, run is in {run.state}"}
 
     ts = _now(now)
     if chain is None:
         chain = audit_mod.AuditChain(incident_id=incident_id)
-    client_for_reporter = client
-    if client_for_reporter is None:
-        from agents.llm_hub import LLMHub  # noqa: E402 (lazy, cold path)
-        client_for_reporter = LLMHub.get_client("reporter", {})
     if store is None:
         store = session_mod.SessionStore()
 
-    fsm_svc.advance(run, "RCA_PENDING", reason="post-incident review",
-                     now=ts)
+    if run.state in ("RESOLVED", "ESCALATED"):
+        fsm_svc.advance(run, "RCA_PENDING", reason="post-incident review",
+                         now=ts)
     inputs = rca_inputs_from_run(incident_id, run, chain)
+
+    # The reporter client is resolved AFTER the inputs, because a scripted
+    # reporter must be given a payload that matches its own output schema.
+    # Passing an empty payload produced a client that reports CONNECTED and
+    # then returns no summary, so A4 rejected its own output -- the stage
+    # failed for a reason that had nothing to do with the incident. The
+    # fallback summary here is the same deterministic one A4 computes when no
+    # model is available, derived from the real root cause; a live provider
+    # replaces it and the blameless lint still applies either way.
+    if client is None:
+        from agents.llm_hub import LLMHub  # noqa: E402 (lazy, cold path)
+        client = LLMHub.get_client("reporter", {
+            "summary": f"RCA for {incident_id}: {inputs['root_cause'][:120]}",
+        })
+
     try:
         report = publish_rca(
             incident_id, inputs["claims"], inputs["evidence_by_id"],
             inputs["valid_evidence_ids"], inputs["timeline"],
             inputs["root_cause"], inputs["remediation_log"],
-            inputs["prevention"], client_for_reporter, store, chain=chain)
+            inputs["prevention"], client, store, chain=chain)
     except RcaDenied as denied:
         # Fail closed: the run stays at RCA_PENDING. Advancing to RCA_PUBLISHED
         # here would claim a published postmortem that does not exist.
