@@ -65,3 +65,29 @@ Thumbs.db
 .turbo/
 .next/
 frontend/.vite/
+# Vite writes this next to the config on a dep-optimize pass; it is a cache
+# marker, not configuration, and it changes on almost every install.
+vite.config.ts.timestamp
+
+# --- editor / OS leftovers that survive a dev run ---
+# `.parcelrc` is deliberately NOT ignored: it is configuration someone chose.
+*.swo
+*.bak
+*.save
+desktop.ini
+.ipynb_checkpoints/
+.envrc
+
+# --- test + coverage output (never a source of truth) ---
+# `test-results`, `playwright-report`, `blob-report` and `cypress/*` are the
+# conventional homes for gate output. The browser gate writes screenshots to
+# wherever `--shots` points (docs show ./artifacts), so that is ignored too.
+coverage.lcov
+.coverage.*
+junit.xml
+test-results/
+playwright-report/
+blob-report/
+cypress/screenshots/
+cypress/videos/
+artifacts/
