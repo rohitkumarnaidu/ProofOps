@@ -25,6 +25,7 @@ import os
 import re
 import shutil
 import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -32,9 +33,93 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "ui_flow_check.mjs"
 UI_URL = os.environ.get("PROOFOPS_UI_URL", "http://127.0.0.1:5173")
-# Generous: the flow includes real agent work and real approval, so it is
-# minutes rather than the render sweep's ~3s per combination.
+# Generous: the flow includes real agent work, a real approval, the real
+# execution and the postmortem gate, so it is tens of seconds warm and rather
+# longer cold or on a loaded host. A timeout here is an environment failure,
+# reported as such, and never as a product finding.
 TIMEOUT_S = 900
+
+
+def _newest_source_change_iso() -> str:
+    """Newest commit touching code this flow actually exercises, as an ISO stamp.
+
+    Backend and frontend only. Docs, tests and CI config do not change what the
+    running bundle serves, so including them would make the freshness check
+    refuse a perfectly current stack after a documentation commit.
+    """
+    try:
+        out = subprocess.run(
+            ["git", "log", "-1", "--format=%cI", "--", "backend", "frontend"],
+            capture_output=True, text=True, timeout=30, cwd=str(ROOT),
+        )
+    except (OSError, subprocess.SubprocessError):  # pragma: no cover
+        return ""
+    if out.returncode != 0:
+        return ""
+    return out.stdout.strip()
+
+
+def _stack_started_iso() -> str:
+    """When the running api container started, as an ISO stamp, or "" if unknown.
+
+    Docker's own report is the source of truth: it is the only party that knows
+    when the image was actually created and started.
+    """
+    if shutil.which("docker") is None:
+        return ""
+    try:
+        out = subprocess.run(
+            ["docker", "compose", "ps", "--format", "{{.Service}}|{{.RunningFor}}",
+             "api"],
+            capture_output=True, text=True, timeout=30, cwd=str(ROOT),
+        )
+    except (OSError, subprocess.SubprocessError):  # pragma: no cover
+        return ""
+    if out.returncode != 0:
+        return ""
+    line = (out.stdout or "").strip().splitlines()
+    if not line:
+        return ""
+    running_for = line[0].split("|", 1)[-1].strip()
+    m = re.match(r"(\d+)\s+(second|minute|hour|day|week|month|year)", running_for)
+    if not m:
+        # "About an hour" / "Up 2 hours (healthy)" variants: fall back to the
+        # leading integer, and to "0 seconds" when docker reports nothing useful.
+        m2 = re.search(r"(\d+)\s+(second|minute|hour|day)", running_for)
+        if not m2:
+            return ""
+        amount, unit = int(m2.group(1)), m2.group(2)
+    else:
+        amount, unit = int(m.group(1)), m.group(2)
+    now = datetime.now(timezone.utc)
+    scale = {"second": 1, "minute": 60, "hour": 3600,
+             "day": 86400, "week": 604800, "month": 2592000, "year": 31536000}
+    return datetime.fromtimestamp(
+        now.timestamp() - amount * scale[unit], tz=timezone.utc
+    ).isoformat()
+
+
+def _stack_is_stale() -> bool:
+    """True only when the running bundle provably predates the source.
+
+    This gate drives a real stack, so it is the only test here whose verdict
+    depends on deployed code matching the checkout. When the stack is older than
+    the newest backend/frontend commit, the failures it reports are the age of
+    the deployment, not a defect in the product, and reporting them as a product
+    verdict is actively misleading: it cost a full triage to establish that the
+    container simply predated a dependency fix.
+
+    Deliberately narrow. If either timestamp is unreadable the answer is False,
+    so this can never suppress a real failure. It is a freshness precondition, not
+    a retry and not a general error filter.
+    """
+    src, started = _newest_source_change_iso(), _stack_started_iso()
+    if not src or not started:
+        return False
+    try:
+        return datetime.fromisoformat(started) < datetime.fromisoformat(src)
+    except ValueError:  # pragma: no cover - defensive
+        return False
 
 
 def _stack_is_up() -> bool:
@@ -69,19 +154,34 @@ def _operator_key() -> str:
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node is not on PATH")
 @pytest.mark.skipif(not _stack_is_up(), reason=f"UI not reachable at {UI_URL}")
+@pytest.mark.skipif(_stack_is_stale(),
+                    reason="the running stack predates the newest backend/frontend "
+                           "commit, so a failure here is the deployment's age and "
+                           "not a product defect; rebuild the stack first")
 @pytest.mark.skipif(_operator_key() == "",
                     reason="no PROOFOPS_API_KEY: every write is server-gated, "
                            "so the flow cannot be driven")
-def test_the_operator_path_works_end_to_end_in_a_real_browser():
-    proc = subprocess.run(
-        ["node", str(SCRIPT), "--json"],
-        capture_output=True,
-        text=True,
-        timeout=TIMEOUT_S,
-        cwd=str(ROOT),
-        env={**os.environ, "PROOFOPS_UI_URL": UI_URL,
-             "PROOFOPS_API_KEY": _operator_key()},
-    )
+def test_the_operator_path_works_end_to_end_in_a_real_browser() -> None:
+    try:
+        proc = subprocess.run(
+            ["node", str(SCRIPT), "--json"],
+            capture_output=True,
+            text=True,
+            timeout=TIMEOUT_S,
+            cwd=str(ROOT),
+            env={**os.environ, "PROOFOPS_UI_URL": UI_URL,
+                 "PROOFOPS_API_KEY": _operator_key()},
+        )
+    except subprocess.TimeoutExpired as exc:
+        raw = exc.stdout
+        partial: str = "" if raw is None else (
+            raw if isinstance(raw, str) else raw.decode("utf-8", "replace")
+        )
+        pytest.fail(
+            f"the flow gate did not complete within {TIMEOUT_S}s. That is an "
+            "environment failure, not a product finding: the path was not "
+            f"judged. Partial output:\n{partial[-800:]}"
+        )
     assert proc.returncode in (0, 1), (
         "the flow gate must exit 0 (path works) or 1 (a step failed); "
         f"exit {proc.returncode} means the check could not run:\n{proc.stderr[-800:]}"
@@ -104,7 +204,52 @@ def test_the_operator_path_works_end_to_end_in_a_real_browser():
     ), f"the approved run never reached a terminal state: {report['final_state']}"
 
 
-def test_flow_gate_asserts_the_steps_it_was_written_for():
+def test_stale_stack_is_skipped_rather_than_reported_as_a_product_defect() -> None:
+    """The freshness precondition must exist, and must be narrow.
+
+    Two failure modes are being prevented here. First, a container that predates
+    the source produces a verdict about the deployment's age dressed up as a
+    product defect, which is worse than no signal. Second, and worse, a skip
+    that triggers too eagerly would hide a real regression behind an excuse.
+
+    So: the guard must be present, it must be attached to this test, and it must
+    degrade to "not stale" whenever it cannot prove staleness.
+    """
+    src = Path(__file__).read_text(encoding="utf-8")
+
+    # Attached to the flow test, not merely defined somewhere in the file.
+    # Matched at the start of a line so this assertion cannot count its own text.
+    decorators = [
+        ln for ln in src.splitlines()
+        if ln.strip().startswith("@pytest.mark.skipif(_stack_is_stale()")
+    ]
+    assert len(decorators) == 1, (
+        "the stale-stack guard must gate exactly the live-stack flow test, not "
+        f"the host-safe tests around it (found {len(decorators)})"
+    )
+
+    # Narrow by construction: unprovable freshness must never suppress a run.
+    body = src.split("def _stack_is_stale()", 1)[1].split("def test_", 1)[0]
+    assert "return False" in body, (
+        "_stack_is_stale must default to False when it cannot prove staleness, "
+        "so an unreadable timestamp can never hide a real failure"
+    )
+    assert "if not src or not started:" in body, (
+        "both timestamps are required before staleness may be claimed"
+    )
+    # It must read the real signals, not a heuristic: docker's own start time
+    # for the bundle, git history for the source it is meant to match.
+    assert "_stack_started_iso" in body and "_newest_source_change_iso" in body, (
+        "_stack_is_stale must decide from both real signals, not from one"
+    )
+    assert '"docker", "compose", "ps"' in src and \
+           '"git", "log", "-1"' in src, (
+        "staleness must be read from docker's reported start time and the git "
+        "history, not inferred"
+    )
+
+
+def test_flow_gate_asserts_the_steps_it_was_written_for() -> None:
     """The gate's own coverage, asserted statically so it cannot be trimmed away.
 
     Each entry is a step whose absence made the product unusable while every
@@ -138,6 +283,24 @@ def test_flow_gate_asserts_the_steps_it_was_written_for():
     # The honesty regression: no invented process status.
     assert "EXIT CODE" in source, (
         "the gate must keep asserting the fabricated exit code stays gone"
+    )
+    # The post-incident stage. AUDITED is reachable only by publishing a gated
+    # postmortem, and before that stage was driven every run stopped at
+    # RESOLVED -- so the gate must assert the terminal state AND the document.
+    assert "the run reached the terminal AUDITED state" in source, (
+        "the gate must assert the run reaches AUDITED; RESOLVED alone means the "
+        "post-incident stage never ran"
+    )
+    assert "rca-document" in source, (
+        "the gate must assert the postmortem is RENDERED, not merely served"
+    )
+    for field in ("claim_ids", "remediation_log", "prevention"):
+        assert field in source, (
+            f"the gate must assert the postmortem's {field} is present; an "
+            "ungated or empty document would pass without them"
+        )
+    assert "does not render an RCA document" in source, (
+        "the gate must keep asserting the stale disclaimer stays gone"
     )
     # The audit proof.
     assert "audit/verify" in source
