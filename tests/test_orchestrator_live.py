@@ -26,6 +26,7 @@ sys.path.insert(0, str(ROOT / "backend"))
 from app.routers import audit as audit_router  # noqa: E402
 from app.routers import runs as runs_router  # noqa: E402
 from app.services import orchestrator as orch_mod  # noqa: E402
+from app.services.orchestrator import SubmitResult  # noqa: E402
 
 
 def _bundle(seed: int = 7) -> dict:
@@ -76,7 +77,7 @@ def test_a_real_incident_stops_at_awaiting_approval():
     """End-to-end through the real pipeline: the stop is the feature."""
     worker = orch_mod.Orchestrator(auto_generate=False)
     incident = "orch-test-stop"
-    assert worker.submit(incident, "bad-deploy", _bundle(), source="test") is True
+    assert worker.submit(incident, "bad-deploy", _bundle(), source="test").accepted
     job = worker._queue.get_nowait()
     worker._process_sync(job)
 
@@ -122,8 +123,8 @@ def test_a_duplicate_incident_is_suppressed_not_run_twice():
     prevents it.
     """
     worker = orch_mod.Orchestrator(auto_generate=False)
-    assert worker.submit("orch-test-dup", "bad-deploy", _bundle()) is True
-    assert worker.submit("orch-test-dup", "bad-deploy", _bundle()) is False
+    assert worker.submit("orch-test-dup", "bad-deploy", _bundle()).accepted
+    assert worker.submit("orch-test-dup", "bad-deploy", _bundle()).accepted is False
     assert worker.stats.duplicates_suppressed == 1
     assert worker._queue.qsize() == 1, "the duplicate must not be queued"
 
@@ -131,7 +132,7 @@ def test_a_duplicate_incident_is_suppressed_not_run_twice():
 def test_growth_is_bounded():
     """A worker that accepts unbounded work is a memory leak with a timer."""
     worker = orch_mod.Orchestrator(auto_generate=False, max_incidents=3)
-    accepted = [worker.submit(f"orch-test-b{i}", "bad-deploy", _bundle())
+    accepted = [worker.submit(f"orch-test-b{i}", "bad-deploy", _bundle()).accepted
                 for i in range(6)]
     assert accepted == [True, True, True, False, False, False]
     assert worker._queue.qsize() == 3
@@ -139,8 +140,8 @@ def test_growth_is_bounded():
 
 def test_blank_incident_ids_are_refused():
     worker = orch_mod.Orchestrator(auto_generate=False)
-    assert worker.submit("", "bad-deploy", _bundle()) is False
-    assert worker.submit("   ", "bad-deploy", _bundle()) is False
+    assert worker.submit("", "bad-deploy", _bundle()).accepted is False
+    assert worker.submit("   ", "bad-deploy", _bundle()).accepted is False
     assert worker._queue.qsize() == 0
 
 
@@ -269,3 +270,111 @@ def test_the_reported_mode_is_honest_about_which_agents_ran():
     worker = orch_mod.Orchestrator(auto_generate=False)
     expected = "live-lyzr" if orch_mod._lyzr_key() else "scripted-oracle"
     assert worker.stats.mode == expected
+
+
+# ---------------------------------------------------------------------------
+# Capacity is backpressure, not a verdict on the caller, and it is not
+# permanent. The defect these cover bricked the control plane: `max_incidents`
+# was compared against every incident the process had ever seen, so after 25 it
+# refused everything forever while reporting `running: true, enabled: true` and
+# answering ingest with `200 {"accepted": true}`. On a stack that generates an
+# incident every 45 seconds that is about 19 minutes of a control plane that
+# looks healthy and silently drops everything an operator submits.
+# ---------------------------------------------------------------------------
+
+
+def _terminal_run(incident_id: str):
+    """Get-or-create a run and drive it to a terminal state.
+
+    REPO_STORE is module-global and shared by every test in this file, so a
+    plain `create_run` raises `RepoExists` whenever a sibling test already
+    opened the same id. These tests must be order-independent, so they reuse an
+    existing run when there is one.
+    """
+    try:
+        run = runs_router.get_run(incident_id)
+    except Exception:
+        run = None
+    if run is None:
+        run = runs_router.create_run(incident_id)
+    run.state = "AUDITED"  # a member of fsm.TERMINAL
+    return run
+
+
+def test_the_worker_still_accepts_new_incidents_after_the_bound_is_reached():
+    """The regression that mattered: exceeding the bound must not wedge the worker.
+
+    Terminal runs must stop counting against capacity, otherwise the bound is a
+    lifetime limit wearing a capacity label.
+    """
+    worker = orch_mod.Orchestrator(auto_generate=False, max_incidents=3)
+    bundle = _bundle()
+    for i in range(3):
+        assert worker.submit(f"capfix-live-{i}", "bad-deploy", bundle).accepted, (
+            f"incident {i} should be accepted below the bound")
+
+    # At the bound, with none of the three finished: real backpressure.
+    at_capacity = worker.submit("capfix-live-3", "bad-deploy", bundle)
+    assert at_capacity.accepted is False
+    assert at_capacity.reason == "capacity", (
+        "exceeding the live bound is backpressure and must say so, not be "
+        "reported as a duplicate id")
+    assert worker.stats.rejected_capacity == 1
+    assert worker.stats.duplicates_suppressed == 0, (
+        "a capacity refusal must not be counted as a duplicate suppression")
+
+    # Finish all three. Capacity must reopen.
+    for i in range(3):
+        _terminal_run(f"capfix-live-{i}")
+    assert worker._live_claimed() == 0  # noqa: SLF001 - the probe under test
+    reopened = worker.submit("capfix-live-4", "bad-deploy", bundle)
+    assert reopened.accepted, (
+        "capacity must reopen once runs reach a terminal state; a bound applied "
+        "to lifetime is what bricked the worker")
+
+
+def test_a_repeated_id_is_still_refused_forever():
+    """Exactly-once must survive the fix.
+
+    The claim cannot be forgotten: re-driving a completed id would emit a second
+    transition into a hash-chained log, which `verify()` would then correctly
+    report as tampering. Capacity is transient; the duplicate guard is not.
+    """
+    worker = orch_mod.Orchestrator(auto_generate=False, max_incidents=5)
+    bundle = _bundle()
+    assert worker.submit("capfix-dup-1", "bad-deploy", bundle).accepted
+
+    _terminal_run("capfix-dup-1")  # terminal, so capacity is free again
+
+    again = worker.submit("capfix-dup-1", "bad-deploy", bundle)
+    assert again.accepted is False
+    assert again.reason == "duplicate", (
+        "a repeated id must be refused as a duplicate even at zero capacity, or "
+        "the fix has silently traded one integrity bug for another")
+    assert worker.stats.duplicates_suppressed == 1
+    assert worker.stats.rejected_capacity == 0
+
+
+def test_capacity_and_duplicate_are_distinguishable_by_the_caller():
+    """The reason must survive to the caller, not collapse to a bool.
+
+    A bare bool forced the router to invent a reason, and it invented
+    "duplicate incident id" for a full worker, which sent operators debugging a
+    duplicate they never sent.
+    """
+    worker = orch_mod.Orchestrator(auto_generate=False, max_incidents=1)
+    bundle = _bundle()
+    assert worker.submit("capfix-a", "bad-deploy", bundle).accepted
+
+    capacity = worker.submit("capfix-b", "bad-deploy", bundle)
+    duplicate = worker.submit("capfix-a", "bad-deploy", bundle)
+
+    assert capacity.reason == "capacity"
+    assert duplicate.reason == "duplicate"
+    assert capacity.reason != duplicate.reason, (
+        "the two refusals must be separable or the router will keep guessing")
+
+    # And the common spelling must not silently invert.
+    assert bool(SubmitResult(True, "")) is True
+    assert bool(SubmitResult(False, "capacity")) is False
+

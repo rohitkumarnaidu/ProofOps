@@ -79,7 +79,11 @@ async def alertmanager_webhook(
     accepted = worker.submit(incident_id, scenario, telemetry, source="alertmanager-webhook")
 
     return {
-        "accepted": accepted,
+        # .accepted / .reason, not the result object: submit() now returns a
+        # named tuple, and serialising it directly would put [true, ""] in the
+        # JSON body where a client expects a boolean.
+        "accepted": accepted.accepted,
+        "reason": accepted.reason,
         "incident_id": incident_id,
         "source": "prometheus-alertmanager",
         "scenario": scenario,
@@ -131,7 +135,8 @@ async def datadog_webhook(
     accepted = worker.submit(incident_id, scenario, telemetry, source="datadog-webhook")
 
     return {
-        "accepted": accepted,
+        "accepted": accepted.accepted,
+        "reason": accepted.reason,
         "incident_id": incident_id,
         "source": "datadog",
         "scenario": scenario,
@@ -190,7 +195,8 @@ async def cloudwatch_webhook(
     accepted = worker.submit(incident_id, scenario, telemetry, source="aws-cloudwatch-webhook")
 
     return {
-        "accepted": accepted,
+        "accepted": accepted.accepted,
+        "reason": accepted.reason,
         "incident_id": incident_id,
         "source": "aws-cloudwatch",
         "scenario": scenario,
@@ -231,7 +237,8 @@ async def pagerduty_webhook(
     accepted = worker.submit(incident_id, scenario, telemetry, source="pagerduty-webhook")
 
     return {
-        "accepted": accepted,
+        "accepted": accepted.accepted,
+        "reason": accepted.reason,
         "incident_id": incident_id,
         "source": "pagerduty",
         "scenario": scenario,

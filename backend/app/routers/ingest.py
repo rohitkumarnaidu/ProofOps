@@ -114,13 +114,29 @@ def ingest_incident(body: IngestBody,
     if not worker.stats.enabled:
         raise HTTPException(status_code=503,
                             detail="orchestrator is disabled (kill-switch engaged)")
-    accepted = worker.submit(body.incident_id, body.scenario, body.telemetry,
-                             source="ingest")
-    if not accepted:
-        return {"accepted": False, "processed": False,
-                "incident_id": body.incident_id,
-                "detail": ("duplicate incident id (suppressed to keep the audit "
-                           "chain free of repeated transitions)")}
+    result = worker.submit(body.incident_id, body.scenario, body.telemetry,
+                           source="ingest")
+    if not result.accepted:
+        # Each refusal reason gets its own status and its own wording. They used
+        # to share one branch that said "duplicate" and returned 200, so a
+        # saturated worker was reported as a repeated id: the operator went
+        # looking for a duplicate they had not sent, while the control plane was
+        # in fact refusing every new incident. A 200 was the worst of it, because
+        # a client that only checks the status code believed the work was queued.
+        if result.reason == "duplicate":
+            raise HTTPException(
+                status_code=409,
+                detail=("this incident id was already claimed, suppressed to "
+                        "keep the audit chain free of repeated transitions"))
+        if result.reason == "capacity":
+            raise HTTPException(
+                status_code=429,
+                detail=(f"the worker is at its live capacity of "
+                        f"{worker.max_incidents} in-flight incidents; retry once "
+                        "a run reaches a terminal state. This is backpressure, "
+                        "not a rejected id"))
+        raise HTTPException(status_code=422,
+                            detail=f"incident refused: {result.reason}")
     return {"accepted": True, "processed": True,
             "incident_id": body.incident_id,
             "mode": worker.stats.mode,
@@ -159,13 +175,18 @@ def orchestrator_state() -> dict[str, Any]:
         "stalled": stats.stalled,
         "failed": stats.failed,
         "duplicates_suppressed": stats.duplicates_suppressed,
+        "rejected_capacity": stats.rejected_capacity,
+        "live_incidents": worker._live_claimed(),  # noqa: SLF001 - read-only probe
+        "max_incidents": worker.max_incidents,
         "last_incident": stats.last_incident,
         "last_outcome": stats.last_outcome,
         "queue_depth": worker._queue.qsize(),  # noqa: SLF001 - read-only probe
         "note": ("agent reasoning is SCRIPTED-ORACLE unless mode=live-lyzr; "
                  "the validator, policy engine, FSM, sandbox, verifier and "
                  "audit chain are real in both modes, and the worker never "
-                 "approves anything"),
+                 "approves anything. `live_incidents` against `max_incidents` "
+                 "is the capacity that is actually in use; a run at the bound "
+                 "returns 429, not a false 'duplicate'."),
     }
 
 

@@ -53,7 +53,7 @@ import os
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Any, Mapping
+from typing import Any, Mapping, NamedTuple
 
 from app.services import predigest as predigest_mod
 
@@ -273,6 +273,12 @@ class OrchestratorStats:
     stalled: int = 0
     failed: int = 0
     duplicates_suppressed: int = 0
+    #: Incidents refused because the worker was at its live capacity. Kept apart
+    #: from `duplicates_suppressed` because they are different operator problems:
+    #: a duplicate is a client mistake, capacity is backpressure the caller should
+    #: retry after. Reporting one as the other sends the operator to debug the
+    #: wrong system.
+    rejected_capacity: int = 0
     resumed: int = 0
     resume_failures: int = 0
     last_incident: str = ""
@@ -280,6 +286,28 @@ class OrchestratorStats:
     enabled: bool = True
     mode: str = "scripted-oracle"
     agents: list[str] = field(default_factory=list)
+
+
+class SubmitResult(NamedTuple):
+    """The outcome of offering an incident to the worker, and why.
+
+    A bare bool left the caller to invent a reason and it invented the wrong one:
+    a saturated worker and a repeated id both surfaced as "duplicate incident
+    id". An operator told their id was a repeat, when the control plane had in
+    fact stopped accepting new work entirely, debugs the wrong system.
+
+    `reason` is one of "duplicate", "capacity", "blank_id", or "" when accepted.
+    """
+
+    accepted: bool
+    reason: str = ""
+
+    def __bool__(self) -> bool:
+        # A NamedTuple is always truthy, so without this an `if not result`
+        # at a call site would silently invert. Make the common spelling mean
+        # what it reads as.
+        return self.accepted
+
 
 
 class Orchestrator:
@@ -293,7 +321,7 @@ class Orchestrator:
         scenario: str = DEFAULT_SCENARIO,
         variant: str = DEFAULT_VARIANT,
         seed: int = 7,
-        max_incidents: int = 25,
+        max_incidents: int = 500,
         auto_generate: bool = True,
     ) -> None:
         self.interval = interval
@@ -301,6 +329,17 @@ class Orchestrator:
         self.scenario = scenario
         self.variant = variant
         self.seed = seed
+        # max_incidents bounds how many claimed incidents may be IN FLIGHT. It
+        # is a state-growth safety limit, not a demo throttle, and the default
+        # is sized accordingly.
+        #
+        # It used to be 25, a test-sized number doing a production job. A run
+        # parked at AWAITING_APPROVAL still counts as live, because it is waiting
+        # on a human rather than finished, and it leaves the count only when it
+        # reaches a terminal state. With the generator enabled that filled the
+        # bound in roughly 19 minutes and refused every later submission. The
+        # count is now published as `live_incidents` on GET /orchestrator, so an
+        # operator can watch the bound approach instead of hitting it as a wall.
         self.max_incidents = max_incidents
         self.auto_generate = auto_generate
         self.stats = OrchestratorStats(
@@ -355,24 +394,34 @@ class Orchestrator:
     # -- submission --------------------------------------------------------
 
     def submit(self, incident_id: str, scenario: str,
-               tele: Mapping[str, Any], source: str = "ingest") -> bool:
-        """Queue an incident. False when it is a duplicate or we are full.
+               tele: Mapping[str, Any],
+               source: str = "ingest") -> SubmitResult:
+        """Queue an incident, reporting precisely why it was refused.
 
         The claim set is what makes double-advance impossible: an incident id is
         accepted once, and a second submission of the same id is refused rather
         than run twice. A pipeline that advanced a run twice would emit a
         duplicate transition into a hash-chained log, which verify() would then
-        correctly report as tampering.
+        correctly report as tampering. That guarantee is permanent.
+
+        `max_incidents` is a different, transient bound: it caps how many claimed
+        incidents may be *in flight* at once, and reopens as runs finish. It is
+        backpressure, reported as `capacity` so the caller can retry, and never
+        confused with `duplicate`, which is a client mistake.
         """
         incident_id = str(incident_id).strip()
         if not incident_id:
-            return False
+            return SubmitResult(False, "blank_id")
         with self._lock:
             if incident_id in self._claimed:
                 self.stats.duplicates_suppressed += 1
-                return False
-            if len(self._claimed) >= self.max_incidents:
-                return False
+                return SubmitResult(False, "duplicate")
+            if self._live_claimed() >= self.max_incidents:
+                # Backpressure, not a verdict on the caller. Counted against
+                # incidents still in flight, so the bound reopens as soon as
+                # runs reach a terminal state.
+                self.stats.rejected_capacity += 1
+                return SubmitResult(False, "capacity")
             self._claimed.add(incident_id)
         self.stats.submitted += 1
         # Capture execution context now, while the telemetry that produced the
@@ -388,7 +437,37 @@ class Orchestrator:
             }
         self._queue.put_nowait(Job(incident_id=incident_id, scenario=scenario,
                                    tele=dict(tele), source=source))
-        return True
+        return SubmitResult(True, "")
+
+    def _live_claimed(self) -> int:
+        """How many claimed incidents are still in flight.
+
+        This is the number `max_incidents` is meant to bound.
+
+        The bug this replaces compared the bound against `len(self._claimed)`,
+        which is every incident the process had ever seen and which is never
+        evicted. Once a process had handled `max_incidents` incidents it refused
+        every new one forever, with no path back except a restart, while still
+        reporting `running: true, enabled: true` and answering ingest with
+        `200 {"accepted": true}`. On a stack that generates an incident every 45
+        seconds that is roughly 19 minutes of a control plane that looks healthy
+        and silently drops everything an operator submits.
+
+        A claim must never be forgotten for the duplicate check: re-driving a
+        completed id would emit a second transition into a hash-chained log,
+        which `verify()` would then correctly report as tampering. So `_claimed`
+        stays permanent and only the capacity count here is transient. An id with
+        no run is counted, because it is queued or in flight.
+        """
+        from app.routers import runs as runs_router
+        from app.services import fsm as fsm_svc
+
+        live = 0
+        for incident_id in self._claimed:
+            run = runs_router.REPO_STORE.get(incident_id)
+            if run is None or getattr(run, "state", None) not in fsm_svc.TERMINAL:
+                live += 1
+        return live
 
     # -- resume ------------------------------------------------------------
 
