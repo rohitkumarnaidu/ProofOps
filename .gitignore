@@ -58,10 +58,16 @@ Thumbs.db
 *.db
 *.db-shm
 *.db-wal
+# The app has a declared SQLite fallback (var/proofops.db), and SQLite writes a
+# rollback journal beside the database. -wal and -shm were already covered;
+# -journal was not, and a journal holds committed page contents, so committing
+# one leaks data the database file alone would not.
+*.db-journal
 *.sqlite
 *.sqlite3
 *.sqlite-shm
 *.sqlite-wal
+*.sqlite-journal
 .turbo/
 .next/
 frontend/.vite/
@@ -71,6 +77,11 @@ vite.config.ts.timestamp
 
 # --- editor / OS leftovers that survive a dev run ---
 # `.parcelrc` is deliberately NOT ignored: it is configuration someone chose.
+# So is `docker-compose.override.yml`, for a sharper reason: an untracked
+# override silently changes what `docker compose up` runs versus what CI runs,
+# and a divergence the repository cannot see is the kind this project should
+# surface rather than absorb. Same for `*.png` -- gate screenshots are covered
+# by directory above, and a blanket image rule would hide a real asset later.
 *.swo
 *.bak
 *.save
@@ -91,3 +102,13 @@ blob-report/
 cypress/screenshots/
 cypress/videos/
 artifacts/
+# The browser gate takes a screenshots directory via --shots, and the two names
+# below are what people reach for when they do not pass the documented path.
+shots/
+screenshots/
+
+# --- crash / runaway process output ---
+# `core` (exact) was already covered; the kernel also names dumps core.PID, and
+# a dev server or the flow gate backgrounded with nohup leaves these behind.
+core.*
+nohup.out
