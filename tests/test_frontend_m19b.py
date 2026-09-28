@@ -149,6 +149,15 @@ def test_rca_view_audit_and_gates():
                    "audit-chain", "audit-empty", "gate-cards",
                    "Run smoke eval", "auditApi",
                    "audit-valid-badge"):
+        if marker == "does not render an RCA document":
+            # The view used to carry this statement. It now renders a real
+            # postmortem, so the honest claim is inverted -- and a view that
+            # still said it cannot render one would be understating a
+            # capability it has.
+            assert "does not render an RCA document" not in view
+            assert "Blameless postmortem" in view
+            assert "rca-document" in view
+            continue
         assert marker in view
     # The chain-validity evidence the audit endpoint returns must be rendered,
     # not dropped: an earlier pass removed the badge and its test marker
@@ -156,6 +165,23 @@ def test_rca_view_audit_and_gates():
     assert "chainValidity" in view
     assert "chain.events" in view
     assert "chain.items" not in view
+
+
+def test_rca_view_renders_the_postmortem_from_the_server():
+    """The postmortem is A4's gated output; it must be shown, not summarised away."""
+    view = _src("views/RCAView.tsx")
+    for field in ("summary", "root_cause", "claim_ids", "remediation_log",
+                  "prevention", "timeline"):
+        assert f"rca.report.{field}" in view, (
+            f"the postmortem's {field} must be rendered; A4 emits it and an "
+            "operator reconstructing the incident needs it")
+    # 'Never published' must be distinguishable from 'published and empty'.
+    assert "rca.published" in view
+    assert "rca-absent" in view
+    assert "rcaApi.view" in view
+    assert "rcaApi.publish" in view
+    # And the publish control must exist, because a denied run needs a retry.
+    assert "publish-rca" in view
 
 
 def test_state_diff_renderer():

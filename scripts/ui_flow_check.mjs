@@ -471,6 +471,37 @@ async function main() {
         ? `run ended in ${reached}. AUDITED is the target: the resume path does not yet drive the post-incident stage, so no gated postmortem was published. Owner: RCA renderer lane.`
         : `run ended in ${reached}`);
 
+    // ---------------------------------------------------------------- step 4b
+    // The post-incident stage. The run must not merely finish at RESOLVED: the
+    // FSM's declared terminal state is AUDITED, reached only by publishing a
+    // gated postmortem, and before this stage was driven no run ever got there.
+    for (let i = 0; i < 40; i += 1) {
+      run = await apiGet(`/runs/${encodeURIComponent(incidentId)}`);
+      if (run && run.state === "AUDITED") break;
+      await sleep(1000);
+    }
+    check("the run reached the terminal AUDITED state", run?.state === "AUDITED",
+      `run is in ${run?.state}; AUDITED requires a published postmortem`);
+
+    const postmortem = await apiGet(
+      `/incidents/${encodeURIComponent(incidentId)}/rca`);
+    check("the postmortem is published and ungated",
+      postmortem?.published === true && postmortem?.report?.gated === false,
+      `GET /rca reported published=${postmortem?.published} `
+      + `gated=${postmortem?.report?.gated}`);
+    check("the postmortem carries grounded claims",
+      Array.isArray(postmortem?.report?.claim_ids)
+        && postmortem.report.claim_ids.length > 0,
+      "a published postmortem with no claims would mean the coverage gate was vacuous");
+    check("the postmortem carries a remediation and approval record",
+      Array.isArray(postmortem?.report?.remediation_log)
+        && postmortem.report.remediation_log.length > 0,
+      "the postmortem has no remediation/approval/verification record");
+    check("the postmortem carries blameless prevention notes",
+      Array.isArray(postmortem?.report?.prevention)
+        && postmortem.report.prevention.length > 0,
+      "the postmortem has no prevention notes");
+
     // ---------------------------------------------------------------- step 5
     // The evidence the Execution view exists to show.
     check("the executed run reports its real executor tier",
@@ -519,6 +550,25 @@ async function main() {
     check("Audit view shows the policy decision",
       /policy/i.test(auditText) && /YELLOW|GREEN|RED|DENY|ALLOW|ESCALATE/.test(auditText),
       "the authorization outcome is invisible in the audit surface");
+
+    // The postmortem must be RENDERED, not merely served. An operator
+    // reconstructing an incident needs the cause, the record and the prevention
+    // notes on the page.
+    const showsPostmortem = await evaluate(
+      '!!document.querySelector("[data-testid=\'rca-document\']")'
+    );
+    check("the postmortem is rendered on the page", showsPostmortem,
+      "the RCA view served no postmortem document; the operator path ends "
+      + "without a usable incident record");
+    check("the rendered postmortem shows a verified root cause",
+      /Verified root cause/i.test(auditText) || /root cause/i.test(auditText),
+      "no root-cause section rendered");
+    check("the rendered postmortem shows the prevention notes",
+      /Prevention notes/i.test(auditText),
+      "no prevention notes rendered");
+    check("the view no longer claims it cannot render an RCA",
+      !/does not render an RCA document/i.test(auditText),
+      "the view still states it renders no postmortem, which is now false");
 
     const verified = await apiPost(`/incidents/${encodeURIComponent(incidentId)}/audit/verify`);
     check("the chain recomputes as valid",

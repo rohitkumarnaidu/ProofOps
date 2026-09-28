@@ -25,13 +25,36 @@ def test_shell_navigation_uses_real_selected_incident() -> None:
 
 
 def test_incident_views_open_the_same_context() -> None:
-    detail = source("views/IncidentDetail.tsx")
+    """Every incident-scoped destination lives in ONE component.
+
+    The routes used to be hand-written per view, and they drifted: Incident
+    Detail linked to three views but not the agent thread, and Execution and
+    Audit were navigation dead ends with no outbound links at all. So the set
+    is now defined once in components/IncidentNav.tsx, and this asserts both
+    that the set is complete there and that every incident view uses it --
+    a new view that forgets the component fails here rather than shipping as a
+    dead end.
+    """
+    nav = source("components/IncidentNav.tsx")
     for path in (
-        "/safety?incident_id=${encodeURIComponent(id)}",
-        "/execution/${encodeURIComponent(id)}",
-        "/rca/${encodeURIComponent(id)}",
+        "/incidents/${encoded}",
+        "/safety?incident_id=${encoded}",
+        "/execution/${encoded}",
+        "/rca/${encoded}",
+        "/agents/${encoded}",
     ):
-        assert path in detail
+        assert path in nav, f"{path} is missing from the shared incident nav"
+    # The id is encoded, so an incident id containing a slash cannot break out
+    # of its route segment.
+    assert "encodeURIComponent(incidentId)" in nav
+
+    for view in ("IncidentDetail.tsx", "SafetyGate.tsx", "ExecutionView.tsx",
+                 "RCAView.tsx", "AgentsView.tsx"):
+        text = source(f"views/{view}")
+        assert "IncidentNav" in text, (
+            f"{view} must use the shared IncidentNav; a per-view link list is "
+            "what let the reachable set drift"
+        )
 
 
 def test_api_encodes_every_interpolated_id() -> None:
@@ -209,7 +232,6 @@ def test_empty_not_found_and_rca_labels_are_honest() -> None:
     assert 'auditError !== "" ? null : events.length === 0' in rca
     assert "Incident audit not found" in rca
     assert "Audit &amp; Evaluation" in rca
-    assert "does not render an RCA document" in rca
     assert "diff={null}" in execution
     # The empty state must not blame a non-existent missing endpoint. It used to
     # read "no retrieval endpoint is exposed ... so no state transition is
@@ -220,6 +242,11 @@ def test_empty_not_found_and_rca_labels_are_honest() -> None:
     assert "No state diff recorded" in execution
     assert "no retrieval endpoint is exposed" not in execution
     assert "AWAITING_APPROVAL" in execution
+    # The RCA view must state what it actually renders. It used to say it
+    # rendered no postmortem, which is now false: A4's gated document is
+    # served and displayed, so a stale disclaimer would understate the product.
+    assert "does not render an RCA document" not in rca
+    assert "Blameless postmortem" in rca
 
 
 def test_audit_view_matches_the_real_endpoint_contract() -> None:

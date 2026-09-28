@@ -329,6 +329,133 @@ def test_every_write_route_accepts_the_token_sign_in_issues() -> None:
     )
 
 
+def test_loads_are_cancellable_and_sequenced() -> None:
+    """A slow response must never overwrite fresher data or a dead component.
+
+    Every view had the same two defects and no shared place to fix them: no
+    unmount guard, and no request sequencing. With an event-stream refresh and
+    an operator refresh able to overlap, the slower response landing last made
+    an incident visibly revert to an earlier state, with nothing to explain it.
+    """
+    hook = _strip_comments(source("components/useAsyncData.ts"))
+    assert "mounted" in hook, "the loader must not write after unmount"
+    assert "sequence" in hook and "ticket !== sequence.current" in hook, (
+        "only the newest request may commit; a slower earlier one must be "
+        "discarded or the UI reverts to stale state"
+    )
+    # And the subject change must clear the previous incident's data.
+    assert "lastSignature" in hook, (
+        "navigating from one incident to another must clear the previous "
+        "subject, or the operator sees incident A's evidence under B's heading"
+    )
+    # The sequence token, not AbortController alone, is what guarantees
+    # ordering: a response already in flight can still resolve after an abort.
+    assert "AbortController" not in hook or "sequence" in hook
+
+    for view in ("ExecutionView.tsx", "IncidentDetail.tsx", "RCAView.tsx"):
+        text = _strip_comments(source(f"views/{view}"))
+        assert "useAsyncData" in text, (
+            f"{view} must load through the shared hook, not a bespoke "
+            "setState-in-a-fetch that cannot be cancelled or sequenced"
+        )
+
+
+def test_the_postmortem_is_served_and_rendered() -> None:
+    """A4's gated RCA document must reach the operator, not just the chain."""
+    api = _strip_comments(source("api.ts"))
+    view = _strip_comments(source("views/RCAView.tsx"))
+    assert "export const rcaApi" in api
+    assert "/rca/publish" in api
+    assert "rcaApi.view" in view
+    assert "rcaApi.publish" in view
+    # Null and empty are different: 'never published' vs 'published and empty'.
+    assert "report: RcaDocument | null" in api
+    assert "rca-absent" in view
+
+
+def test_the_mode_badge_can_explain_an_unknown_mode() -> None:
+    """A 401, a 500 and a dead socket are three different operator problems.
+
+    The probe collapsed all of them into one red OFFLINE pill, so the badge
+    asserted the executor was absent when it might simply be unauthorized.
+    """
+    api = _strip_comments(source("api.ts"))
+    hook = _strip_comments(source("components/useMode.ts"))
+    badges = _strip_comments(source("components/badges.tsx"))
+    for failure in ("unreachable", "unauthorized", "unexpected"):
+        assert failure in api, f"{failure} must be a distinguishable outcome"
+    assert "probeModeDetailed" in api
+    assert "reason" in badges, "the badge must carry the probe's explanation"
+    assert "modeState.reason" in _strip_comments(source("views/CommandCenter.tsx"))
+    assert "probeModeDetailed" in hook
+    # And the unrecognised tier must be named, not rounded down to OFFLINE.
+    assert "unrecognised executor tier" in api
+
+
+def test_liveness_and_dependency_health_are_separate_facts() -> None:
+    """/healthz answers while dependencies are down, by design.
+
+    Conflating the two means an operator cannot tell "the API is gone" from
+    "the database is gone", which are different incidents with different fixes.
+    """
+    command = _strip_comments(source("views/CommandCenter.tsx"))
+    api = _strip_comments(source("api.ts"))
+    assert "fetchHealth" in api
+    assert "fetchHealth" in command
+    assert "apiAlive" in command
+    assert "api-unreachable" in command, (
+        "an unreachable API process must be stated; otherwise the engine tiles "
+        "are not evidence about the deployment"
+    )
+    assert "enginesFailed" in command, "dependency health must be separate"
+
+
+def test_operator_can_reach_every_incident_view_from_every_incident_view() -> None:
+    nav = _strip_comments(source("components/IncidentNav.tsx"))
+    for route in ("/incidents/", "/safety?incident_id=", "/execution/", "/rca/",
+                  "/agents/"):
+        assert route in nav, f"{route} is missing from the shared nav"
+    # The agent thread is the only surface that explains a decision in prose.
+    assert "/agents/" in nav
+
+
+def test_a_stuck_run_can_be_swept_from_the_ui() -> None:
+    """Nothing else in the product moves a lapsed stage or approval.
+
+    The view used to say "Advance this run from the API", which is a dead end
+    for an operator: a run parked at AWAITING_APPROVAL whose approval expired
+    simply sat there.
+    """
+    detail = _strip_comments(source("views/IncidentDetail.tsx"))
+    api = _strip_comments(source("api.ts"))
+    assert "sweep:" in api
+    assert "runsApi.sweep" in detail
+    assert "sweep-ttl" in detail
+    assert "Sweep stage / approval TTLs" in detail
+    # A no-op sweep must say so rather than appearing to do nothing.
+    assert "Nothing was past its TTL" in detail
+
+
+def test_the_gate_can_collect_a_held_token() -> None:
+    """ADR-015 delivery modes: the server may hold the token, not hand it back."""
+    gate = _strip_comments(source("views/SafetyGate.tsx"))
+    api = _strip_comments(source("api.ts"))
+    assert "claimToken:" in api
+    assert "approvalsApi.claimToken" in gate
+    assert "claim-token" in gate
+    # It returns a view, never a token: the credential reaches the approver out
+    # of band, so the message must not imply otherwise.
+    assert "not returned by this endpoint" in gate
+
+
+def test_denying_records_a_reason() -> None:
+    """A denial with an empty reason reaches the audit chain with no rationale."""
+    gate = _strip_comments(source("views/SafetyGate.tsx"))
+    assert "denyReason" in gate
+    assert "deny-reason" in gate
+    assert "denyReason.trim()" in gate
+
+
 def test_audit_view_can_verify_and_export_the_chain() -> None:
     """A `valid` flag without first_bad_seq is undiagnosable, and the export is
     the product's proof artifact."""

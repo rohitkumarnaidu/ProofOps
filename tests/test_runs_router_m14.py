@@ -482,12 +482,13 @@ def test_store_payload_excludes_http_idem_cache(tmp_path):
     runs.save_store(path)
     raw = json.loads(path.read_text(encoding="utf-8"))
     # Exact set, so a cache key leaking in fails. state_diff/execution_logs/
-    # execution_tier are executor-attached evidence and ARE persisted on purpose.
+    # execution_tier/rca_report are executor- and publisher-attached evidence
+    # and ARE persisted on purpose.
     assert set(raw["inc-1"]) == {"incident_id", "state", "history",
                                  "handoffs", "suppressions", "replans",
                                  "rolled_back", "permit", "consumed_refs",
                                  "entered_at", "state_diff", "execution_logs",
-                                 "execution_tier"}
+                                 "execution_tier", "rca_report"}
 
 
 def test_reset_clears_memory_and_file():

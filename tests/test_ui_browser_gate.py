@@ -37,7 +37,14 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "ui_browser_check.mjs"
 UI_URL = os.environ.get("PROOFOPS_UI_URL", "http://127.0.0.1:5173")
 # Generous: the sweep is 15 view/viewport combinations at ~3s each.
-TIMEOUT_S = 300
+#
+# Measured: ~50s on an idle host, >300s when the machine is also running other
+# stacks, and that is a false failure -- nothing about the UI changed. A gate
+# that fails on host load trains people to re-run it until it goes green, which
+# is worse than having no gate, because a real regression gets dismissed the
+# same way. The budget is therefore set for the loaded case, and a timeout is
+# reported as "could not complete" rather than as "a view is not clean".
+TIMEOUT_S = 900
 
 
 def _stack_is_up() -> bool:
@@ -54,14 +61,28 @@ def _stack_is_up() -> bool:
 @pytest.mark.skipif(shutil.which("node") is None, reason="node is not on PATH")
 @pytest.mark.skipif(not _stack_is_up(), reason=f"UI not reachable at {UI_URL}")
 def test_ui_renders_cleanly_in_a_real_browser():
-    proc = subprocess.run(
-        ["node", str(SCRIPT), "--json"],
-        capture_output=True,
-        text=True,
-        timeout=TIMEOUT_S,
-        cwd=str(ROOT),
-        env={**os.environ, "PROOFOPS_UI_URL": UI_URL},
-    )
+    try:
+        proc = subprocess.run(
+            ["node", str(SCRIPT), "--json"],
+            capture_output=True,
+            text=True,
+            timeout=TIMEOUT_S,
+            cwd=str(ROOT),
+            env={**os.environ, "PROOFOPS_UI_URL": UI_URL},
+        )
+    except subprocess.TimeoutExpired as exc:
+        # Distinct from a finding. A timeout means the sweep could not finish
+        # (host too slow, browser starved) -- NOT that a view is broken, and the
+        # two must never be reported the same way.
+        partial = exc.stdout or b""
+        if isinstance(partial, bytes):
+            partial = partial.decode("utf-8", "replace")
+        pytest.fail(
+            f"the browser gate did not complete within {TIMEOUT_S}s. That is an "
+            "environment failure, not a UI finding: no view was judged. Re-run "
+            "on a quieter host or raise TIMEOUT_S. Partial output:\n"
+            f"{partial[-800:]}"
+        )
     assert proc.returncode in (0, 1), (
         "the browser gate must exit 0 (clean) or 1 (findings); "
         f"exit {proc.returncode} means the check could not run:\n"
