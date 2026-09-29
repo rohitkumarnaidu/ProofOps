@@ -131,7 +131,7 @@ export function ExecutionView() {
             aria-busy="true"
             className="text-xs text-fg-subtle"
           >
-            probing backendâ€¦
+            probing backend…
           </span>
         )}
         {run !== null && (
@@ -147,8 +147,8 @@ export function ExecutionView() {
 
       <p aria-live="polite" className="text-xs text-fg-subtle">
         Event stream: {events.connectionState}
-        {events.lastEventType === null ? "" : ` Â· ${events.lastEventType}`}
-        {events.lastEventId === null ? "" : ` Â· ${events.lastEventId}`}
+        {events.lastEventType === null ? "" : ` · ${events.lastEventType}`}
+        {events.lastEventId === null ? "" : ` · ${events.lastEventId}`}
       </p>
 
       {events.error !== "" && (
@@ -192,7 +192,7 @@ export function ExecutionView() {
                       #{history.seq}
                     </span>
                     <span className="font-medium">
-                      {history.frm} â†’ {history.to}
+                      {history.frm} → {history.to}
                     </span>
                     {history.forced && (
                       <span className="ml-2 inline-flex align-middle">
@@ -234,7 +234,7 @@ export function ExecutionView() {
             ) : (
               <div className="rounded border border-line bg-surface-sunken p-3 font-mono text-xs text-fg">
                 <div className="mb-2 flex flex-wrap items-center justify-between gap-2 border-b border-line pb-2 text-fg-subtle">
-                  <span>EXECUTOR Â· {tierLabel}</span>
+                  <span>EXECUTOR · {tierLabel}</span>
                   {/* No process status is shown. The executor returns logs and
                       a state diff, never a status code, so a green success
                       badge here was a number this page invented -- and on a
@@ -340,10 +340,10 @@ export function ExecutionView() {
                       #{transition.seq}
                     </span>
                     <span className="font-medium">
-                      {transition.frm} â†’ {transition.to}
+                      {transition.frm} → {transition.to}
                     </span>
                     {transition.reason !== "" && (
-                      <span className="text-fg-muted"> â€” {transition.reason}</span>
+                      <span className="text-fg-muted"> — {transition.reason}</span>
                     )}
                   </li>
                 ))}
@@ -379,13 +379,13 @@ export function ExecutionView() {
                       className="border-b border-line py-2 last:border-b-0"
                     >
                       <span className="mr-2 text-xs tabular-nums text-fg-subtle">
-                        #{seq ?? "â€”"}
+                        #{seq ?? "—"}
                       </span>
                       <span className="font-medium">
-                        {frm} â†’ {to}
+                        {frm} → {to}
                       </span>
                       {reason !== "" && (
-                        <span className="text-fg-muted"> â€” {reason}</span>
+                        <span className="text-fg-muted"> — {reason}</span>
                       )}
                       {refs.length > 0 && (
                         <span className="ml-2 inline-flex flex-wrap gap-1 align-middle">

@@ -207,7 +207,7 @@ export function IncidentDetail() {
             aria-busy="true"
             className="text-xs text-fg-subtle"
           >
-            probing backendÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â¦
+            probing backend…
           </span>
         )}
         {run !== null && (
@@ -220,8 +220,8 @@ export function IncidentDetail() {
       {/* Polite live region for event stream */}
       <p aria-live="polite" className="text-xs text-fg-subtle">
         Event stream: {events.connectionState}
-        {events.lastEventType === null ? "" : ` ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· ${events.lastEventType}`}
-        {events.lastEventId === null ? "" : ` ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· ${events.lastEventId}`}
+        {events.lastEventType === null ? "" : ` · ${events.lastEventType}`}
+        {events.lastEventId === null ? "" : ` · ${events.lastEventId}`}
       </p>
 
       {events.error !== "" && (
@@ -570,7 +570,7 @@ export function IncidentDetail() {
                       {history.frm} → {history.to}
                     </span>
                     {history.reason !== "" && (
-                      <span className="text-fg-muted"> ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â {history.reason}</span>
+                      <span className="text-fg-muted"> — {history.reason}</span>
                     )}
                     {history.forced && (
                       <span className="ml-2 inline-flex align-middle">
@@ -589,7 +589,7 @@ export function IncidentDetail() {
                             className="max-w-full break-all rounded border border-line bg-surface-raised px-1.5 py-0.5 text-xs text-accent"
                           >
                             {reference.length > 24
-                              ? `${reference.slice(0, 24)}ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â¦`
+                              ? `${reference.slice(0, 24)}…`
                               : reference}
                           </span>
                         ))}

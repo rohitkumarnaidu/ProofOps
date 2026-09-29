@@ -114,7 +114,7 @@ export function AgentsView() {
           offer a way back to the incident it was discussing. */}
       <div className="flex flex-wrap items-center gap-3">
         <h1 data-page-heading tabIndex={-1} className="text-xl font-bold tracking-tight">
-          Agent{incidentId === "" ? "" : ` Â· ${incidentId}`}
+          Agent{incidentId === "" ? "" : ` · ${incidentId}`}
         </h1>
         <ModeBadge mode={mode} reason={modeState.reason} />
         {mode === null && (
@@ -123,7 +123,7 @@ export function AgentsView() {
             aria-busy="true"
             className="text-xs text-fg-subtle"
           >
-            probing backendâ€¦
+            probing backend…
           </span>
         )}
       </div>

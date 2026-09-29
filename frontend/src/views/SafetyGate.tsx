@@ -530,7 +530,7 @@ export function SafetyGate() {
     <div className="mx-auto flex max-w-6xl flex-col gap-4">
       <div className="flex flex-wrap items-center gap-3">
         <h1 data-page-heading tabIndex={-1} className="text-xl font-bold tracking-tight">
-          Safety Gate{incidentId === "" ? "" : ` Â· ${incidentId}`}
+          Safety Gate{incidentId === "" ? "" : ` · ${incidentId}`}
         </h1>
         <ModeBadge mode={mode} reason={modeState.reason} />
         {mode === null && (
@@ -539,7 +539,7 @@ export function SafetyGate() {
             aria-busy="true"
             className="text-xs text-fg-subtle"
           >
-            probing backendâ€¦
+            probing backend…
           </span>
         )}
       </div>
@@ -548,10 +548,10 @@ export function SafetyGate() {
         Event stream: {incidentEvents.connectionState}
         {incidentEvents.lastEventType === null
           ? ""
-          : ` Â· ${incidentEvents.lastEventType}`}
+          : ` · ${incidentEvents.lastEventType}`}
         {incidentEvents.lastEventId === null
           ? ""
-          : ` Â· ${incidentEvents.lastEventId}`}
+          : ` · ${incidentEvents.lastEventId}`}
       </p>
 
       {incidentEvents.error !== "" && (
@@ -705,7 +705,7 @@ export function SafetyGate() {
               onClick={() => void requestApproval()}
               disabled={incidentId === "" || isRequesting}
             >
-              {isRequesting ? "Requestingâ€¦" : "Request approval"}
+              {isRequesting ? "Requesting…" : "Request approval"}
             </Button>
           </div>
           {requestIssue !== null && (
@@ -752,7 +752,7 @@ export function SafetyGate() {
                 data-testid="load-approval"
                 disabled={isLoadingApproval || loadApprovalId.trim() === ""}
               >
-                {isLoadingApproval ? "Loadingâ€¦" : "Load approval"}
+                {isLoadingApproval ? "Loading…" : "Load approval"}
               </Button>
             </div>
           </form>
@@ -807,7 +807,7 @@ export function SafetyGate() {
                 [
                   "Identity mode",
                   <span className="break-all">
-                    {view.identity_mode} Â· Requester key: {view.requester_key_id}
+                    {view.identity_mode} · Requester key: {view.requester_key_id}
                   </span>,
                 ],
                 [
@@ -817,7 +817,7 @@ export function SafetyGate() {
                         undecided), so `?? "not yet decided"` could never fire
                         and the row rendered blank. Test the empty string. */}
                     {view.decided_by === "" ? "not yet decided" : view.decided_by}{" "}
-                    Â· SoD: {view.sod}
+                    · SoD: {view.sod}
                   </span>,
                 ],
               ]}
@@ -875,7 +875,7 @@ export function SafetyGate() {
             )}
             {!decidable && view.status === "pending" && view.seconds_remaining <= 0 && (
               <Notice tone="warn" testId="ttl-expired" className="mt-3">
-                Approval TTL elapsed â€” request a fresh approval.
+                Approval TTL elapsed — request a fresh approval.
               </Notice>
             )}
             <div className="mt-4 flex flex-col gap-3">

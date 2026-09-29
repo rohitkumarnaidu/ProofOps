@@ -445,7 +445,7 @@ export function CommandCenter() {
               aria-busy="true"
               className="text-xs text-fg-subtle"
             >
-              probing backendÃ¢â‚¬Â¦
+              probing backend…
             </span>
           )}
           {worker !== null && (
@@ -458,7 +458,7 @@ export function CommandCenter() {
         <div className="text-xs text-fg-subtle">
           {meta === null
             ? "deployment mode: not reported"
-            : `deployment mode: ${meta.mode} Ã‚Â· executor: ${meta.executor_tier}`}
+            : `deployment mode: ${meta.mode} · executor: ${meta.executor_tier}`}
         </div>
       </div>
 
@@ -513,7 +513,7 @@ export function CommandCenter() {
             onClick={() => void stopWorker()}
             disabled={stopping || worker?.enabled === false}
           >
-            {stopping ? "StoppingÃ¢â‚¬Â¦" : "Engage kill-switch"}
+            {stopping ? "Stopping…" : "Engage kill-switch"}
           </Button>
         }
       >
@@ -521,7 +521,7 @@ export function CommandCenter() {
           <p className="text-sm text-fg-muted">
             {workerError !== ""
               ? "Worker state unavailable (see the notice above)."
-              : "Reading worker stateÃ¢â‚¬Â¦"}
+              : "Reading worker state…"}
           </p>
         ) : (
           <KeyValue
@@ -538,7 +538,7 @@ export function CommandCenter() {
               ["Auto-generate", worker.auto_generate ? "on" : "off"],
               [
                 "Counters",
-                `submitted ${worker.submitted} Ã‚Â· processed ${worker.processed} Ã‚Â· blocked ${worker.blocked} Ã‚Â· failed ${worker.failed} Ã‚Â· stalled ${worker.stalled} Ã‚Â· duplicates suppressed ${worker.duplicates_suppressed}`,
+                `submitted ${worker.submitted} · processed ${worker.processed} · blocked ${worker.blocked} · failed ${worker.failed} · stalled ${worker.stalled} · duplicates suppressed ${worker.duplicates_suppressed}`,
               ],
               ["Queue depth", String(worker.queue_depth)],
               [
@@ -572,8 +572,8 @@ export function CommandCenter() {
                 <span className="font-medium text-fg">{alert.name}</span>
                 <span className="font-mono text-xs text-fg-muted">
                   {alert.metric} {alert.op}{" "}
-                  {alert.target === null ? "no target" : alert.target} Ã‚Â· observed{" "}
-                  {alert.observed === null ? "no data" : alert.observed} Ã‚Â·{" "}
+                  {alert.target === null ? "no target" : alert.target} · observed{" "}
+                  {alert.observed === null ? "no data" : alert.observed} ·{" "}
                   {alert.window}
                 </span>
                 {alert.severity !== "none" && (
@@ -753,7 +753,7 @@ export function CommandCenter() {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Button type="submit" tone="primary" disabled={launching || newId.trim() === ""}>
-              {launching ? "IngestingÃ¢â‚¬Â¦" : "Ingest incident"}
+              {launching ? "Ingesting…" : "Ingest incident"}
             </Button>
             <Button
               type="button"

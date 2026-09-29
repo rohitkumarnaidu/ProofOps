@@ -39,7 +39,7 @@ function fmtGate(value: unknown): string {
   if (Array.isArray(value)) {
     return value.map((entry: unknown) => fmtGate(entry)).join(",");
   }
-  return "Ã¢â‚¬â€";
+  return "—";
 }
 
 export function RCAView() {
@@ -231,7 +231,7 @@ export function RCAView() {
             aria-busy="true"
             className="text-xs text-fg-subtle"
           >
-            probing backendÃ¢â‚¬Â¦
+            probing backend…
           </span>
         )}
         {incidentState !== null && (
@@ -245,8 +245,8 @@ export function RCAView() {
               tone={chainValidity.valid ? "ok" : "danger"}
               title={`${chainValidity.checked} event(s) verified against the hash chain`}
             >
-              {chainValidity.valid ? "chain valid" : "chain INVALID"} Ã‚Â·{" "}
-              {chainValidity.checked} event{chainValidity.checked === 1 ? "" : "s"} Ã‚Â·{" "}
+              {chainValidity.valid ? "chain valid" : "chain INVALID"} ·{" "}
+              {chainValidity.checked} event{chainValidity.checked === 1 ? "" : "s"} ·{" "}
               {chainValidity.origin}
             </StatusPill>
           </span>
@@ -274,7 +274,7 @@ export function RCAView() {
             onClick={() => void publishRca()}
             disabled={isPublishing}
           >
-            {isPublishing ? "PublishingÃ¢â‚¬Â¦" : "Publish / retry"}
+            {isPublishing ? "Publishing…" : "Publish / retry"}
           </Button>
         }
       >
@@ -289,7 +289,7 @@ export function RCAView() {
                 model tier: {rca.report.model_tier}
               </StatusPill>
               <span className="text-xs text-fg-subtle">
-                coverage gate accepted Ã‚Â· {rca.report.claim_ids.length} claim(s)
+                coverage gate accepted · {rca.report.claim_ids.length} claim(s)
               </span>
             </div>
 
@@ -314,7 +314,7 @@ export function RCAView() {
             {rca.report.claim_ids.length > 0 && (
               <section>
                 <h3 className="text-xs font-semibold uppercase tracking-wide text-fg-subtle">
-                  Claim Ã¢â€ â€™ evidence map
+                  Claim → evidence map
                 </h3>
                 <ul className="mt-1 flex flex-wrap gap-2">
                   {rca.report.claim_ids.map((claimId) => (
@@ -405,10 +405,10 @@ export function RCAView() {
         Event stream: {incidentEvents.connectionState}
         {incidentEvents.lastEventType === null
           ? ""
-          : ` Ã‚Â· ${incidentEvents.lastEventType}`}
+          : ` · ${incidentEvents.lastEventType}`}
         {incidentEvents.lastEventId === null
           ? ""
-          : ` Ã‚Â· ${incidentEvents.lastEventId}`}
+          : ` · ${incidentEvents.lastEventId}`}
       </p>
 
       {incidentEvents.error !== "" && (
@@ -446,7 +446,7 @@ export function RCAView() {
               onClick={() => void verifyChain()}
               disabled={isVerifying}
             >
-              {isVerifying ? "VerifyingÃ¢â‚¬Â¦" : "Verify chain"}
+              {isVerifying ? "Verifying…" : "Verify chain"}
             </Button>
             <Button
               size="sm"
@@ -454,7 +454,7 @@ export function RCAView() {
               onClick={() => void exportChain()}
               disabled={isExporting}
             >
-              {isExporting ? "ExportingÃ¢â‚¬Â¦" : "Export proof"}
+              {isExporting ? "Exporting…" : "Export proof"}
             </Button>
           </div>
         }
@@ -520,12 +520,12 @@ export function RCAView() {
                 >
                   <div className="flex flex-wrap items-center justify-between gap-1 border-b border-line pb-1 text-fg-subtle">
                     <div className="flex items-center gap-1.5">
-                      <span className="font-bold text-fg">#{String(event.seq ?? "Ã¢â‚¬â€")}</span>
+                      <span className="font-bold text-fg">#{String(event.seq ?? "—")}</span>
                       <span className="font-semibold text-accent">{String(event.event_type ?? "unknown")}</span>
                     </div>
                     <span className="text-xs text-fg-muted">
                       {ts === "" ? "no timestamp reported" : new Date(ts).toLocaleString()}
-                      {" Ã‚Â· "}
+                      {" · "}
                       {String(event.actor ?? "control-plane")}
                     </span>
                   </div>
@@ -559,8 +559,8 @@ export function RCAView() {
                   )}
                   {(prev !== "" || curr !== "") && (
                     <div className="mt-2 flex flex-wrap items-center gap-3 border-t border-line/50 pt-1 text-[11px] text-fg-subtle">
-                      {prev !== "" && <span>prev: <span className="text-fg-muted">{prev.slice(0, 10)}Ã¢â‚¬Â¦{prev.slice(-6)}</span></span>}
-                      {curr !== "" && <span>curr: <span className="text-ok font-semibold">{curr.slice(0, 10)}Ã¢â‚¬Â¦{curr.slice(-6)}</span></span>}
+                      {prev !== "" && <span>prev: <span className="text-fg-muted">{prev.slice(0, 10)}…{prev.slice(-6)}</span></span>}
+                      {curr !== "" && <span>curr: <span className="text-ok font-semibold">{curr.slice(0, 10)}…{curr.slice(-6)}</span></span>}
                     </div>
                   )}
                 </li>
@@ -581,7 +581,7 @@ export function RCAView() {
             onClick={() => void runSmoke()}
             disabled={isRunningSmoke}
           >
-            {isRunningSmoke ? "RunningÃ¢â‚¬Â¦" : "Run smoke eval"}
+            {isRunningSmoke ? "Running…" : "Run smoke eval"}
           </Button>
         }
       >
@@ -605,10 +605,10 @@ export function RCAView() {
               {smoke.note}
             </Notice>
             <p className="text-sm text-fg-muted">
-              {smoke.system} Ã‚Â· {smoke.cases} cases Ã‚Â·{" "}
-              {smoke.baseline.config.name} (n={smoke.baseline.n}) Ã¢â€ â€™{" "}
-              {smoke.optimized.config.name} (n={smoke.optimized.n}) Ã‚Â· pass rate{" "}
-              {smoke.baseline.pass_rate} Ã¢â€ â€™ {smoke.optimized.pass_rate} (ÃŽâ€
+              {smoke.system} · {smoke.cases} cases ·{" "}
+              {smoke.baseline.config.name} (n={smoke.baseline.n}) →{" "}
+              {smoke.optimized.config.name} (n={smoke.optimized.n}) · pass rate{" "}
+              {smoke.baseline.pass_rate} → {smoke.optimized.pass_rate} (Δ{" "}
               {String(smoke.delta.d_pass_rate ?? "n/a")})
             </p>
             <p className="mt-1 text-sm">
@@ -638,7 +638,7 @@ export function RCAView() {
                     {label}
                   </p>
                   <p className="text-sm font-bold tabular-nums text-fg">
-                    {typeof group.subtotal === "number" ? group.subtotal : "Ã¢â‚¬â€"}
+                    {typeof group.subtotal === "number" ? group.subtotal : "—"}
                   </p>
                 </div>
               ))}
@@ -658,8 +658,8 @@ export function RCAView() {
                       {gate}
                     </p>
                     <p className="mt-0.5 text-xs text-fg-muted">
-                      base {fmtGate(baseGates?.[gate])} Ã¢â€ â€™ opt{" "}
-                      {fmtGate(optimizedGates?.[gate])} (ÃŽâ€{" "}
+                      base {fmtGate(baseGates?.[gate])} → opt{" "}
+                      {fmtGate(optimizedGates?.[gate])} (Δ{" "}
                       {fmtGate(smoke.delta[`d_${gate}`])})
                     </p>
                   </div>
