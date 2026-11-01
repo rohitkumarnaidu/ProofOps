@@ -49,5 +49,5 @@ kubernetes>=29.0,<36
 PyJWT>=2.8,<3
 pytest>=8.2,<9
 pytest-asyncio>=0.23,<0.25
-ruff>=0.5,<0.6
+ruff>=0.17.3,<0.18
 mypy>=1.10,<1.12
