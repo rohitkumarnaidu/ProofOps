@@ -47,7 +47,7 @@ kubernetes>=29.0,<36
 # approval and the kill-switch were unusable in the deployed bundle even though
 # the client code for them was present and correct.
 PyJWT>=2.8,<3
-pytest>=8.2,<9
+pytest>=9.2.0,<10
 pytest-asyncio>=0.23,<0.25
 ruff>=0.5,<0.6
 mypy>=1.10,<1.12
