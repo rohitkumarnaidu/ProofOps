@@ -4,7 +4,7 @@
 # - Root cause of the py3.14 host breakage: starlette v1.x removed the
 #   `on_startup` Router kwarg that fastapi 0.115–0.119 still passes, so
 #   `fastapi.testclient` import fails (fastapi itself declares
-#   `starlette<0.47,>=0.40`). The explicit starlette upper bound below makes
+#   `starlette>=1.10.0,<1.11`). The explicit starlette upper bound below makes
 #   fresh installs resolve a compatible pair instead of drifting to v1.x.
 # - No lockfile yet (M00.7 CI foundation adds pip freeze / hash check); ranges
 #   are deliberately narrow and every bound is load-bearing. Do NOT widen
