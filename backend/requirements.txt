@@ -48,6 +48,6 @@ kubernetes>=29.0,<36
 # the client code for them was present and correct.
 PyJWT>=2.8,<3
 pytest>=8.2,<9
-pytest-asyncio>=0.23,<0.25
+pytest-asyncio>=1.4.1,<1.5
 ruff>=0.5,<0.6
 mypy>=1.10,<1.12
