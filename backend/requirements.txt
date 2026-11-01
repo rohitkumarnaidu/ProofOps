@@ -37,7 +37,7 @@ httpx>=0.27,<0.29
 # urllib3!=2.6.0,>=1.24.2, which is compatible, and it is the version this tree
 # already has installed and passing against, so the lock is being brought in
 # line with reality rather than forward into the unknown.
-kubernetes>=29.0,<36
+kubernetes>=37.0.1,<38
 # JWT bearer tokens for operator sign-in (routers/auth.py issue_jwt_token /
 # verify_jwt_token, both `import jwt` + HS256). Undeclared until now, so
 # POST /auth/token answered HTTP 500 with `ModuleNotFoundError: No module named
