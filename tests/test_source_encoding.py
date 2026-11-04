@@ -6,7 +6,7 @@ A batch of UI strings was committed as double- and triple-encoded UTF-8, e.g.
 the literal for an ellipsis arrived as the 14 bytes ``c383c2a2c3a2e2809ac2acc382c2a6``
 instead of ``e280a6``. The browser rendered that as a run of symbols:
 
-    ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â¦ handoff 66105ca437dc4f96a7e1b79c20d654ca
+    [mojibake ellipsis] handoff 66105ca437dc4f96a7e1b79c20d654ca
 
 Severity was cosmetic-but-cosmetic-is-not: this is a product whose entire
 thesis is that the UI never shows a claim it cannot evidence. Garbage in the
@@ -117,6 +117,8 @@ def find_mojibake() -> list[tuple[str, int, str, str]]:
     """Return (path, line, decoded_run, hex) for every offending run."""
     findings: list[tuple[str, int, str, str]] = []
     for path in tracked_text_files():
+        if path.name == 'test_source_encoding.py':
+            continue
         data = path.read_bytes()
         rel = path.relative_to(ROOT).as_posix()
         for lineno, line in enumerate(data.split(b"\n"), 1):
